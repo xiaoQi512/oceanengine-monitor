@@ -1,18 +1,27 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "opencode-go/minimax-m3",
   "provider": {
     "mimo": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "MiMo Token Plan",
+      "name": "MiMo",
       "options": {
-        "baseURL": "https://token-plan-cn.xiaomimimo.com/v1"
+        "baseURL": "https://token-plan-cn.xiaomimimo.com/v1",
+        "apiKey": "tp-cjtwjlfezrwmsxpkv3xdabyuevmfdi9qwyu3suydga81ovjt"
       },
       "models": {
         "mimo-v2.5-pro": {
-          "name": "MiMo V2.5 Pro"
+          "name": "mimo-v2.5-pro",
+          "limit": { "context": 1048576, "output": 131072 },
+          "modalities": { "input": ["text"], "output": ["text"] }
         }
       }
+    }
+  },
+  "agent": {
+    "fixer": {
+      "description": "Node.js engineer, directly modify files to fix issues",
+      "prompt": "You are a senior Node.js engineer. Read the problem description, then USE FILE EDITING TOOLS to actually modify the files. Do NOT just output a diff — you MUST use the write/edit tools to change the files on disk. After modifying, run `node --check <file>` to verify syntax. Finally output your analysis in the requested format.",
+      "tools": { "read": true, "write": true, "edit": true, "bash": true }
     }
   }
 }
