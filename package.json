@@ -1,0 +1,13 @@
+{
+  "name": "anchor-ppt",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "jszip": "^3.10.1",
+    "node-cron": "^4.5.0",
+    "pptxgenjs": "^4.0.1",
+    "ws": "^8.21.0"
+  }
+}
