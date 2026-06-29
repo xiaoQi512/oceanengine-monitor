@@ -47,3 +47,6 @@ Thumbs.db
 
 # HTML 报告(生成物)
 *.html
+monitor-data/
+archive/
+.daemon-backups/
