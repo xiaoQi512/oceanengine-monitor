@@ -20,8 +20,12 @@ import { checkCDP } from './cdp-client.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const CHAT_ID = 'oc_8deeb3061bdbd43608de252a44c97a25';
+const MONITOR_CHAT_ID = 'oc_8deeb3061bdbd43608de252a44c97a25';
+const ANCHOR_CHAT_ID = 'oc_b245ee4b255c7b25b7f8d953802c49ff';
+const CHAT_IDS = [MONITOR_CHAT_ID, ANCHOR_CHAT_ID];
+var CHAT_NAMES = {}; CHAT_NAMES[MONITOR_CHAT_ID] = 'monitor'; CHAT_NAMES[ANCHOR_CHAT_ID] = 'anchor';
 const STATE_FILE = path.join(__dirname, 'listener-state.json');
+const STATE_FILE_ANCHOR = path.join(__dirname, 'listener-state-anchor.json');
 const ACTION_QUEUE = path.join(__dirname, 'action-queue.json');
 const LARK_CLI = findLarkCli() || 'lark-cli';
 
@@ -131,26 +135,16 @@ const CMD_RULES = [
 ];
 
 // ====== 状态 / 消息 ======
-function loadState() {
-  try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch { return { lastMsgId: null }; }
+function getStateFile(chatId) { return chatId === ANCHOR_CHAT_ID ? STATE_FILE_ANCHOR : STATE_FILE; }
+function loadState(chatId) {
+  try { return JSON.parse(fs.readFileSync(getStateFile(chatId), 'utf8')); } catch(e) { return { lastMsgId: null }; }
 }
-function saveState(st) { fs.writeFileSync(STATE_FILE, JSON.stringify(st, null, 2)); }
+function saveState(st, chatId) { fs.writeFileSync(getStateFile(chatId), JSON.stringify(st, null, 2)); }
 
-async function sendMsg(text) {
-  if (process.env.OEC_SILENT !== '1') console.log('  -->', text.replace(/\n/g, ' '));
-  const r = await pushText(LARK_CLI, text, CHAT_ID, {
-    timeoutMs: 15000, maxRetries: 1,
-    circuitFailureThreshold: 2, circuitFailureWindow: 4,
-    circuitOpenDurationMs: 60_000,
-  });
-  if (!r.ok) { console.error('[send] fail:', r.error); return false; }
-  return true;
-}
-
-async function fetchMessages(pageSize = 10) {
+async function fetchMessages(chatId, pageSize = 10) {
   try {
     const r = spawnSync(LARK_CLI, [
-      'im', '+chat-messages-list', '--chat-id', CHAT_ID,
+      'im', '+chat-messages-list', '--chat-id', chatId,
       '--page-size', String(pageSize), '--sort', 'desc',
     ], { encoding: 'utf8', cwd: __dirname, timeout: 10000, windowsHide: true });
     const out = (r.stdout || '').trim();
@@ -162,9 +156,13 @@ async function fetchMessages(pageSize = 10) {
 
 function msgText(msg) {
   try {
-    const c = JSON.parse(msg.content || '{}');
-    return (c.text || '').trim();
-  } catch { return (msg.content || '').trim(); }
+    var c$ = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
+    return (c$.text || '').trim();
+  } catch(e) {
+    if (typeof msg.content === 'string') return msg.content.trim();
+    if (msg.content && msg.content.text) return msg.content.text.trim();
+    return '';
+  }
 }
 
 function isBotMsg(msg, text) {
@@ -174,9 +172,23 @@ function isBotMsg(msg, text) {
     || /^(✅|❌|ℹ️|⚠️|💬|📋|🧪|📁|🔵|\[listener\]|\[bot\])/.test(text);
 }
 
+function isAtMention(msg, text) {
+  if (text.indexOf(BOT_APP_ID) >= 0) return true;
+  try {
+    var c$ = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
+    if (c$.mentions) { for (var mi = 0; mi < c$.mentions.length; mi++) { if (c$.mentions[mi].id === BOT_APP_ID || c$.mentions[mi].key === BOT_APP_ID) return true; } }
+  } catch(e) {}
+  if (/@\u5c0f\u4e03/.test(text)) return true;
+  return false;
+}
+
+function cleanAtText(text) {
+  return text.replace(/<at[^>]*>[^<]*<\/at>/gi, '').replace(/@\u5c0f\u4e03\s*/g, '').trim();
+}
+
 // ====== 三阶段反馈：确认 → 执行 → 验证 → 报告 ======
 // 阶段1: 收到指令后立即回复「开始执行」
-async function acknowledgeStart(action, planName, detail) {
+async function acknowledgeStart(chatId, action, planName, detail) {
   const actionMap = { pause: '暂停', stop: '关停', resume: '恢复', adjust_budget: '加预算', reject: '拒绝', execute: '执行' };
   const actionText = actionMap[action] || action;
   let msg = `🔵 开始执行: ${actionText}「${planName}」`;
@@ -185,7 +197,7 @@ async function acknowledgeStart(action, planName, detail) {
 }
 
 // 阶段3: 验证结果后回复「执行完成」或「执行失败」
-async function reportResult(ok, action, planName, detail, errMsg) {
+async function reportResult(chatId, ok, action, planName, detail, errMsg) {
   const actionMap = { pause: '暂停', stop: '关停', resume: '恢复', adjust_budget: '调整预算', reject: '拒绝' };
   const actionText = actionMap[action] || action;
   if (ok) {
@@ -278,7 +290,8 @@ function removeQueued(idx) {
 // 队列模式下，listener 只负责入队；实际执行由 action-queue-worker 完成。
 // L3 二次输入确认：在 cdp-action 内的 confirmPopupIfAny 完成（飞书端的 acknowledgeStart 已是 L1 确认）。
 
-async function dispatch(cmd, sender) {
+async function dispatch(cmd, sender, chatId) {
+  if (!chatId) chatId = MONITOR_CHAT_ID;
   const { cmd: type, planName, amount } = cmd;
   const by = sender?.name || sender || 'unknown';
 
@@ -287,21 +300,21 @@ async function dispatch(cmd, sender) {
     const q = loadQueue();
     const pending = q.actions?.filter(a => !a.failed).length || 0;
     const failed = q.actions?.filter(a => a.failed).length || 0;
-    await sendMsg(`ℹ️ 监听中。队列 ${pending} 条待处理，${failed} 条失败。\n指令: 暂停/关停/加预算/恢复/拒绝/执行/状态\n(执行后由 worker 串行处理)`);
+    await sendMsg(chatId, `ℹ️ 监听中。队列 ${pending} 条待处理，${failed} 条失败。\n指令: 暂停/关停/加预算/恢复/拒绝/执行/状态\n(执行后由 worker 串行处理)`);
     return;
   }
 
   // --- reject 命令：确认 → 移除队列 → 报告 ---
   if (type === 'reject') {
     const q = loadQueue();
-    if (!q.actions?.length) { await sendMsg('ℹ️ 队列为空，无需拒绝'); return; }
+    if (!q.actions?.length) { await sendMsg(chatId, 'ℹ️ 队列为空，无需拒绝'); return; }
     const f = planName ? findQueued(planName) : { idx: 0, action: q.actions[0], queue: q };
-    if (!f) { await sendMsg(`⚠️ 未在队列中找到「${planName}」`); return; }
+    if (!f) { await sendMsg(chatId, `⚠️ 未在队列中找到「${planName}」`); return; }
     const rejectedPlan = f.action.planName;
-    await acknowledgeStart('reject', rejectedPlan, '移除队列');
+    await acknowledgeStart(chatId, 'reject', rejectedPlan, '移除队列');
     f.queue.actions.splice(f.idx, 1); saveQueue(f.queue);
     recordHistoryResponse(rejectedPlan, 'reject');
-    await reportResult(true, 'reject', rejectedPlan, '已从队列移除');
+    await reportResult(chatId, true, 'reject', rejectedPlan, '已从队列移除');
     return;
   }
 
@@ -309,26 +322,26 @@ async function dispatch(cmd, sender) {
   if (['pause', 'stop', 'resume'].includes(type)) {
     if (!planName) {
       const usage = type === 'pause' ? '暂停 「计划名」' : type === 'stop' ? '关停 「计划名」' : '恢复 「计划名」';
-      await sendMsg(`⚠️ 未指定计划名。用法: ${usage}`);
+      await sendMsg(chatId, `⚠️ 未指定计划名。用法: ${usage}`);
       return;
     }
-    await acknowledgeStart(type, planName, '已入队，等待 worker 执行');
+    await acknowledgeStart(chatId, type, planName, '已入队，等待 worker 执行');
 
     const queueLen = await enqueue({ type, planName, source: 'feishu', by });
-    await reportResult(true, type, planName, `已入队 (位置 #${queueLen})，将由 worker 串行执行`);
+    await reportResult(chatId, true, type, planName, `已入队 (位置 #${queueLen})，将由 worker 串行执行`);
     return;
   }
 
   // --- 加预算 → 入队 ---
   if (type === 'adjust_budget') {
     if (!planName || !amount || amount <= 0) {
-      await sendMsg('⚠️ 未指定计划名或金额。用法: 加预算 「计划名」 8000');
+      await sendMsg(chatId, '⚠️ 未指定计划名或金额。用法: 加预算 「计划名」 8000');
       return;
     }
-    await acknowledgeStart(type, planName, `→ ${amount} 已入队`);
+    await acknowledgeStart(chatId, type, planName, `→ ${amount} 已入队`);
 
     const queueLen = await enqueue({ type, planName, amount, source: 'feishu', by });
-    await reportResult(true, type, planName, `已入队 (位置 #${queueLen}，金额 ${amount})，将由 worker 串行执行`);
+    await reportResult(chatId, true, type, planName, `已入队 (位置 #${queueLen}，金额 ${amount})，将由 worker 串行执行`);
     return;
   }
 
@@ -337,19 +350,19 @@ async function dispatch(cmd, sender) {
   if (type === 'execute') {
     const q = loadQueue();
     if (!planName && !q.actions?.length) {
-      await sendMsg('⚠️ 未指定计划名，且队列为空。\n用法: 执行（后跟计划名）/ 暂停 计划名 / 关停 计划名');
+      await sendMsg(chatId, '⚠️ 未指定计划名，且队列为空。\n用法: 执行（后跟计划名）/ 暂停 计划名 / 关停 计划名');
       return;
     }
 
     const f = planName ? findQueued(planName) : { idx: 0, action: q.actions[0], queue: q };
-    if (!f) { await sendMsg(`⚠️ 队列中未找到「${planName}」`); return; }
+    if (!f) { await sendMsg(chatId, `⚠️ 队列中未找到「${planName}」`); return; }
 
     const act = f.action.type || 'pause';
     const execPlan = f.action.planName;
     const actType = (act === 'adjust_budget' || act === 'budget') ? 'adjust_budget' : act;
     const actDetail = actType === 'adjust_budget' ? `→ ${f.action.amount || amount}` : '';
 
-    await acknowledgeStart(actType, execPlan, `${actDetail} 已采纳，等待 worker 执行`);
+    await acknowledgeStart(chatId, actType, execPlan, `${actDetail} 已采纳，等待 worker 执行`);
     // 标记为已采纳（不立即出队，由 worker 完成后出队）
     f.action.accepted = true;
     f.action.acceptedAt = new Date().toISOString();
@@ -357,42 +370,66 @@ async function dispatch(cmd, sender) {
     saveQueue(f.queue);
     recordHistoryResponse(execPlan, 'accept');
 
-    await reportResult(true, actType, execPlan, '已采纳，等待 worker 执行');
+    await reportResult(chatId, true, actType, execPlan, '已采纳，等待 worker 执行');
     return;
   }
 
-  await sendMsg(`ℹ️ 无法识别指令: ${cmd.raw}`);
+  await sendMsg(chatId, `ℹ️ 无法识别指令: ${cmd.raw}`);
 }
 
 // ====== 主循环 ======
+
+async function handleAtMention(text, chatId) {
+  var cleaned = cleanAtText(text);
+  console.log('[listener] @ in ' + (CHAT_NAMES[chatId]||chatId) + ': ' + cleaned);
+  if (!cleaned) { await sendMsg(chatId, 'I am here.'); return; }
+  if (/today|now|current|status|data|spend/i.test(cleaned)) { await sendMsg(chatId, 'Check Dashboard or wait for next report.'); return; }
+  if (/hello|hi|hey|test/i.test(cleaned)) { await sendMsg(chatId, 'Hello! Commands: pause/stop/resume/budget/reject/execute/status'); return; }
+  await sendMsg(chatId, 'Commands: pause/stop/resume plan / budget plan amount / reject / execute / status');
+}
+
 async function main() {
-  console.log(`[listener] start chat=${CHAT_ID} sim=${SIMULATE_CDP}`);
-  console.log(`[listener] cmd: 暂停/关停/加预算/恢复/拒绝/执行/状态`);
-  const st = loadState();
-  let lastId = st.lastMsgId;
-
-  if (!lastId) {
-    const ms = await fetchMessages(50);
-    if (ms.length > 0) { lastId = ms[0].message_id; saveState({ lastMsgId: lastId }); console.log(`[listener] skip ${ms.length} msgs`); }
+  console.log('[listener] dual-chat mon=' + MONITOR_CHAT_ID + ' anchor=' + ANCHOR_CHAT_ID);
+  var states = {};
+  for (var _i = 0; _i < CHAT_IDS.length; _i++) {
+    var _cid = CHAT_IDS[_i];
+    var st = loadState(_cid);
+    if (!st.lastMsgId) {
+      var ms = await fetchMessages(_cid, 50);
+      if (ms.length > 0) { st.lastMsgId = ms[0].message_id; saveState(st, _cid); console.log('[listener] ' + CHAT_NAMES[_cid] + ' skip ' + ms.length + ' msgs'); }
+    }
+    states[_cid] = st;
+    console.log('[listener] ' + CHAT_NAMES[_cid] + ' lastMsgId=' + (st.lastMsgId || 'none'));
   }
-
-  console.log(`[listener] polling every 10s\n`);
-  setInterval(async () => {
-    const msgs = await fetchMessages(10);
-    if (!msgs.length) return;
-    const fresh = [];
-    for (const m of msgs) { if (m.message_id === lastId) break; fresh.push(m); }
-    if (!fresh.length) return;
-    fresh.reverse();
-    for (const m of fresh) {
-      const t = msgText(m);
-      if (isBotMsg(m, t)) { lastId = m.message_id; continue; }
-      const c = parseCommand(m);
-      if (c) {
-        console.log(`[${new Date().toLocaleTimeString()}] ${m.sender?.name || '?'} : ${c.raw}`);
-        try { await dispatch(c, m.sender?.name || 'unknown'); } catch (e) { console.error('[dispatch]', e.message); await sendMsg(`❌ 异常: ${e.message}`); }
-      }
-      lastId = m.message_id; saveState({ lastMsgId: lastId });
+  console.log('[listener] polling every 10s');
+  setInterval(async function() {
+    for (var _j = 0; _j < CHAT_IDS.length; _j++) {
+      var cid = CHAT_IDS[_j];
+      try {
+        var msgs = await fetchMessages(cid, 10);
+        if (!msgs.length) continue;
+        var _st = states[cid];
+        var fresh = [];
+        for (var _k = 0; _k < msgs.length; _k++) { if (msgs[_k].message_id === _st.lastMsgId) break; fresh.push(msgs[_k]); }
+        if (!fresh.length) continue;
+        fresh.reverse();
+        for (var _m = 0; _m < fresh.length; _m++) {
+          var m = fresh[_m];
+          var t = msgText(m);
+          if (isBotMsg(m, t)) { _st.lastMsgId = m.message_id; continue; }
+          var cmd = parseCommand(m);
+          if (cmd) {
+            console.log('[' + new Date().toLocaleTimeString() + '] [' + CHAT_NAMES[cid] + '] ' + (m.sender && m.sender.name || '?') + ' : ' + cmd.raw);
+            try { await dispatch(cmd, (m.sender && m.sender.name) || 'unknown', cid); }
+            catch(e) { console.error('[dispatch]', e.message); await sendMsg(cid, 'Error: ' + e.message); }
+          } else if (isAtMention(m, t)) {
+            console.log('[' + new Date().toLocaleTimeString() + '] [' + CHAT_NAMES[cid] + '] @' + (m.sender && m.sender.name || '?') + ' : ' + t.slice(0, 80));
+            try { await handleAtMention(t, cid); }
+            catch(e) { console.error('[at]', e.message); }
+          }
+          _st.lastMsgId = m.message_id; saveState(_st, cid);
+        }
+      } catch(e) { console.error('[poll-' + cid + ']', e.message); }
     }
   }, 10000);
 }

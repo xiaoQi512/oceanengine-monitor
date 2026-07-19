@@ -9,11 +9,35 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import http from 'http';
 import {
-  getLocalDate, findLarkCli, guardFeedbackServer,
+  getLocalDate, findLarkCli, guardFeedbackServer, getTodayShiftWindow,
   atomicWriteJSON,
   DATA_DIR, FEISHU_CHAT_ID, FEEDBACK_PORT,
 } from './monitor-utils.mjs';
 import { pushCard } from './feishu-push-guard.mjs';
+
+const OEC_FORCE = process.env.OEC_FORCE === "1";
+
+// ====== 去重检查：每天只允许推送一次日报 ======
+const todayDateStr = getLocalDate();
+const reportDoneMarker = join(DATA_DIR, `daily-report-done-${todayDateStr}.json`);
+if (!OEC_FORCE && existsSync(reportDoneMarker)) {
+  log("日报今日已推送过，跳过");
+  process.exit(0);
+}
+// 立即写标记防止并发触发
+try { writeFileSync(reportDoneMarker, JSON.stringify({ startedAt: new Date().toISOString() })); } catch {}
+
+// ====== 0. 动态等待：根据当日排班下播时间，延迟到下播后 5 分钟 ======
+var shiftWin = getTodayShiftWindow();
+var nowDate = new Date();
+var targetTime = new Date(nowDate);
+targetTime.setHours(shiftWin.endHour, (shiftWin.endMinute || 0) + 5, 0, 0);
+var waitMs = targetTime - nowDate;
+if (waitMs > 0 && waitMs < 3600000) {
+  var pad = function(n) { return String(n).padStart(2, '0'); };
+  log('当日下播时间 ' + pad(shiftWin.endHour) + ':' + pad(shiftWin.endMinute || 0) + '，等待 ' + Math.round(waitMs / 1000 / 60) + ' 分钟后推送');
+  await new Promise(function(resolve) { setTimeout(resolve, waitMs); });
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LOG = join(__dirname, 'scheduler.log');

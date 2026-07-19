@@ -1,45 +1,73 @@
-// oceanengine-daily-summary.mjs — 区域福利号日汇总推送
-// 23:05 触发：HTTP API 拉直播全天 + CDP 拉短视频全天 → 合并 → 推飞书群
+﻿// oceanengine-daily-summary.mjs — 大号日汇报（管理层版）
+// 每天下播后触发：HTTP API 拉直播全天 + 短视频全天 → 合并 → 推飞书群
+// 推送目标: 上架群
 //
 // 环境变量：
 //   OEC_SILENT=1   静默模式
 //   OEC_FORCE=1    强制执行（测试用）
 //   OEC_DRY_RUN=1  只采集不推送
-//
-// 用法：
-//   常驻: pm2 start ecosystem.config.cjs --only pm2-daily-summary
-//   测试: OEC_FORCE=1 OEC_DRY_RUN=1 node oceanengine-daily-summary.mjs
 
-import fs from 'node:fs';
-import path from 'node:path';
-import http from 'node:http';
-import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { createClient, getHourlyStats } from './oceanengine-api-client.mjs';
-import { findLarkCli, DATA_DIR, getLocalDate } from './monitor-utils.mjs';
+import fs from "node:fs";
+import path from "node:path";
+import https from "node:https";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { createClient, getSessionStats } from "./oceanengine-api-client.mjs";
+import { findLarkCli, DATA_DIR, getLocalDate, getShiftsPerDay } from "./monitor-utils.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const OEC_FORCE = process.env.OEC_FORCE === '1';
-const OEC_DRY_RUN = process.env.OEC_DRY_RUN === '1';
+const OEC_FORCE = process.env.OEC_FORCE === "1";
+const OEC_DRY_RUN = process.env.OEC_DRY_RUN === "1";
 
 // ====== 配置 ======
-const SPREADSHEET_TOKEN = 'GiNOslsWQhyHDPtclPscns3GnAf';
-const SHEET_ID = 'j69tpS';
-const SUMMARY_CHAT_ID = 'oc_b245ee4b255c7b25b7f8d953802c49ff';  // 上架群
-const LIVE_ACCOUNT_ID = '1842681352509635';      // 直播账户
-const VIDEO_ACCOUNT_ID = '1852666142648332';     // 短视频账户
-const CDP_PROXY = 'http://localhost:3456';
-const CAR_MODEL = '贝塔T1';
+const SPREADSHEET_TOKEN = "GiNOslsWQhyHDPtclPscns3GnAf";
+const SHEET_ID = "j69tpS";
+const SUMMARY_CHAT_ID = "oc_b245ee4b255c7b25b7f8d953802c49ff"; // 上架群
+const LIVE_ACCOUNT_ID = "1842681352509635";
+const VIDEO_ACCOUNT_ID = "1852666142648332";
 
-// 飞书表行号：6月26日=200，每天8行
+// ====== 排班读取 ======
+function getSessionsForDate(dateStr) {
+  try {
+    const cacheFile = path.join(DATA_DIR, `shifts-${dateStr}.json`);
+    if (fs.existsSync(cacheFile)) {
+      const cached = JSON.parse(fs.readFileSync(cacheFile, "utf-8"));
+      if (Array.isArray(cached.shifts) && cached.shifts.length > 0) {
+        return cached.shifts.map(s => {
+          const m = s.label.match(/(\d{2}):(\d{2})-(\d{2}):(\d{2})/);
+          if (m) return { start: m[1] + ":" + m[2], end: m[3] + ":" + m[4], anchorName: s.anchorName || "" };
+          return null;
+        }).filter(Boolean);
+      }
+    }
+  } catch {}
+  return [
+    { start: "06:30", end: "08:30", anchorName: "" },
+    { start: "08:30", end: "10:30", anchorName: "" },
+    { start: "10:30", end: "12:30", anchorName: "" },
+    { start: "12:30", end: "14:30", anchorName: "" },
+    { start: "14:30", end: "16:30", anchorName: "" },
+    { start: "16:30", end: "18:30", anchorName: "" },
+    { start: "18:30", end: "20:30", anchorName: "" },
+    { start: "20:30", end: "22:30", anchorName: "" },
+    { start: "22:30", end: "23:30", anchorName: "" },
+  ];
+}
+
 const BASE_DATE = new Date(2026, 5, 26);
 const BASE_ROW = 200;
 
 function getTodayStartRow() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const diffDays = Math.round((today - BASE_DATE) / 86400000);
-  return BASE_ROW + diffDays * 8;
+  let row = BASE_ROW;
+  const d = new Date(BASE_DATE);
+  while (d < today) {
+    const dateStr = d.toISOString().slice(0, 10);
+    row += getShiftsPerDay(dateStr);
+    d.setDate(d.getDate() + 1);
+  }
+  return row;
 }
 
 function log(...args) { console.log(`[daily-summary] ${new Date().toLocaleString()} |`, ...args); }
@@ -49,167 +77,164 @@ function todayDateCN() {
   return `${d.getMonth() + 1}月${d.getDate()}日`;
 }
 
+function getTodayDateStr() {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+
 // ====== 1. HTTP API 拉直播全天数据 ======
 async function fetchLiveAllDay() {
-  log('▶ 拉取直播账户全天数据...');
+  log("--- 拉取直播账户全天数据...");
   const client = await createClient({ useCache: true });
-  // 全天：startHour=7, endHour=22 → 7:00-23:00
-  const result = await getHourlyStats(client, {
-    accountId: LIVE_ACCOUNT_ID,
-    startHour: 7,
-    endHour: 22,
-  });
+  const todayStr = getTodayDateStr();
+  const sessions = getSessionsForDate(todayStr);
+
+  log(`  ${sessions.length} 个班次, 首班 ${sessions[0].start}`);
   let totalConsume = 0, totalLeads = 0;
-  const hourDetails = [];
-  for (const row of (result.rows || [])) {
-    const rowHour = parseInt(row.hour?.match(/(\d{2}):00/)?.[1] ?? -1);
-    if (rowHour < 7 || rowHour > 22) continue;
-    const cost = parseFloat((row.metrics?.stat_cost?.valueStr || '0').replace(/,/g, '')) || 0;
-    const leads = parseInt((row.metrics?.convert_cnt?.valueStr || '0').replace(/,/g, '')) || 0;
-    totalConsume += cost;
-    totalLeads += leads;
-    hourDetails.push({ hour: row.hour, cost, leads });
+
+  for (const session of sessions) {
+    const st = todayStr + " " + session.start + ":00";
+    const et = todayStr + " " + session.end + ":00";
+    const result = await getSessionStats(client, {
+      accountId: LIVE_ACCOUNT_ID,
+      startTime: st,
+      endTime: et,
+    });
+
+    const sessionCost = result.total?.cost || 0;
+    const sessionLeads = result.total?.leads || 0;
+    totalConsume += sessionCost;
+    totalLeads += sessionLeads;
+    log(`    [${session.start}-${session.end}]: ¥${sessionCost.toFixed(2)} / ${sessionLeads}线索`);
   }
-  const cpl = totalLeads > 0 ? (totalConsume / totalLeads).toFixed(2) : '0.00';
-  log(`  ✅ 直播全天: 消耗¥${totalConsume.toFixed(2)} 线索${totalLeads} CPL¥${cpl}`);
-  hourDetails.forEach(h => log(`    ${h.hour}: ¥${h.cost.toFixed(2)} / ${h.leads}线索`));
+
+  const cpl = totalLeads > 0 ? (totalConsume / totalLeads).toFixed(2) : "0.00";
+  log(`  ✅ 直播全天: ¥${totalConsume.toFixed(2)} / ${totalLeads}线索 / CPL¥${cpl}`);
   return { totalConsume, totalLeads, cpl };
 }
 
-// ====== 2. CDP 拉短视频全天数据 ======
+// ====== 2. HTTP API 拉短视频全天数据 ======
 async function fetchVideoAllDay() {
-  log('▶ 拉取短视频账户全天数据 (CDP)...');
+  log("▶ 拉取短视频账户全天数据 (HTTP API)...");
+  const client = await createClient({ useCache: true });
   const today = getLocalDate();
+  const API_BASE = "https://ad.oceanengine.com";
 
-  // 2a. 探活 CDP proxy
-  const proxyAlive = await new Promise(resolve => {
-    const req = http.get(`${CDP_PROXY}/targets`, { timeout: 5000 }, res => {
-      res.on('data', () => {}); res.on('end', () => resolve(true));
-    });
-    req.on('error', () => resolve(false));
-    req.on('timeout', () => { req.destroy(); resolve(false); });
+  const body = JSON.stringify({
+    DataSetKey: "basic_ad_data",
+    Dimensions: ["stat_time_day", "cdp_marketing_goal"],
+    EndTime: today + " 23:59:59",
+    StartTime: today + " 00:00:00",
+    Filters: {
+      ConditionRelationshipType: 1,
+      Conditions: [
+        { Field: "advertiser_id", Operator: 7, Values: [VIDEO_ACCOUNT_ID] },
+      ],
+    },
+    IsDownload: false,
+    Metrics: [
+      "stat_cost",
+      "convert_cnt",
+      "conversion_cost",
+      "clue_message_count",
+      "message_action",
+      "form",
+    ],
+    OrderBy: [{ Field: "stat_time_day", Type: 2 }],
+    PageParams: { Limit: 50, Offset: 0 },
   });
-  if (!proxyAlive) {
-    log('  ⚠ CDP proxy 不可用，短视频数据填0');
-    return { totalConsume: 0, totalLeads: 0, cpl: '0.00' };
-  }
 
-  // 2b. 打开短视频账户报表
-  let targetId;
-  try {
-    const resp = await new Promise((resolve, reject) => {
-      const req = http.request(`${CDP_PROXY}/new`, {
-        method: 'POST',
-        timeout: 15000,
-        headers: { 'Content-Type': 'text/plain' },
-      }, res => {
-        let data = ''; res.on('data', c => data += c);
-        res.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } });
+  const url = API_BASE + "/report/api/tool/agw/statistics_sophonx/statQuery?aadvid=" + VIDEO_ACCOUNT_ID;
+
+  const resp = await new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const req = https.request({
+      hostname: u.hostname,
+      path: u.pathname + u.search,
+      method: "POST",
+      timeout: 15000,
+      headers: {
+        ...client.cookieData.headers,
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(body),
+      },
+    }, res => {
+      let data = "";
+      res.on("data", c => data += c);
+      res.on("end", () => {
+        try { resolve(JSON.parse(data)); }
+        catch { resolve({ _raw: data, _status: res.statusCode }); }
       });
-      req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
-      req.write(`https://ad.oceanengine.com/statistics_pages/ad_report/customize/report/detail/299469267?aadvid=${VIDEO_ACCOUNT_ID}`);
-      req.end();
     });
-    targetId = resp.targetId;
-    if (!targetId) throw new Error('未获取 targetId');
-  } catch (e) {
-    log(`  ⚠ 打开短视频报表失败: ${e.message}`);
-    return { totalConsume: 0, totalLeads: 0, cpl: '0.00' };
+    req.on("error", reject);
+    req.on("timeout", () => { req.destroy(); reject(new Error("timeout")); });
+    req.write(body);
+    req.end();
+  });
+
+  const rows = resp?.data?.StatsData?.Rows || [];
+  if (rows.length === 0) {
+    log("  ⚠ 短视频API无数据返回");
+    return { totalConsume: 0, totalLeads: 0, cpl: "0.00" };
   }
 
-  // 2c. 等待5秒后提取数据
-  await new Promise(r => setTimeout(r, 5000));
-  let videoData = { totalConsume: 0, totalLeads: 0, cpl: '0.00' };
-  try {
-    const evalResp = await new Promise((resolve, reject) => {
-      const body = `(() => {
-        const tables = document.querySelectorAll("table.ovui-table");
-        if (tables.length < 2) return JSON.stringify({error: "no data table"});
-        const t = tables[1];
-        let sumConsume = 0, sumLeads = 0;
-        for (let r = 0; r < t.rows.length; r++) {
-          const cells = t.rows[r].cells;
-          const time = (cells[0]?.innerText || "").trim();
-          if (!time.includes("${today}")) continue;
-          const consume = parseFloat((cells[2]?.innerText || "0").replace(/,/g, "")) || 0;
-          const leads = parseInt((cells[3]?.innerText || "0").replace(/,/g, "")) || 0;
-          sumConsume += consume;
-          sumLeads += leads;
-        }
-        return JSON.stringify({consume: sumConsume.toFixed(2), leads: sumLeads});
-      })()`;
-      const req = http.request(`${CDP_PROXY}/eval?target=${targetId}`, {
-        method: 'POST',
-        timeout: 15000,
-        headers: { 'Content-Type': 'text/plain' },
-      }, res => {
-        let data = ''; res.on('data', c => data += c);
-        res.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } });
-      });
-      req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
-      req.write(body);
-      req.end();
-    });
+  let videoConsume = 0, videoLeads = 0;
+  for (const row of rows) {
+    const goal = row.Dimensions?.cdp_marketing_goal?.ValueStr || "";
+    const m = row.Metrics || {};
+    const cost = parseFloat((m.stat_cost?.ValueStr || "0").replace(/,/g, "")) || 0;
+    const leads = parseInt((m.clue_message_count?.ValueStr || "0").replace(/,/g, "")) || 0;
 
-    const parsed = JSON.parse(evalResp.value || '{}');
-    videoData = {
-      totalConsume: parseFloat(parsed.consume || '0'),
-      totalLeads: parseInt(parsed.leads || '0'),
-      cpl: '0.00',
-    };
-    videoData.cpl = videoData.totalLeads > 0
-      ? (videoData.totalConsume / videoData.totalLeads).toFixed(2)
-      : '0.00';
-    log(`  ✅ 短视频全天: 消耗¥${videoData.totalConsume.toFixed(2)} 线索${videoData.totalLeads} CPL¥${videoData.cpl}`);
-  } catch (e) {
-    log(`  ⚠ 提取短视频数据失败: ${e.message}`);
-  } finally {
-    // 关闭 tab
-    try {
-      await new Promise((resolve) => {
-        const req = http.get(`${CDP_PROXY}/close?target=${targetId}`, { timeout: 5000 }, () => resolve());
-        req.on('error', () => resolve());
-        req.on('timeout', () => { req.destroy(); resolve(); });
-      });
-    } catch {}
+    if (goal.includes("短视频") || goal.includes("图文")) {
+      videoConsume += cost;
+      videoLeads += leads;
+    }
   }
-  return videoData;
+
+  const cpl = videoLeads > 0 ? (videoConsume / videoLeads).toFixed(2) : "0.00";
+  log(`  ✅ 短视频全天: ¥${videoConsume.toFixed(2)} / ${videoLeads}线索 / CPL¥${cpl}`);
+  return { totalConsume: videoConsume, totalLeads: videoLeads, cpl };
 }
 
 // ====== 3. 从飞书表读主播名 ======
 function readAnchorNames() {
-  log('▶ 读取主播名...');
+  log("▶ 读取主播名...");
   const larkCli = findLarkCli();
-  if (!larkCli) { log('  ⚠ lark-cli 不可用'); return []; }
+  if (!larkCli) { log("  ⚠ lark-cli 不可用"); return []; }
+  const today = getLocalDate();
   const startRow = getTodayStartRow();
-  const endRow = startRow + 7;
+  const count = getShiftsPerDay(today);
+  const endRow = startRow + count - 1;
   try {
-    const isExe = larkCli.endsWith('.exe');
+    const isExe = larkCli.endsWith(".exe");
     const out = execFileSync(
-      isExe ? larkCli : 'cmd.exe',
+      isExe ? larkCli : "cmd.exe",
       isExe
-        ? ['sheets', '+csv-get', '--spreadsheet-token', SPREADSHEET_TOKEN, '--sheet-id', SHEET_ID, '--range', `A${startRow}:C${endRow}`]
-        : ['/c', larkCli, 'sheets', '+csv-get', '--spreadsheet-token', SPREADSHEET_TOKEN, '--sheet-id', SHEET_ID, '--range', `A${startRow}:C${endRow}`],
-      { encoding: 'utf-8', timeout: 20000, windowsHide: true, cwd: __dirname }
+        ? ["sheets", "+csv-get", "--spreadsheet-token", SPREADSHEET_TOKEN, "--sheet-id", SHEET_ID, "--range", `A${startRow}:C${endRow}`]
+        : ["/c", larkCli, "sheets", "+csv-get", "--spreadsheet-token", SPREADSHEET_TOKEN, "--sheet-id", SHEET_ID, "--range", `A${startRow}:C${endRow}`],
+      { encoding: "utf-8", timeout: 20000, windowsHide: true, cwd: __dirname }
     );
     const parsed = JSON.parse(out);
-    const csv = parsed?.data?.annotated_csv || '';
-    // 格式: [row=N] 6月27日,07:00-09:00,薇薇
-    const names = new Set();
-    for (const line of csv.split('\n')) {
-      const cols = line.split(',');
+    const csv = parsed?.data?.annotated_csv || "";
+    const names = [];
+    const csvLines = csv.split("\n");
+    for (let li = 0; li < csvLines.length; li++) {
+      const cols = csvLines[li].split(",");
       if (cols.length >= 3) {
         const name = cols[2]?.trim();
-        if (name) names.add(name);
+        if (name) names.push(name);
       }
     }
-    const result = [...names];
-    log(`  ✅ 主播: ${result.join(' ')}`);
-    return result;
+    const seen = new Set();
+    const ordered = names.filter(n => {
+      if (seen.has(n)) return false;
+      seen.add(n);
+      return true;
+    });
+    log("  ✅ 主播: " + ordered.join(" → "));
+    return ordered;
   } catch (e) {
-    log(`  ⚠ 读取主播名失败: ${e.message}`);
+    log("  ⚠ 读取主播名失败: " + e.message);
     return [];
   }
 }
@@ -217,19 +242,19 @@ function readAnchorNames() {
 // ====== 4. 推送飞书群 ======
 function pushToLark(text) {
   const larkCli = findLarkCli();
-  if (!larkCli) { log('  ⚠ lark-cli 不可用'); return false; }
-  const isExe = larkCli.endsWith('.exe');
+  if (!larkCli) { log("  ⚠ lark-cli 不可用"); return false; }
+  const isExe = larkCli.endsWith(".exe");
   try {
     const out = execFileSync(
-      isExe ? larkCli : 'cmd.exe',
+      isExe ? larkCli : "cmd.exe",
       isExe
-        ? ['im', '+messages-send', '--chat-id', SUMMARY_CHAT_ID, '--text', text, '--as', 'bot']
-        : ['/c', larkCli, 'im', '+messages-send', '--chat-id', SUMMARY_CHAT_ID, '--text', text, '--as', 'bot'],
-      { encoding: 'utf-8', timeout: 20000, windowsHide: true, cwd: __dirname }
+        ? ["im", "+messages-send", "--chat-id", SUMMARY_CHAT_ID, "--text", text, "--as", "bot"]
+        : ["/c", larkCli, "im", "+messages-send", "--chat-id", SUMMARY_CHAT_ID, "--text", text, "--as", "bot"],
+      { encoding: "utf-8", timeout: 20000, windowsHide: true, cwd: __dirname }
     );
     const parsed = JSON.parse(out);
     if (parsed.ok) {
-      log(`  ✅ 已推送飞书群: ${parsed.data?.message_id || 'ok'}`);
+      log(`  ✅ 已推送飞书群: ${parsed.data?.message_id || "ok"}`);
       return true;
     }
     log(`  ❌ 推送失败: ${parsed.error?.message || JSON.stringify(parsed)}`);
@@ -242,52 +267,54 @@ function pushToLark(text) {
 
 // ====== 主流程 ======
 async function main() {
-  log('🚀 日汇总推送启动');
-  log(`  模式: ${OEC_DRY_RUN ? 'DRY_RUN (不推送)' : '全量 (含推送)'}`);
+  log("🚀 日汇报推送启动");
 
-  // 1. 直播全天
-  const live = await fetchLiveAllDay();
-
-  // 2. 短视频全天
-  const video = await fetchVideoAllDay();
-
-  // 3. 主播名
-  const anchors = readAnchorNames();
-
-  // 4. 合并计算
-  const totalConsume = live.totalConsume + video.totalConsume;
-  const totalLeads = live.totalLeads + video.totalLeads;
-  const totalCpl = totalLeads > 0 ? (totalConsume / totalLeads).toFixed(2) : '0.00';
-
-  log(`📊 合并汇总:`);
-  log(`  直播: ¥${live.totalConsume.toFixed(2)} / ${live.totalLeads}线索 / CPL¥${live.cpl}`);
-  log(`  短视频: ¥${video.totalConsume.toFixed(2)} / ${video.totalLeads}线索 / CPL¥${video.cpl}`);
-  log(`  总计: ¥${totalConsume.toFixed(2)} / ${totalLeads}线索 / CPL¥${totalCpl}`);
-
-  // 5. 格式化消息
-  const msgText = [
-    `【极狐区域福利营销中心】 ${todayDateCN()}数据汇总`,
-    `07:00-23:00 直播时段数据`,
-    `【主播】：${anchors.join(' ')}`,
-    `【私信人数】：-`,
-    `【线索数】：-`,
-    `【投流费用】：${totalConsume.toLocaleString('zh-CN', {minimumFractionDigits: 2})}元（直播${live.totalConsume.toFixed(2)}元/短视频${video.totalConsume.toFixed(2)}元）`,
-    `【线索成本（CPL）】：${totalCpl}元（直播CPL${live.cpl}/短视频CPL${video.cpl}）`,
-  ].join('\n');
-
-  log(`📝 推送内容:\n${msgText}`);
-
-  if (OEC_DRY_RUN) {
-    log('🧪 OEC_DRY_RUN=1，不推送');
+  const todayMarker = path.join(DATA_DIR, `daily-summary-done-${getLocalDate()}.json`);
+  if (!OEC_FORCE && !OEC_DRY_RUN && fs.existsSync(todayMarker)) {
+    log("⚠️ 日汇报今日已推送过，跳过");
     return;
   }
 
-  // 6. 推送
+  const live = await fetchLiveAllDay();
+  const video = await fetchVideoAllDay();
+  const anchors = readAnchorNames();
+
+  const totalConsume = live.totalConsume + video.totalConsume;
+  const totalLeads = live.totalLeads + video.totalLeads;
+  const totalCpl = totalLeads > 0 ? (totalConsume / totalLeads).toFixed(2) : "0.00";
+  const liveCpl = live.totalLeads > 0 ? (live.totalConsume / live.totalLeads).toFixed(2) : "0.00";
+  const videoCpl = video.totalLeads > 0 ? (video.totalConsume / video.totalLeads).toFixed(2) : "0.00";
+
+  const fmt = (v) => Number(v).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const sessions = getSessionsForDate(getTodayDateStr());
+  const firstSession = sessions[0]?.start || "06:30";
+  const lastSession = sessions[sessions.length - 1]?.end || "23:30";
+
+  // ====== 模板格式（不可修改） ======
+  const msgText = [
+    `【极狐区域福利营销中心】 ${todayDateCN()}数据汇总`,
+    `${firstSession}-${lastSession} 直播时段数据`,
+    `【主播】：${anchors.length > 0 ? anchors.join(" ") : "-"}`,
+    `【私信人数】：-`,
+    `【线索数】：-`,
+    `【投流费用】：${fmt(totalConsume)}元（直播${fmt(live.totalConsume)}元/短视频${fmt(video.totalConsume)}元）`,
+    `【线索成本（CPL）】：${totalCpl}元（直播CPL${liveCpl}/短视频CPL${videoCpl}）`,
+  ].join("\n");
+
+  log(`📝 推送内容预览:\n${msgText}\n`);
+
+  if (OEC_DRY_RUN) {
+    log("🧪 DRY_RUN，不推送");
+    return;
+  }
+
   pushToLark(msgText);
-  log('🏁 日汇总完成');
+  log("🏁 日汇报完成");
+  try { fs.writeFileSync(todayMarker, JSON.stringify({ doneAt: new Date().toISOString() })); } catch {}
 }
 
 main().catch(e => {
-  log('FATAL:', e.message, e.stack);
+  log("FATAL:", e.message, e.stack);
   process.exit(1);
 });
