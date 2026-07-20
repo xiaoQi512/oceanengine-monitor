@@ -1,6 +1,6 @@
 // adaptive-scheduler.mjs — 动态调度器：根据账户活跃度和时段自动调整采集频率
 //
-// 策略：
+// 策略（窗口跟随飞书排班表动态同步）：
 // - 监控时段（7-23）且有活跃消耗：高频（5min）
 // - 监控时段但无消耗：中频（15min）
 // - 非监控时段：低频（30min）或暂停
@@ -8,13 +8,13 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { DATA_DIR, getLocalDate } from './monitor-utils.mjs';
+import { DATA_DIR, getLocalDate, getTodayShiftWindow } from './monitor-utils.mjs';
 
 const DAILY_FILE = (date) => path.join(DATA_DIR, `daily-${date}.json`);
 
 export const DEFAULT_SCHEDULE = {
-  dailyStartHour: 7,
-  dailyEndHour: 23,
+  dailyStartHour: 7,   // fallback，实际由 getTodayShiftWindow() 动态覆盖
+  dailyEndHour: 23,    // fallback，实际由 getTodayShiftWindow() 动态覆盖
   highIntervalMs: 5 * 60 * 1000,
   mediumIntervalMs: 15 * 60 * 1000,
   lowIntervalMs: 30 * 60 * 1000,
@@ -39,7 +39,8 @@ export function shouldRunNow(latestSpend = 0, options = {}) {
   const cfg = { ...DEFAULT_SCHEDULE, ...options };
   const now = new Date();
   const hour = now.getHours();
-  const inWindow = hour >= cfg.dailyStartHour && hour <= cfg.dailyEndHour;
+  const shiftWin = getTodayShiftWindow();
+  const inWindow = hour >= shiftWin.startHour && hour <= shiftWin.endHour;
   const lastTime = getLastRealEntryTime();
   const stale = lastTime ? (now - lastTime) > cfg.staleThresholdMs : true;
 

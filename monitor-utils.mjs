@@ -1,8 +1,8 @@
-// monitor-utils.mjs — 共享工具模块 (v3.2 配置中心化 2026-06-29)
+﻿// monitor-utils.mjs — 共享工具模块 (v3.2 配置中心化 2026-06-29)
 // 供 monitor-v3 / daily-report-scheduler / feedback-server / daily-report / ai-regions 共用
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync, spawnSync, spawn } from 'node:child_process';
+import { execSync, execFileSync, spawnSync, spawn } from 'node:child_process';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 
@@ -50,6 +50,138 @@ export const CAMPAIGN_URL = `https://ad.oceanengine.com/promotion/promote-manage
 export const DAILY_BUDGET = 45000;
 export const DAILY_START_HOUR = 7;
 export const DAILY_END_HOUR = 23;
+
+// ====== 动态排班窗口：从飞书排班表读取当天直播起止小时 ======
+// 返回 { startHour, startMinute, endHour }，失败时回退 DAILY_START_HOUR/DAILY_END_HOUR
+// 优先读取本地缓存（sync-tomorrow-shifts.mjs 每日23:00同步）
+const SHIFT_SPREADSHEET_TOKEN = 'GiNOslsWQhyHDPtclPscns3GnAf';
+const SHIFT_SHEET_ID = 'j69tpS';
+const SHIFT_BASE_DATE = new Date(2026, 5, 26);
+const SHIFT_BASE_ROW = 200;
+let _shiftWindowCache = null;
+let _shiftWindowCacheDate = '';
+
+export function getShiftsPerDay(dateStr) {
+  if (dateStr >= '2026-07-08' && dateStr <= '2026-07-10') return 9;
+  return 8;
+}
+
+export function getShiftRowForDate(dateStr) {
+  const target = new Date(dateStr + 'T00:00:00+08:00');
+  let row = SHIFT_BASE_ROW;
+  const d = new Date(SHIFT_BASE_DATE);
+  while (d < target) {
+    row += getShiftsPerDay(d.toISOString().slice(0, 10));
+    d.setDate(d.getDate() + 1);
+  }
+  return row;
+}
+
+export function getTodayShiftWindow() {
+  const today = getLocalDate();
+  if (_shiftWindowCacheDate === today && _shiftWindowCache) return _shiftWindowCache;
+
+  // 优先读取本地缓存
+  try {
+    const cacheFile = path.join(DATA_DIR, `shifts-${today}.json`);
+    if (fs.existsSync(cacheFile)) {
+      const cached = JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
+      if (cached.startHour != null && cached.endHour != null) {
+        const result = {
+          startHour: cached.startHour,
+          startMinute: cached.startMinute || 0,
+          endHour: cached.endHour,
+          endMinute: cached.endMinute || 0,
+        };
+        _shiftWindowCache = result;
+        _shiftWindowCacheDate = today;
+        return result;
+      }
+    }
+  } catch {}
+
+  try {
+    const larkCli = findLarkCli();
+    if (!larkCli) throw new Error('lark-cli not found');
+    const startRow = getShiftRowForDate(getLocalDate());
+    const count = getShiftsPerDay(today);
+    const endRow = startRow + count - 1;
+    const range = 'B' + startRow + ':' + endRow;
+    const out = execFileSync(
+      larkCli.endsWith('.exe') ? larkCli : 'cmd.exe',
+      larkCli.endsWith('.exe')
+        ? ['sheets', '+csv-get', '--spreadsheet-token', SHIFT_SPREADSHEET_TOKEN, '--sheet-id', SHIFT_SHEET_ID, '--range', range]
+        : ['/c', larkCli, 'sheets', '+csv-get', '--spreadsheet-token', SHIFT_SPREADSHEET_TOKEN, '--sheet-id', SHIFT_SHEET_ID, '--range', range],
+      { encoding: 'utf-8', timeout: 10000, windowsHide: true, cwd: __dirname }
+    );
+    const parsed = JSON.parse(out);
+    const csv = parsed?.data?.annotated_csv || '';
+    const lines = csv.split(/\n/).filter(l => l.trim());
+    const firstMatch = lines[0]?.match(/(\d{2}):(\d{2})-(\d{2}):(\d{2})/);
+    const lastMatch = lines[lines.length - 1]?.match(/(\d{2}):(\d{2})-(\d{2}):(\d{2})/);
+    if (!firstMatch || !lastMatch) throw new Error('parse failed');
+    const result = {
+      startHour: parseInt(firstMatch[1]),
+      startMinute: parseInt(firstMatch[2]),
+      endHour: parseInt(lastMatch[3]),
+      endMinute: parseInt(lastMatch[4]),
+    };
+    _shiftWindowCache = result;
+    _shiftWindowCacheDate = today;
+    return result;
+  } catch {
+    return { startHour: DAILY_START_HOUR, startMinute: 0, endHour: DAILY_END_HOUR, endMinute: 0 };
+  }
+}
+
+// ====== 直播窗口文案：从排班表读取起止时间，生成统一显示标签 ======
+// 返回 { durationHours, startTime, endTime, label, labelCompact }
+// 示例: { durationHours: 17, startTime: '06:30', endTime: '23:30', label: '17h直播(06:30-23:30)', labelCompact: '17h直播(6-23)' }
+export function getLiveWindowLabel() {
+  const win = getTodayShiftWindow();
+  const startH = win.startHour;
+  const startM = win.startMinute || 0;
+  const endH = win.endHour;
+  const endM = win.endMinute || 0;
+  const duration = endH - startH + (endM - startM) / 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return {
+    durationHours: duration,
+    startTime: pad(startH) + ':' + pad(startM),
+    endTime: pad(endH) + ':' + pad(endM),
+    label: duration + 'h直播(' + pad(startH) + ':' + pad(startM) + '-' + pad(endH) + ':' + pad(endM) + ')',
+    labelCompact: duration + 'h直播(' + startH + '-' + endH + ')',
+  };
+}
+
+// ====== 根据当前时间获取排班表中的主播名 ======
+// 从本地缓存 shifts-YYYY-MM-DD.json 读取，匹配当前时间所在的班次
+// 返回 string | null（无缓存或无匹配班次时返回 null）
+export function getCurrentAnchorName() {
+  const today = getLocalDate();
+  try {
+    const cacheFile = path.join(DATA_DIR, `shifts-${today}.json`);
+    if (!fs.existsSync(cacheFile)) return null;
+    const cached = JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
+    if (!cached.shifts || cached.shifts.length === 0) return null;
+
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+    for (const s of cached.shifts) {
+      const match = s.label.match(/(\d{2}):(\d{2})-(\d{2}):(\d{2})/);
+      if (!match) continue;
+      const startMin = parseInt(match[1]) * 60 + parseInt(match[2]);
+      const endMin = parseInt(match[3]) * 60 + parseInt(match[4]);
+      if (nowMinutes >= startMin && nowMinutes < endMin) {
+        return s.anchorName || null;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 // ====== AI区域号账户配置（从 oceanengine-ai-regions.mjs 抽出，统一管理） ======
 export const AI_REGIONS = [
@@ -137,29 +269,9 @@ export function checkFeedbackServer() {
   });
 }
 
+// 反馈服务器已停用 (2026-07-14)，不再自动启动
 export async function guardFeedbackServer() {
-  const alive = await checkFeedbackServer();
-  if (alive) return true;
-  console.log('  📡 反馈服务器未运行，尝试启动...');
-  try {
-    const serverScript = path.join(__dirname, 'feedback-server.mjs');
-    const child = spawn(process.execPath, [serverScript], {
-      detached: true, stdio: 'ignore', windowsHide: true,
-    });
-    child.unref();
-    for (let i = 0; i < 10; i++) {
-      await new Promise(r => setTimeout(r, 500));
-      if (await checkFeedbackServer()) {
-        console.log('  📡 反馈服务器启动成功');
-        return true;
-      }
-    }
-    console.log('  ⚠ 反馈服务器启动超时');
-    return false;
-  } catch (e) {
-    console.log(`  ⚠ 反馈服务器启动失败: ${e.message}`);
-    return false;
-  }
+  return true;
 }
 
 // ====== 建议历史读写（原子写入，防并发损坏） ======

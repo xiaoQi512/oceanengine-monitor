@@ -73,7 +73,10 @@ async function calibrateDate(client, maxRetries = 3) {
       `);
       detail.push(`open=${openResult}`);
 
-      await sleep(1200);
+      // 等待日期选择器下拉打开（轮询替代固定延迟）
+      await waitForCondition(client, 
+        'document.querySelector(".ant-picker-dropdown:not([style*="display:none"]), .ant-picker-panel-container")?.offsetWidth > 0', 
+        { timeout: 3000, pollInterval: 200, label: 'date picker dropdown' });
 
       // 1b. 在 dropdown 中找"今天"按钮
       const todayResult = await client.evalJs(`
@@ -118,8 +121,15 @@ async function calibrateDate(client, maxRetries = 3) {
         continue; // 重试
       }
 
-      await sleep(2500); // 等待日期切换后数据刷新
-
+      // 等待日期切换后数据刷新（轮询替代固定延迟）
+      await waitForCondition(client, 
+        `(() => {
+          const rows = document.querySelectorAll('tr.ovui-t-summary');
+          if (rows.length === 0) return false;
+          const cells = rows[0].querySelectorAll('th, td');
+          return cells.length > 7 && (cells[7]?.textContent?.trim() || '').length > 0;
+        })()`,
+        { timeout: 5000, pollInterval: 300, label: 'date data refresh' });
       // 1c. 验证：检查汇总行有数据
       const verify = await client.evalJs(`
         (() => {
@@ -196,7 +206,14 @@ async function calibrateSearch(client, maxRetries = 3) {
       const cleared = result?.cleared || 0;
       detail.push(`cleared=${cleared}`);
 
-      await sleep(1500);
+      // 等待搜索框清空生效（轮询替代固定延迟）
+      await waitForCondition(client, 
+        `(() => {
+          const inputs = document.querySelectorAll('input[placeholder*="项目ID或名称"], input[placeholder*="搜索"]');
+          for (const inp of inputs) { if (inp.value) return false; }
+          return true;
+        })()`,
+        { timeout: 3000, pollInterval: 200, label: 'search clear' });
 
       // 验证: 检查搜索框是否真的为空
       const verify = await client.evalJs(`
@@ -309,7 +326,10 @@ async function calibrateStatus(client, maxRetries = 3) {
       `);
       detail.push(`select=${selectResult}`);
 
-      await sleep(1500);
+      // 等待状态下拉关闭（轮询替代固定延迟）
+      await waitForCondition(client, 
+        `!document.querySelector('.ant-select-dropdown:not([style*="display:none"])') || document.querySelector('.ant-select-dropdown:not([style*="display:none"])')?.offsetWidth === 0`,
+        { timeout: 3000, pollInterval: 200, label: 'status dropdown close' });
 
       // 3c. 验证状态
       const verify = await client.evalJs(`
@@ -412,7 +432,19 @@ async function calibrateSort(client, maxRetries = 3) {
 
       detail.push(`click=${clickResult?.clicked}`);
 
-      await sleep(2500);
+      // 等待排序完成（轮询替代固定延迟）
+      await waitForCondition(client, 
+        `(() => {
+          const ths = document.querySelectorAll('th');
+          for (const th of ths) {
+            if ((th.textContent || '').trim().includes('消耗')) {
+              const down = th.querySelector('.ovui-th__sorter-down');
+              return !!(down?.className?.includes('--active'));
+            }
+          }
+          return false;
+        })()`,
+        { timeout: 5000, pollInterval: 300, label: 'sort descending' });
 
       // 4d. 验证
       const verifyState = await client.evalJs(`
@@ -487,8 +519,8 @@ export async function calibratePage(client, options = {}) {
     console.log(`    ⚠ 表格未就绪: ${JSON.stringify(tableReady)}，等待额外时间...`);
     // 等待额外的6秒
     let waited = false;
-    for (let i = 0; i < 12; i++) {
-      await sleep(500);
+    for (let i = 0; i < 20; i++) {
+      await sleep(200);
       const check = await client.evalJs(`document.querySelectorAll('tbody tr').length > 0`);
       if (check) { waited = true; break; }
     }

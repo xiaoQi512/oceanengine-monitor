@@ -10,7 +10,7 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import {
   DATA_DIR, REPORT_DIR, FEEDBACK_PORT, FEISHU_CHAT_ID,
-  DAILY_START_HOUR, DAILY_END_HOUR, ACCOUNT_NAME, CAMPAIGN_URL,
+  getTodayShiftWindow, ACCOUNT_NAME, CAMPAIGN_URL,
   CHROME_USER_DATA_DIR, CHROME_PROFILE_DIRECTORY, findChromeExe,
   getLocalDate, findLarkCli, checkFeedbackServer, atomicWriteJSON,
 } from './monitor-utils.mjs';
@@ -110,7 +110,8 @@ function checkDataFreshness() {
   const today = getLocalDate();
   const dailyFile = path.join(DATA_DIR, `daily-${today}.json`);
   const currentHour = new Date().getHours();
-  const isMonitoringHours = currentHour >= DAILY_START_HOUR && currentHour <= DAILY_END_HOUR;
+  const shiftWin = getTodayShiftWindow();
+  const isMonitoringHours = currentHour >= shiftWin.startHour && currentHour <= shiftWin.endHour;
 
   if (!fs.existsSync(dailyFile)) {
     // 监控时段内没有当日数据文件 -> 严重（本该有数据但缺失）

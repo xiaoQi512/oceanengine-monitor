@@ -1,5 +1,6 @@
-// gen-anchor-ppt.mjs — 生成 6.20-6.26 主播复试 PPT（单页 16:9）
+﻿// gen-anchor-ppt.mjs — 生成 6.20-6.26 主播复试 PPT（单页 16:9）
 import PptxGenJS from "pptxgenjs";
+import { getLiveWindowLabel } from './monitor-utils.mjs';
 
 // === 配色（与周报 HTML 一致）===
 const C = {
@@ -42,6 +43,8 @@ const cplColor   = (c) => c <= 90 ? C.green : c <= 100 ? C.yellow : C.red;
 const fmt        = (n) => n.toLocaleString("zh-CN");
 
 // === 初始化 ===
+
+const liveWin = getLiveWindowLabel();
 const pres = new PptxGenJS();
 pres.layout = "LAYOUT_WIDE"; // 13.33 x 7.5 in (33.87 x 19.05 cm)
 pres.title  = "主播复试 6.20-6.26";
@@ -56,7 +59,7 @@ slide.addShape("rect", { x: 0, y: 0.95, w: 13.33, h: 0.05, fill: { color: C.oran
 slide.addText("📺 主播复试  ·  6月20-26日", {
   x: 0.4, y: 0.1, w: 9, h: 0.75, fontSize: 26, bold: true, color: C.text, fontFace: F.cnTitle, align: "left", valign: "middle",
 });
-slide.addText("极狐-区域福利号-直播  |  真人号  ·  16h (07-23)", {
+slide.addText("极狐-区域福利号-直播  |  真人号  ·  ${liveWin.durationHours}h (${liveWin.startTime.replace(':', '')}-${liveWin.endTime.replace(':', '')})", {
   x: 9.5, y: 0.25, w: 3.5, h: 0.45, fontSize: 11, color: C.textSub, fontFace: F.cn, align: "right", valign: "middle",
 });
 

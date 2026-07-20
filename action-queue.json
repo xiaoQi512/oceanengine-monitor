@@ -1,1 +1,17 @@
-{"actions":[]}
+{
+  "actions": [
+    {
+      "time": "2026-07-04T08:30:16.488Z",
+      "source": "feishu",
+      "by": "胡腾飞",
+      "type": "pause",
+      "planName": "0703-真人直播-画面直投",
+      "amount": null,
+      "bid": null,
+      "failed": true,
+      "failedAt": "2026-07-04T08:33:09.727Z",
+      "lastError": "搜索框不可用",
+      "attempts": 3
+    }
+  ]
+}

@@ -66,7 +66,6 @@ function backfill() {
     )
   `);
 
-  const tx = db.transaction(() => {});
 
   let processedFiles = 0;
   let processedRows = 0;
@@ -93,28 +92,25 @@ function backfill() {
       continue;
     }
 
-    db.exec('BEGIN');
     try {
-      for (const c of campaigns) {
-        if (!c.id) continue;
-
-        // upsert campaign 主表
-        const budgetNum = parseFloat(String(c.budget || '0').replace(/,/g, '')) || 0;
-        const bidNum = parseFloat(String(c.bid || '').replace(/[^\d.]/g, '')) || null;
-        upsertCampaign.run({
-          campaign_id: String(c.id),
-          name: c.name || '',
-          status: c.status || '',
-          daily_budget: budgetNum,
-          bid: bidNum,
-        });
-
-        // 删除旧记录保证幂等
-        deleteExisting.run(String(c.id), snapshotTime);
-
-        insertSnapshot.run({
-          snapshot_time: snapshotTime,
-          campaign_id: String(c.id),
+      const fileTx = db.transaction(() => {
+        for (const c of campaigns) {
+          if (!c.id) continue;
+          // upsert campaign 主表
+          const budgetNum = parseFloat(String(c.budget || '0').replace(/,/g, '')) || 0;
+          const bidNum = parseFloat(String(c.bid || '').replace(/[^\d.]/g, '')) || null;
+          upsertCampaign.run({
+            campaign_id: String(c.id),
+            name: c.name || '',
+            status: c.status || '',
+            daily_budget: budgetNum,
+            bid: bidNum,
+          });
+          // 删除旧记录保证幂等
+          deleteExisting.run(String(c.id), snapshotTime);
+          insertSnapshot.run({
+            snapshot_time: snapshotTime,
+            campaign_id: String(c.id),
           cost: num(c.spend),
           leads: num(c.leads),
           conversions: num(c.conversions),
@@ -132,10 +128,10 @@ function backfill() {
         });
         processedRows++;
       }
-      db.exec('COMMIT');
+      });
+      fileTx();
       processedFiles++;
     } catch (e) {
-      db.exec('ROLLBACK');
       console.warn(`[backfill] 文件 ${file} 写入失败: ${e.message}`);
       skippedFiles++;
     }

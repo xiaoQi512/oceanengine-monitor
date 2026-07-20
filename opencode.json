@@ -1,27 +1,76 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "provider": {
-    "mimo": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "MiMo",
-      "options": {
-        "baseURL": "https://token-plan-cn.xiaomimimo.com/v1",
-        "apiKey": "tp-cjtwjlfezrwmsxpkv3xdabyuevmfdi9qwyu3suydga81ovjt"
-      },
-      "models": {
-        "mimo-v2.5-pro": {
-          "name": "mimo-v2.5-pro",
-          "limit": { "context": 1048576, "output": 131072 },
-          "modalities": { "input": ["text"], "output": ["text"] }
-        }
+  "model": "volcengine-plan/deepseek-v4-pro",
+  "agent": {
+    "pm": {
+      "description": "Product Manager: 需求分析,生成 PRD",
+      "model": "volcengine-plan/glm-5.2",
+      "prompt": "你是资深产品经理。基于 TASK.md 生成 PRD.md,包含:用户故事、需求池、验收标准。1M 上下文用于吞全项目代码理解现状。输出到 artifacts/plan/PRD.md。",
+      "tools": {
+        "read": true,
+        "write": true,
+        "edit": true,
+        "bash": false
+      }
+    },
+    "architect": {
+      "description": "Architect: 方案设计 + 综合修订(V5 执行#1,日常任务王)",
+      "model": "volcengine-plan/deepseek-v4-pro",
+      "prompt": "你是资深架构师。基于 PRD/TASK.md 出技术方案,包含:文件列表、接口设计、数据结构、流程图、风险点。V5 测试执行#1(87.3分),架构设计⭐⭐⭐⭐,边界处理⭐⭐⭐⭐。输出到 artifacts/plan/design-*.md。",
+      "tools": {
+        "read": true,
+        "write": true,
+        "edit": true,
+        "bash": true
+      }
+    },
+    "reviewer-m3": {
+      "description": "Reviewer (M3): V5 审查冠军#1(89分),推理挑刺 + 边界 case + 代码自审查",
+      "model": "volcengine-plan/minimax-m3",
+      "prompt": "你是资深代码审计专家,V5 审查测试冠军#1(89分)。重点关注:SQL注入、并发安全、资源泄露、边界条件、输入验证。对每个发现标注:文件:行号 → 问题类型 → 风险等级(P0/P1/P2) → 修复建议。输出表格,按 P0→P1→P2 排序。自审查时假定代码里至少存在 1 个缺陷,保持怀疑态度。",
+      "tools": {
+        "read": true,
+        "write": true,
+        "edit": true,
+        "bash": false
+      }
+    },
+    "engineer": {
+      "description": "Engineer: 编码 + 自调试(V5 执行#1,稳定⭐⭐⭐⭐)",
+      "model": "volcengine-plan/deepseek-v4-pro",
+      "prompt": "你是资深工程师,V5 测试执行#1(87.3分),稳定性⭐⭐⭐⭐。基于 design-final.md 实现代码。写完跑 pytest,失败自修复(最多 3 次,失败 2 次后升级 M3 推理诊断)。commit message 遵循 conventional commits 规范。",
+      "tools": {
+        "read": true,
+        "write": true,
+        "edit": true,
+        "bash": true
+      }
+    },
+    "tester": {
+      "description": "Tester: 生成单测 + 集成测试 + 执行(M3 评审视角覆盖边界)",
+      "model": "volcengine-plan/minimax-m3",
+      "prompt": "你是资深测试工程师,V5 审查冠军#1。基于源码和 design-final.md 生成 pytest 单测 + 集成测试,执行并生成 test-report.md。利用评审视角覆盖边界条件、异常路径、并发场景。输出到 tests/ 和 artifacts/test/test-report.md。",
+      "tools": {
+        "read": true,
+        "write": true,
+        "edit": true,
+        "bash": true
+      }
+    },
+    "release": {
+      "description": "Release Manager: 合并 + 归档 + 通知",
+      "model": "volcengine-plan/glm-5.2",
+      "prompt": "你是资深发布工程师。执行 git merge、归档 artifacts 全量产物、生成影响面分析、发送飞书通知。1M 上下文用于全量产物归档。commit message 正则校验: ^(feat|fix|docs|refactor|test|chore)(\\(.+\\))?: .+",
+      "tools": {
+        "read": true,
+        "write": true,
+        "edit": true,
+        "bash": true
       }
     }
   },
-  "agent": {
-    "fixer": {
-      "description": "Node.js engineer, directly modify files to fix issues",
-      "prompt": "You are a senior Node.js engineer. Read the problem description, then USE FILE EDITING TOOLS to actually modify the files. Do NOT just output a diff — you MUST use the write/edit tools to change the files on disk. After modifying, run `node --check <file>` to verify syntax. Finally output your analysis in the requested format.",
-      "tools": { "read": true, "write": true, "edit": true, "bash": true }
-    }
+  "permission": {
+    "edit": "ask",
+    "bash": "ask"
   }
 }

@@ -39,9 +39,9 @@ function ensureSchema() {
 function getHoursToRefresh(db, lastRefresh) {
   // 起点 = last_refresh 所在小时的整点 (回退1小时确保覆盖)
   const startDate = new Date(lastRefresh);
-  startDate.setMinutes(0, 0, 0);
-  startDate.setHours(startDate.getHours() - 1);
-  const startStr = startDate.toISOString().replace(/\.\d+Z$/, '').replace('T', 'T');
+  startDate.setUTCMinutes(0, 0, 0);
+  startDate.setUTCHours(startDate.getUTCHours() - 1);
+  const startStr = startDate.toISOString().replace(/\.\d+Z$/, '');
 
   const rows = db.prepare(`
     SELECT DISTINCT substr(snapshot_time, 1, 13) AS stat_hour

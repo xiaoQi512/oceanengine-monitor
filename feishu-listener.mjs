@@ -1,4 +1,4 @@
-// feishu-listener.mjs — 飞书群消息监听 + 三阶段反馈闭环
+﻿// feishu-listener.mjs — 飞书群消息监听 + 三阶段反馈闭环
 // 轮询模式：每 10 秒拉取最新群消息，解析指令后按三阶段执行：
 //   阶段1 确认: 回复「🔵 开始执行: [操作] [计划名]」
 //   阶段2 执行: 调用 CDP 操作巨量引擎后台
@@ -13,7 +13,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { spawnSync, spawn } from 'child_process';
+import { spawnSync, spawn, exec } from 'child_process';
 import { pushText } from './feishu-push-guard.mjs';
 import { findLarkCli, loadSuggestionHistory, saveSuggestionHistory, recalcSummary, DATA_DIR, CHROME_USER_DATA_DIR, CHROME_PROFILE_DIRECTORY, findChromeExe } from './monitor-utils.mjs';
 import { checkCDP } from './cdp-client.mjs';
@@ -140,6 +140,19 @@ function loadState(chatId) {
   try { return JSON.parse(fs.readFileSync(getStateFile(chatId), 'utf8')); } catch(e) { return { lastMsgId: null }; }
 }
 function saveState(st, chatId) { fs.writeFileSync(getStateFile(chatId), JSON.stringify(st, null, 2)); }
+
+
+async function sendMsg(chatId, text) {
+  if (!chatId) chatId = MONITOR_CHAT_ID;
+  if (process.env.OEC_SILENT !== '1') console.log('  -->', text.replace(/\n/g, ' '));
+  const r = await pushText(LARK_CLI, text, chatId, {
+    timeoutMs: 15000, maxRetries: 1,
+    circuitFailureThreshold: 2, circuitFailureWindow: 4,
+    circuitOpenDurationMs: 60_000,
+  });
+  if (!r.ok) { console.error('[send] fail:', r.error); return false; }
+  return true;
+}
 
 async function fetchMessages(chatId, pageSize = 10) {
   try {
@@ -377,16 +390,37 @@ async function dispatch(cmd, sender, chatId) {
   await sendMsg(chatId, `ℹ️ 无法识别指令: ${cmd.raw}`);
 }
 
-// ====== 主循环 ======
+// ====== AI对话 ======
+
+
+async function callAI(userMessage) {
+  const systemPrompt = "你是小七，巨量引擎广告投放监控助手（账户：极狐-区域福利号-直播，日预算45000元）。你已在这个群聊中，直接自然回答问题，不要自我介绍。中文回复，不超过3句话。";
+  const prompt = systemPrompt + "\n\n用户: " + userMessage + "\n小七:";
+  const escaped = prompt.replace(/"/g, '\\"');
+  return new Promise((resolve) => {
+    exec(`codebuddy -p -y "${escaped}"`, {
+      cwd: __dirname, windowsHide: true, timeout: 60000,
+      shell: "C:\\Windows\\System32\\cmd.exe",
+    }, (err, stdout, stderr) => {
+      if (err) { console.error("[AI]", err.message); resolve(null); return; }
+      const out = (stdout || "").trim();
+      const noise = /^(我是小七|小七|您好|你好|我是)/;
+      resolve(noise.test(out) ? out : out);
+    });
+  });
+}
 
 async function handleAtMention(text, chatId) {
-  var cleaned = cleanAtText(text);
-  console.log('[listener] @ in ' + (CHAT_NAMES[chatId]||chatId) + ': ' + cleaned);
-  if (!cleaned) { await sendMsg(chatId, 'I am here.'); return; }
-  if (/today|now|current|status|data|spend/i.test(cleaned)) { await sendMsg(chatId, 'Check Dashboard or wait for next report.'); return; }
-  if (/hello|hi|hey|test/i.test(cleaned)) { await sendMsg(chatId, 'Hello! Commands: pause/stop/resume/budget/reject/execute/status'); return; }
-  await sendMsg(chatId, 'Commands: pause/stop/resume plan / budget plan amount / reject / execute / status');
+  const cleaned = cleanAtText(text);
+  console.log("[listener] @ in " + (CHAT_NAMES[chatId]||chatId) + ": " + cleaned);
+  if (!cleaned) { await sendMsg(chatId, "我在，有什么事？"); return; }
+  await sendMsg(chatId, "收到，思考中...");
+  const reply = await callAI(cleaned);
+  if (reply) { await sendMsg(chatId, reply); }
+  else { await sendMsg(chatId, "抱歉，暂时无法处理，请稍后再试。"); }
 }
+
+// ====== 主循环 ======
 
 async function main() {
   console.log('[listener] dual-chat mon=' + MONITOR_CHAT_ID + ' anchor=' + ANCHOR_CHAT_ID);
@@ -424,10 +458,9 @@ async function main() {
             catch(e) { console.error('[dispatch]', e.message); await sendMsg(cid, 'Error: ' + e.message); }
           } else if (isAtMention(m, t)) {
             console.log('[' + new Date().toLocaleTimeString() + '] [' + CHAT_NAMES[cid] + '] @' + (m.sender && m.sender.name || '?') + ' : ' + t.slice(0, 80));
-            try { await handleAtMention(t, cid); }
+            _st.lastMsgId = m.message_id; saveState(_st, cid); try { await handleAtMention(t, cid); }
             catch(e) { console.error('[at]', e.message); }
           }
-          _st.lastMsgId = m.message_id; saveState(_st, cid);
         }
       } catch(e) { console.error('[poll-' + cid + ']', e.message); }
     }

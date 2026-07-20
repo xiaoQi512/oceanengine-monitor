@@ -1,0 +1,11 @@
+﻿import { readFileSync } from "fs";
+const c = readFileSync("E:\\炼丹炉\\WorkBuddy\\巨量引擎监控\\oceanengine-daily-report-scheduler.mjs", "utf-8");
+const lines = c.split("\n");
+console.log("Total lines:", lines.length);
+console.log("Has getTodayShiftWindow:", c.includes("getTodayShiftWindow"));
+console.log("Has dynamic wait:", c.includes("waitMs"));
+console.log("Has pushCard:", c.includes("pushCard"));
+console.log("Has cardContent:", c.includes("cardContent"));
+console.log("");
+console.log("First 5 lines:");
+for (let i = 0; i < 5; i++) console.log("  " + JSON.stringify(lines[i]));

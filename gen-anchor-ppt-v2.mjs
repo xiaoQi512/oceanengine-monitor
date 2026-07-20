@@ -1,8 +1,9 @@
-// gen-anchor-ppt-v2.mjs
+﻿// gen-anchor-ppt-v2.mjs
 // 基于 极狐汇报底版.pptx（保留原样不动），仅新增 1 张数据 slide
 // 策略：用 pptxgenjs 创建一份 PPT，defineSlideMaster 复用底版的母版背景与字体，
 //       输出文件名加 _主播复试 后缀。
 import PptxGenJS from "pptxgenjs";
+import { getLiveWindowLabel } from './monitor-utils.mjs';
 
 // === 配色（贴合极狐汇报底版主题色） ===
 // 母版主色：深色底 + 蓝色（4472C4）/ 橙色（ED7D31）强调
@@ -45,6 +46,8 @@ const cplColor  = (c) => c <= 90 ? C.green : c <= 100 ? C.yellow : C.red;
 const fmt       = (n) => n.toLocaleString("zh-CN");
 
 // === 初始化 PPT ===
+
+const liveWin = getLiveWindowLabel();
 const pres = new PptxGenJS();
 pres.layout = "LAYOUT_WIDE"; // 13.33 x 7.5 in
 pres.title  = "主播复试 6.20-6.26";
@@ -91,7 +94,7 @@ slide.addText("真人直播账号各主播数据分析", {
 slide.addText("（6.20-6.26）", {
   x: 0.4, y: 0.78, w: 8.5, h: 0.4, fontSize: 14, color: C.white, fontFace: F.cn, align: "left", valign: "middle",
 });
-slide.addText("极狐-区域福利号-直播  |  真人号  ·  16h (07-23)", {
+slide.addText("极狐-区域福利号-直播  |  真人号  ·  ${liveWin.durationHours}h (${liveWin.startTime.replace(':', '')}-${liveWin.endTime.replace(':', '')})", {
   x: 9, y: 0.4, w: 4, h: 0.45, fontSize: 11, color: C.white, fontFace: F.cn, align: "right", valign: "middle",
 });
 

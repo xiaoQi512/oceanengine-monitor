@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-16"?>
+﻿<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
     <Author>DESKTOP-2VQ33MN\HTF2026</Author>
@@ -31,7 +31,7 @@
       <StartBoundary>2026-06-13T07:00:00</StartBoundary>
       <Repetition>
         <Interval>PT15M</Interval>
-        <Duration>PT16H</Duration>
+        <Duration>PT17H</Duration>
         <StopAtDurationEnd>false</StopAtDurationEnd>
       </Repetition>
       <ScheduleByDay>

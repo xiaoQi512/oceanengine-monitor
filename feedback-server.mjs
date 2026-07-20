@@ -15,6 +15,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPORT_FILE = path.join(__dirname, 'oceanengine-report.html');
 const DASHBOARD_FILE = path.join(__dirname, 'dashboard.html');
 const DASHBOARD_JS = path.join(__dirname, 'dashboard.js');
+const DASHBOARD_CSS = path.join(__dirname, 'dashboard.css');
 const ACTION_QUEUE_FILE = path.join(__dirname, 'action-queue.json');
 
 // ====== 动态 import api-client（避免阻塞启动；Cookie/浏览器依赖较重） ======
@@ -149,6 +150,18 @@ const server = http.createServer(async (req, res) => {
       const js = fs.readFileSync(DASHBOARD_JS, 'utf-8');
       res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
       res.end(js);
+    } catch {
+      res.writeHead(404); res.end('Not Found');
+    }
+    return;
+  }
+
+  // ====== Dashboard CSS ======
+  if (url.pathname === '/dashboard.css') {
+    try {
+      const css = fs.readFileSync(DASHBOARD_CSS, 'utf-8');
+      res.writeHead(200, { 'Content-Type': 'text/css; charset=utf-8' });
+      res.end(css);
     } catch {
       res.writeHead(404); res.end('Not Found');
     }
@@ -357,6 +370,108 @@ const server = http.createServer(async (req, res) => {
     }
     return;
   }
+
+  // ====== API: GET /api/live-status ======
+  if (url.pathname === '/api/live-status') {
+    try {
+      const now = new Date();
+      const today = now.toISOString().slice(0, 10);
+      const hm = now.getHours() * 60 + now.getMinutes();
+      
+      function buildShifts(dateStr) {
+        if (dateStr >= '2026-07-08' && dateStr <= '2026-07-10') {
+          return [{start:'06:30',end:'08:30'},{start:'08:30',end:'10:30'},{start:'10:30',end:'12:30'},{start:'12:30',end:'14:30'},{start:'14:30',end:'16:30'},{start:'16:30',end:'18:30'},{start:'18:30',end:'20:30'},{start:'20:30',end:'22:30'},{start:'22:30',end:'23:30'}];
+        }
+        return [{start:'06:30',end:'08:30'},{start:'08:30',end:'10:30'},{start:'10:30',end:'12:30'},{start:'12:30',end:'14:30'},{start:'14:30',end:'16:30'},{start:'16:30',end:'18:30'},{start:'18:30',end:'20:30'},{start:'20:30',end:'23:30'}];
+      }
+      function buildAnchors(dateStr) {
+        // AGENTS.md: 主播名字必须从飞书排班表读取,不能硬编码
+        try {
+          const cacheFile = path.join(DATA_DIR, `shifts-${dateStr}.json`);
+          if (fs.existsSync(cacheFile)) {
+            const cached = JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
+            if (Array.isArray(cached.shifts)) {
+              return cached.shifts.map(s => s.anchorName || '').filter(Boolean);
+            }
+          }
+        } catch {}
+        return [];
+      }
+      const sessions = buildShifts(today);
+      const anchors = buildAnchors(today);
+      
+      let shifts = [];
+      let isLive = false;
+      let currentAnchor = '';
+      
+      if (sessions && anchors.length > 0) {
+        shifts = sessions.map((s, i) => {
+          const [sh, sm] = s.start.split(':').map(Number);
+          const [eh, em] = s.end.split(':').map(Number);
+          const smin = sh * 60 + sm, emin = eh * 60 + em;
+          let status = 'upcoming';
+          if (hm >= emin) status = 'past';
+          else if (hm >= smin) { status = 'live'; isLive = true; currentAnchor = anchors[i] || ''; }
+          return { start: s.start, end: s.end, anchor: anchors[i] || '待定', status };
+        });
+      }
+
+      const snap = getLatestSnapshot();
+      const shiftData = (snap && snap.shifts) ? snap.shifts : [];
+      
+      const pushLog = [];
+      try {
+        const logFile = path.join(DATA_DIR, 'push-log.json');
+        if (fs.existsSync(logFile)) {
+          pushLog.push(...(JSON.parse(fs.readFileSync(logFile, 'utf-8')).entries || []).slice(-10));
+        }
+      } catch {}
+
+      const accounts = [];
+      if (snap && snap.accounts) {
+        for (const a of snap.accounts) {
+          accounts.push({
+            id: a.id || a.name, name: a.name,
+            spend: a.spend || 0, leads: a.leads || 0,
+            cpl: a.cpl || (a.leads > 0 ? a.spend / a.leads : 0),
+            activeCount: a.activeCount || 0,
+          });
+        }
+      }
+
+      const kpi = snap ? {
+        totalSpend: snap.totalSpend || 0, liveSpend: snap.liveSpend || 0,
+        videoSpend: snap.videoSpend || 0, totalLeads: snap.totalLeads || 0,
+        totalConversions: snap.totalConversions || 0, avgCpl: snap.avgCpl || 0,
+        liveCpl: snap.liveCpl || 0, videoCpl: snap.videoCpl || 0,
+        privateMsg: snap.privateMsg || 0, dailyBudget: snap.dailyBudget || 45000,
+        aiRegionsSpend: snap.aiRegionsSpend || 0,
+      } : {};
+
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ isLive, currentAnchor, shifts, shiftData, pushLog, accounts, kpi, updatedAt: new Date().toISOString() }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+
+  // ====== API: POST /api/manual-push ======
+  if (url.pathname === '/api/manual-push' && req.method === 'POST') {
+    try {
+      const signalFile = path.join(DATA_DIR, 'manual-push-signal.json');
+      fs.writeFileSync(signalFile, JSON.stringify({ timestamp: new Date().toISOString(), source: 'dashboard' }));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, message: '推送信号已发送' }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+
 
   // ====== API: GET /api/accounts (多账户/多平台总览) ======
   // 目前系统只接了一个真实账户（极狐-区域福利号-直播），从最新快照聚合数据。

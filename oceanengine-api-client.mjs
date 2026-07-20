@@ -1,4 +1,4 @@
-// oceanengine-api-client.mjs — 巨量引擎 HTTP API 直连客户端 (v2.2)
+﻿// oceanengine-api-client.mjs — 巨量引擎 HTTP API 直连客户端 (v2.2)
 // 直接调 OceanEngine 内部 API 获取 JSON 数据
 // Cookie 过期时自动触发 CDP 登录流程
 //
@@ -7,6 +7,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import http from 'node:http';
 import https from 'node:https';
 import { WebSocket } from 'ws';
@@ -14,7 +15,9 @@ import { getOceanEngineTab } from './cdp-client.mjs';
 import { DATA_DIR } from './monitor-utils.mjs';
 
 // ====== .env 加载（轻量实现，避免 dotenv 依赖） ======
-const ENV_FILE = path.join(process.cwd(), '.env');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const ENV_FILE = path.join(__dirname, '.env');
 if (fs.existsSync(ENV_FILE)) {
   for (const line of fs.readFileSync(ENV_FILE, 'utf-8').split('\n')) {
     const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/);
@@ -130,6 +133,10 @@ async function apiRequest(url, options = {}) {
   // 清理 Cookie 中的非ASCII字符（HTTP头仅允许ASCII）
   if (headers['Cookie']) {
     headers['Cookie'] = headers['Cookie'].replace(/[^\x20-\x7E]/g, '');
+  // 从Cookie提取csrftoken作为X-CSRFToken请求头（Django双重提交Cookie反CSRF）
+  const csrfMatch = (headers['Cookie'] || '').match(/csrftoken=([^;]+)/);
+  if (csrfMatch) headers['X-CSRFToken'] = csrfMatch[1];
+
   }
 
   return new Promise((resolve, reject) => {
@@ -178,7 +185,7 @@ export async function getProjects(client, options = {}) {
     sort_order: 1,               // 1=消耗倒序（高→低）
     campaign_type: [1],          // 1=通投
     fields: [
-      'stat_cost', 'convert_cnt', 'form', 'message_action',
+      'stat_cost', 'show_cnt', 'convert_cnt', 'form', 'message_action',
       'clue_message_count', 'attribution_all_convert_clue_count',
       'ctr', 'cpm_platform', 'conversion_rate', 'conversion_cost',
       'luban_live_enter_cnt', 'live_watch_one_minute_count',
@@ -407,6 +414,7 @@ export async function collectAllData(client) {
   const tm = page1.totalMetrics || {};
   const pageSummary = tm ? {
     spend: parseFloat(String(tm.stat_cost || '0').replace(/,/g, '')),
+    impressions: parseInt(String(tm.show_cnt || '0').replace(/,/g, '')) || 0,
     conversions: parseInt(String(tm.convert_cnt || '0').replace(/,/g, '')) || 0,
     formSubmit: parseInt(String(tm.form || '0').replace(/,/g, '')) || 0,
     privateMsgOpen: parseInt(String(tm.message_action || '0').replace(/,/g, '')) || 0,
@@ -442,6 +450,49 @@ export async function collectAllData(client) {
   };
 }
 
+// ====== 时段统计（支持精确 startTime/endTime） ======
+export async function getSessionStats(client, options = {}) {
+  const { accountId = ACCOUNT_ID, startTime, endTime } = options;
+  const body = JSON.stringify({
+    StartTime: startTime,
+    EndTime: endTime,
+    Metrics: ['stat_cost', 'form', 'show_cnt', 'cpm_platform', 'click_cnt', 'conversion_cost', 'convert_cnt'],
+    DataSetKey: 'ad_promotion_basic_data',
+    Filters: {
+      ConditionRelationshipType: 1,
+      Conditions: [
+        { Field: 'advertiser_id', Operator: 7, Values: [accountId] },
+      ],
+    },
+    Dimensions: ['stat_time_hour'],
+    PageParams: { Limit: 500, Offset: 0 },
+    OrderBy: [{ Field: 'stat_time_hour', Type: 1 }],
+    IsDownload: false,
+    Extra: { is_fill_zero: 'true' },
+  });
+
+  const resp = await apiRequest(`${BASE_URL}/ad/api/agw/statistics_sophonx/statQuery?aadvid=${accountId}`, {
+    method: 'POST', body, cookieData: client.cookieData,
+  });
+
+  if (!resp.ok) {
+    console.log(`  ❌ statQuery (session) 失败 [${resp.status}]`);
+    return { total: { cost: 0, leads: 0 }, rows: [] };
+  }
+
+  const apiRows = resp.data?.data?.StatsData?.Rows || [];
+  const rows = apiRows.map(row => ({
+    hour: row.Dimensions?.stat_time_hour?.ValueStr || '?',
+    cost: parseFloat((row.Metrics?.stat_cost?.ValueStr || '0').replace(/,/g, '')) || 0,
+    leads: parseInt((row.Metrics?.convert_cnt?.ValueStr || '0').replace(/,/g, '')) || 0,
+  }));
+
+  let totalCost = 0, totalLeads = 0;
+  rows.forEach(r => { totalCost += r.cost; totalLeads += r.leads; });
+
+  return { total: { cost: totalCost, leads: totalLeads }, rows };
+}
+
 // ====== 客户端工厂 ======
 export async function createClient(options = {}) {
   const { forceRefresh = false, useCache = true } = options;
@@ -468,4 +519,47 @@ export async function createClient(options = {}) {
   };
 }
 
-export default { createClient, getProjects, getDashboardStats, getHourlyStats, collectAllData };
+
+// ====== 直播间实时状态 ======
+export async function getOnlineRoomList(client) {
+  const resp = await apiRequest(
+    `${BASE_URL}/nbs/api/statistics/live_show/online_room/list?aadvid=${ACCOUNT_ID}`,
+    { method: "POST", cookieData: client.cookieData }
+  );
+  if (!resp.ok) { console.log("  online room list failed [" + resp.status + "]"); return []; }
+  const raw = resp.data?.data || [];
+  // API camelCase -> snake_case
+  return raw.map(r => ({
+    room_id: String(r.roomId || ""),
+    room_title: r.roomTitle || "",
+    room_status: "2",
+    room_start_time: r.roomStartTime ? parseInt(r.roomStartTime) * 1000 : null,
+    online_user_count: 0,
+    is_live: true,
+  }));
+}
+
+export async function getLiveRoomStatus(client, roomId) {
+  const body = JSON.stringify({
+    roomIds: [String(roomId)],
+    attributes: ["room_id","room_title","room_status","room_start_time","room_end_time","online_user_count"],
+  });
+  const resp = await apiRequest(
+    `${BASE_URL}/nbs/api/statistics/live_show/online_room/attributes?aadvid=${ACCOUNT_ID}`,
+    { method: "POST", body, cookieData: client.cookieData }
+  );
+  if (!resp.ok) { console.log("  room status failed [" + resp.status + "]"); return null; }
+  const room = (resp.data?.data || [])[0];
+  if (!room) return null;
+  return {
+    room_id: room.room_id || String(roomId),
+    room_title: room.room_title || "",
+    room_status: String(room.room_status || ""),
+    room_start_time: room.room_start_time ? parseInt(room.room_start_time) * 1000 : null,
+    room_end_time: room.room_end_time || null,
+    online_user_count: parseInt(room.online_user_count) || 0,
+    is_live: room.room_status === "2" || room.room_status === 2,
+  };
+}
+
+export default { createClient, getProjects, getDashboardStats, getHourlyStats, getSessionStats, collectAllData, getOnlineRoomList, getLiveRoomStatus };

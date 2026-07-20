@@ -1,4 +1,4 @@
-// oceanengine-5min-check.mjs — 5分钟轻量消耗汇报 (v4)
+﻿// oceanengine-5min-check.mjs — 5分钟轻量消耗汇报 (v4)
 // 在15分钟完整汇报之间(每5分钟)推送简洁消耗卡片到飞书群
 // v4: HTTP API 优先，CDP 降级，feishu-push-guard 熔断守卫
 // 测试模式: OEC_FORCE=1 绕整点跳过; OEC_DRY_RUN=1 不发送实际推送
@@ -6,10 +6,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  DATA_DIR, REPORT_DIR, FEISHU_CHAT_ID, CAMPAIGN_URL,
-  findLarkCli, getLocalDate, minutesBetween,
+  DATA_DIR, FEISHU_CHAT_ID,
+  findLarkCli, getLocalDate, minutesBetween, getTodayShiftWindow, getLiveWindowLabel,
 } from './monitor-utils.mjs';
-import { createClient as createApiClient, getDashboardStats, getProjects } from './oceanengine-api-client.mjs';
+import { createClient as createApiClient, getDashboardStats, getProjects, collectAllData, getHourlyStats } from './oceanengine-api-client.mjs';
 import { pushCard } from './feishu-push-guard.mjs';
 import { insertSnapshot } from './db/writer.mjs';
 
@@ -124,6 +124,7 @@ async function pushToLark(data, rolling) {
             `💰 **近${Math.round(rolling.last5minMinutes || 5)}分钟消耗**: ¥${rolling.last5min.toFixed(0)} | **今日累计**: ¥${getSpend(data).toFixed(0)}`,
             `📊 **预算**: ¥${data.accountBudget > 0 ? data.accountBudget.toFixed(0) : '--'} | **投放中**: ${data.activeCount}条`,
             `🎯 **近${Math.round(rolling.last5minMinutes || 5)}分钟转化**: +${rolling.convLast5min}条 | **今日累计**: ${getConv(data)}条`,
+            `📡 **近5m CPM**: ¥${data._near5mCPM > 0 ? data._near5mCPM.toFixed(1) : '--'}`,
             ``,
             `📈 **消耗环比**:`,
             `${trendLines}`,
@@ -150,6 +151,201 @@ async function pushToLark(data, rolling) {
   return false;
 }
 
+// ====== 推送15分钟详细卡片（整刻钟用，参照 monitor-v3 模板） ======
+async function pushDetailedCard() {
+  const larkCli = findLarkCli();
+  if (!larkCli) { console.log('  ⚠ lark-cli 不可用，跳过详细卡片'); return false; }
+  if (OEC_DRY_RUN) { console.log('  🧪 OEC_DRY_RUN=1，跳过详细卡片推送'); return false; }
+
+  console.log('  📡 拉取完整数据...');
+  const apiClient = await createApiClient({ useCache: true });
+  const allData = await collectAllData(apiClient);
+  if (!allData || !allData.campaigns) { console.log('  ❌ 数据采集失败'); return false; }
+
+  const campaigns = allData.campaigns;
+  const pageSummary = allData.pageSummary || {};
+  const spend = allData.accountSpend || 0;
+  const budget = allData.accountBudget || 60000;
+  const balance = allData.accountBalance || 0;
+
+  // ---- 汇总指标 ----
+  const totalConversions = pageSummary.conversions || 0;
+  const totalFormSubmit = pageSummary.formSubmit || 0;
+  const totalPrivateMsgOpen = pageSummary.privateMsgOpen || 0;
+  const totalPrivateMsgRetain = pageSummary.privateMsgRetain || 0;
+  const totalLeads = pageSummary.leads || pageSummary.attributionClue || 0;
+  const totalLiveViews = pageSummary.liveViews || pageSummary.liveEnter || 0;
+  const totalLiveOver1Min = pageSummary.liveOneMin || pageSummary.liveOver1Min || 0;
+  const avgCPM = pageSummary.cpm || campaigns.reduce(function(s, c) { return s + (c.cpm || 0); }, 0) / Math.max(campaigns.length, 1) || 0;
+  const avgCPA = totalConversions > 0 ? spend / totalConversions : 0;
+  const totalImpressions = pageSummary.impressions || 0;
+
+  // 投放中/有消耗/起量/掉量
+  const activeCampaigns = campaigns.filter(function(c) { return c.status === '投放中' || c.rawStatus === '启用' || c.rawStatus === '投放中'; });
+  const spendingCampaigns = campaigns.filter(function(c) { return c.spend > 0; });
+  const recentSnaps = loadRecent5minSnapshots(6);
+
+  // 近5分钟展示数差值（CPM = 消耗差值 ÷ 展示差值 × 1000）
+  const lastImpSnap = recentSnaps.find(s => s.impressions > 0);
+  const near5mImpressions = lastImpSnap && totalImpressions > lastImpSnap.impressions ? totalImpressions - lastImpSnap.impressions : 0;
+  let rampingCount = 0, droppingCount = 0;
+  if (recentSnaps.length >= 2) {
+    const prevSpending = recentSnaps[recentSnaps.length - 1].spendingCount || 0;
+    const currSpending = spendingCampaigns.length;
+    if (currSpending > prevSpending) rampingCount = currSpending - prevSpending;
+    if (currSpending < prevSpending) droppingCount = prevSpending - currSpending;
+  }
+
+  const openRetainRate = totalPrivateMsgOpen > 0 ? ((totalPrivateMsgRetain / totalPrivateMsgOpen) * 100) : 0;
+  const viewRetention = totalLiveViews > 0 ? ((totalLiveOver1Min / totalLiveViews) * 100) : 0;
+
+  // ---- 时间/预算进度 ----
+  const liveWin = getLiveWindowLabel();
+  const shift = getTodayShiftWindow();
+  const now = new Date();
+  let timeElapsedH = 0, timeTotalH = 17, timePct = 0;
+  if (shift && shift.startHour != null) {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), shift.startHour, shift.startMinute || 0, 0);
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), shift.endHour, shift.endMinute || 0, 0);
+    timeTotalH = (end - start) / 3600000;
+    timeElapsedH = Math.max(0, (now - start) / 3600000);
+    timePct = timeTotalH > 0 ? (timeElapsedH / timeTotalH) * 100 : 0;
+  }
+  const budgetPct = budget > 0 ? (spend / budget) * 100 : 0;
+  const projectedDaily = timePct > 0.5 ? spend / (timePct / 100) : spend / 0.01;
+  const remainingH = timeTotalH - timeElapsedH;
+  const daysRemaining = projectedDaily > 0 && balance > 0 ? balance / projectedDaily : 0;
+  const speedVal = timeElapsedH > 0 ? spend / Math.max(timeElapsedH, 0.01) / 60 : 0;
+
+  const pacingHealth = budgetPct > timePct * 1.3 ? '🔴 消耗超速'
+    : budgetPct > timePct * 1.1 ? '🟡 消耗偏快'
+    : budgetPct < timePct * 0.7 ? '🔵 消耗偏慢' : '✅ 节奏正常';
+  const headerColor = budgetPct > timePct * 1.3 ? 'red' : budgetPct > timePct * 1.1 ? 'orange' : 'green';
+
+  const makeBar = function(pct) {
+    var barLen = 10, filled = Math.min(Math.round(pct / 10), barLen);
+    return '█'.repeat(filled) + '░'.repeat(barLen - filled);
+  };
+
+  // ---- 消耗环比（calcRolling） ----
+  const fakeData = { accountSpend: spend, summarySpend: spend, totalConv: totalConversions, summaryConv: totalConversions, activeCount: activeCampaigns.length, accountBudget: budget, accountBalance: balance, time: new Date().toISOString() };
+  const rolling = calcRolling(fakeData, recentSnaps);
+
+  // 近15分钟CPM (查找~15分钟前的快照，消耗差值 ÷ 展示差值 × 1000)
+  const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+  let snapshot15m = null;
+  for (let i = recentSnaps.length - 1; i >= 0; i--) {
+    if (recentSnaps[i].impressions > 0 && recentSnaps[i].time < fifteenMinAgo) {
+      snapshot15m = recentSnaps[i];
+      break;
+    }
+  }
+  const spend15m = snapshot15m ? spend - (snapshot15m.accountSpend || snapshot15m.summarySpend || 0) : rolling.last5min;
+  const imp15m = snapshot15m ? totalImpressions - snapshot15m.impressions : near5mImpressions;
+
+  // 近15分钟停留率 (>1min观看差值 ÷ 观看数差值)，回退到累计值
+  let deltaRetention = viewRetention;
+  if (snapshot15m && snapshot15m.liveViews > 0 && snapshot15m.liveOver1Min > 0) {
+    const dViews = totalLiveViews - snapshot15m.liveViews;
+    const dOver1Min = totalLiveOver1Min - snapshot15m.liveOver1Min;
+    if (dViews > 0) deltaRetention = (dOver1Min / dViews) * 100;
+  }
+  const snapMinutes = snapshot15m ? Math.round(minutesBetween(snapshot15m.time, new Date().toISOString())) : 15;
+  const snapConv = snapshot15m ? totalConversions - (snapshot15m.totalConv || 0) : rolling.convLast5min;
+  const snapSpeed = snapMinutes > 0 ? spend15m / snapMinutes : 0;
+  const trendLines = rolling.windows.map(function(w) {
+    var dir = parseFloat(w.pct) > 0 ? '↑' : parseFloat(w.pct) < 0 ? '↓' : '→';
+    var hot = w.hot ? ' 🔥' : '';
+    var sign = w.delta >= 0 ? '+' : '';
+    return '  ' + w.label + ': ' + dir + Math.abs(parseFloat(w.pct)).toFixed(0) + '% (' + sign + '¥' + w.delta.toFixed(0) + ') · ¥' + w.rpm.toFixed(0) + '/min' + hot;
+  }).join('\n');
+  const lastNMin = Math.round(rolling.last5minMinutes || 5);
+
+  // ---- 昨日同时段对比 ----
+  let yesterdayLines = [];
+  try {
+    const hourStats = await getHourlyStats(apiClient, { startHour: shift ? shift.startHour : 6, endHour: now.getHours() });
+    if (hourStats && hourStats.yesterday) {
+      const ySpend = hourStats.yesterday.spend || 0;
+      const yConv = hourStats.yesterday.conversions || 0;
+      const yCPA = yConv > 0 ? ySpend / yConv : 0;
+      const spendVs = ySpend > 0 ? ((spend / ySpend - 1) * 100) : 0;
+      const cpaVs = yCPA > 0 ? ((avgCPA / yCPA - 1) * 100) : 0;
+      yesterdayLines.push('📅 **昨日同时段**: 消耗 ¥' + ySpend.toFixed(0) + ' (' + (spendVs >= 0 ? '+' : '') + spendVs.toFixed(0) + '%) · CPL ¥' + yCPA.toFixed(0) + ' (' + (cpaVs >= 0 ? '+' : '') + cpaVs.toFixed(0) + '%) · ' + yConv + '条转化');
+    }
+  } catch(e) {}
+
+  // ---- TOP5 有消耗计划 ----
+  const topSpenders = campaigns.filter(function(c) { return c.spend > 0; }).sort(function(a, b) { return b.spend - a.spend; }).slice(0, 5);
+  const topLines = topSpenders.length > 0 ? ['📊 **有消耗计划 TOP5**'] : [];
+  topSpenders.forEach(function(c, i) { topLines.push((i + 1) + '. ' + c.name.slice(0, 18) + ' — ¥' + c.spend.toFixed(0) + ' · ' + c.conversions + '转化 · ' + (c.cpm > 0 ? 'CPM ¥' + c.cpm.toFixed(1) : '')); });
+
+  // ---- 构建卡片 ----
+  const nowLocale = new Date().toLocaleString('zh-CN');
+  const timeSlot = shift ? liveWin.labelCompact : '';
+  const elements = [];
+
+  elements.push({ tag: 'div', text: { tag: 'lark_md', content: [
+    makeBar(timePct) + ' ' + timePct.toFixed(0) + '%  (已过' + timeElapsedH.toFixed(1) + 'h/' + timeTotalH.toFixed(0) + 'h)',
+    makeBar(Math.min(budgetPct, 100)) + ' ' + budgetPct.toFixed(0) + '%  (¥' + spend.toFixed(0) + ' / ¥' + budget.toFixed(0) + ')',
+    '📊 ' + pacingHealth + ' | ' + timeSlot,
+    projectedDaily > 0 ? '🎯 预估今日 ¥' + projectedDaily.toFixed(0) + (remainingH > 0 ? ' | 剩余 ' + remainingH.toFixed(1) + 'h' : '') : '',
+  ].join('\n') }});
+  elements.push({ tag: 'hr' });
+
+  // ====== 核心指标 (累计 + 快照差值) ======
+  //
+  // ━ 累计 ━
+  // 消耗       spend (allData.accountSpend)                 API: collectAllData → totalMetrics.stat_cost
+  // CPL        avgCPA (spend / totalConversions)
+  // 转化       totalConversions                             API: pageSummary.conversions = convert_cnt
+  // 开口成本   spend / totalPrivateMsgOpen                  计算: 每产生一次开口对话的平均消耗
+  // 开口留资率 openRetainRate = privateMsgRetain / open * 100%
+  //                                                         API: message_action → 开口
+  //                                                              clue_message_count → 留资
+  // ━ 近*snapMin*分差值 ━
+  // 新增消耗   spend15m = spend - snapshot15m.accountSpend  快照差值
+  // 新增线索   snapConv = conv - snapshot15m.totalConv      快照差值
+  // CPL        spend15m / snapConv                         回退: rolling.last5min / rolling.convLast5min
+  // CPM        spend15m / imp15m * 1000                    回退: avgCPM (整体CPM)
+  // 停留率     deltaRetention = dViews / dOver1Min * 100   回退: viewRetention (累计)
+  // 速度       snapSpeed = spend15m / snapMinutes
+  const metricsContent = [
+    '━ **累计** ━',
+    '💰 **消耗**: ¥' + spend.toFixed(0) + ' | CPL ¥' + (avgCPA > 0 ? avgCPA.toFixed(0) : '--'),
+    '🎯 **转化**: ' + totalConversions + '条',
+    '📨 **开口成本**: ¥' + (totalPrivateMsgOpen > 0 ? (spend / totalPrivateMsgOpen).toFixed(1) : '--') + ' | **开口留资率**: ' + openRetainRate.toFixed(1) + '%',
+    '━ **近' + snapMinutes + '分差值** ━',
+    '📊 **新增消耗**: +¥' + spend15m.toFixed(0) + ' | **新增线索**: +' + snapConv + '条',
+    '📈 **CPL**: ¥' + (snapConv > 0 ? (spend15m / snapConv).toFixed(0) : rolling.last5min > 0 && rolling.convLast5min > 0 ? (rolling.last5min / rolling.convLast5min).toFixed(0) : '--') + ' | **CPM**: ¥' + (spend15m > 0 && imp15m > 0 ? (spend15m / imp15m * 1000).toFixed(1) : avgCPM.toFixed(1)) + ' | **停留率**: ' + (totalLiveViews > 0 ? deltaRetention.toFixed(1) + '%' : 'N/A'),
+    '⚡ **速度**: ¥' + snapSpeed.toFixed(0) + '/min | 有消耗 ' + spendingCampaigns.length + '条 · 投放中 ' + activeCampaigns.length + '条 (起量' + rampingCount + '·掉量' + droppingCount + ')',
+  ];
+  if (budget > 0) metricsContent.push('🏦 **账户预算**: ¥' + spend.toFixed(0) + ' / ¥' + budget.toFixed(0) + ' (' + budgetPct.toFixed(0) + '%)');
+  if (balance > 0) metricsContent.push('💳 **账户余额**: ¥' + balance.toFixed(0) + (daysRemaining > 0 ? ' (约' + daysRemaining.toFixed(1) + '天)' : ''));
+  elements.push({ tag: 'div', text: { tag: 'lark_md', content: metricsContent.join('\n') }});
+
+  if (yesterdayLines.length > 0) {
+    elements.push({ tag: 'hr' });
+    elements.push({ tag: 'div', text: { tag: 'lark_md', content: yesterdayLines.join('\n') }});
+  }
+  if (trendLines) {
+    elements.push({ tag: 'hr' });
+    elements.push({ tag: 'div', text: { tag: 'lark_md', content: '📈 **消耗环比趋势**:\n' + trendLines }});
+  }
+  if (topLines.length > 0) {
+    elements.push({ tag: 'hr' });
+    elements.push({ tag: 'div', text: { tag: 'lark_md', content: topLines.join('\n') }});
+  }
+  elements.push({ tag: 'hr' });
+  elements.push({ tag: 'note', elements: [{ tag: 'plain_text', content: '🕐 ' + nowLocale + ' · ' + timeSlot + ' · 5分钟轮询采集' }] });
+
+  const headerTitle = budget > 0 ? '📊 极狐直播 · 消耗 ¥' + spend.toFixed(0) + ' (' + budgetPct.toFixed(0) + '%)' + ' · ' + timeSlot : '📊 极狐直播 · ' + timeSlot;
+  const detailedCard = { config: { wide_screen_mode: true }, header: { title: { tag: 'plain_text', content: PM2_PREFIX + headerTitle }, template: headerColor }, elements: elements };
+  const result = await pushCard(larkCli, detailedCard, FEISHU_CHAT_ID, { timeoutMs: 20000, maxRetries: 1, circuitFailureThreshold: 2, circuitFailureWindow: 4, circuitOpenDurationMs: 60_000 });
+  if (result.ok) { console.log('  📨 15分钟详细卡片已推送'); return true; }
+  console.log('  ❌ 详细卡片推送异常:', result.error || 'unknown'); return false;
+}
+
 // ====== 主流程 ======
 async function main() {
   if (OEC_FORCE || OEC_DRY_RUN) {
@@ -167,15 +363,19 @@ async function main() {
     console.log(`  🧪 OEC_FORCE=1 强制绕过整点跳过 (${pad(min)}分)`);
   }
 
-  // 推播时段限制：与15分钟脚本一致 (7:00-23:00)
+  // 推播时段限制：动态读取排班窗口（与15分钟脚本一致）
   const hour = new Date().getHours();
-  const DAILY_START = 7, DAILY_END = 23;
-  if (!OEC_FORCE && (hour < DAILY_START || hour >= DAILY_END)) {
-    console.log(`  🌙 非直播时段 (${hour}:00，窗口 ${DAILY_START}:00-${DAILY_END}:00)，静默`);
+  const minute = new Date().getMinutes();
+  const shiftWin = getTodayShiftWindow();
+  const winStartMin = (shiftWin.startHour || 7) * 60 + (shiftWin.startMinute || 0);
+  const winEndMin = (shiftWin.endHour || 23) * 60 + (shiftWin.endMinute || 0);
+  const nowMin = hour * 60 + minute;
+  if (!OEC_FORCE && (nowMin < winStartMin || nowMin >= winEndMin)) {
+    console.log(`  🌙 非直播时段 (${hour}:${pad(minute)}，窗口 ${shiftWin.startHour}:${pad(shiftWin.startMinute||0)}-${shiftWin.endHour}:${pad(shiftWin.endMinute||0)})，静默`);
     return;
   }
-  if (OEC_FORCE && (hour < DAILY_START || hour >= DAILY_END)) {
-    console.log(`  🧪 OEC_FORCE=1 强制绕过非直播时段 (${hour}:00)`);
+  if (OEC_FORCE && (nowMin < winStartMin || nowMin >= winEndMin)) {
+    console.log(`  🧪 OEC_FORCE=1 强制绕过非直播时段 (${hour}:${pad(minute)})`);
   }
 
   console.log(`\n[${timeStr()}] ⏱ 5分钟轻量速报启动 (v4)`);
@@ -191,6 +391,9 @@ async function main() {
     ]);
     if (stats && stats.todaySpend > 0) {
       const totalConv = parseInt(String(projectsPage?.totalMetrics?.convert_cnt || '0').replace(/,/g, '')) || 0;
+      const totalImp = parseInt(String(projectsPage?.totalMetrics?.show_cnt || '0').replace(/,/g, '')) || 0;
+      const liveViews = parseInt(String(projectsPage?.totalMetrics?.luban_live_enter_cnt || '0').replace(/,/g, '')) || 0;
+      const liveOver1Min = parseInt(String(projectsPage?.totalMetrics?.live_watch_one_minute_count || '0').replace(/,/g, '')) || 0;
       // 从 projects 列表中统计投放中项目数
       const projects = projectsPage?.projects || [];
       const activeCnt = projects.filter(p => {
@@ -205,6 +408,9 @@ async function main() {
         totalConv,
         activeCount: activeCnt,
         spendingCount: 0,
+        impressions: totalImp,
+        liveViews,
+        liveOver1Min,
         time: new Date().toISOString(),
         _method: 'http_api',
       };
@@ -240,7 +446,7 @@ async function main() {
       const tableDataStr = await client.evalJs('(function(){let totalConv=0,activeCount=0;try{var sr=document.querySelector("tr.ovui-t-summary");if(sr){var sc=sr.querySelectorAll("th,td");totalConv=parseInt((sc[9]?.textContent||"0").replace(/,/g,""))||0}}catch(e){}try{var rows=document.querySelectorAll("tbody tr");for(var i=0;i<rows.length;i++){var cells=rows[i].querySelectorAll("td");if(cells.length<10)continue;var status=(cells[4]?.textContent||"").trim();if(status.indexOf("投放中")>=0||status.indexOf("启用中")>=0||status==="启用")activeCount++}}catch(e){}return JSON.stringify({totalConv:totalConv,activeCount:activeCount})})()');
       const tableParsed = JSON.parse(tableDataStr || '{}');
 
-      data = { ...parsed, summarySpend: parsed.accountSpend, totalConv: tableParsed.totalConv || 0, activeCount: tableParsed.activeCount || 0, spendingCount: 0, _method: 'cdp' };
+      data = { ...parsed, summarySpend: parsed.accountSpend, totalConv: tableParsed.totalConv || 0, activeCount: tableParsed.activeCount || 0, spendingCount: 0, impressions: 0, liveViews: 0, liveOver1Min: 0, _method: 'cdp' };
       console.log(`  ✅ CDP: 消耗 ¥${parsed.accountSpend?.toFixed(0)||0} | 转化 ${data.totalConv} | 投放中 ${data.activeCount}`);
     } finally { client.close(); }
   }
@@ -274,6 +480,11 @@ async function main() {
   }
 
   const rolling = calcRolling(data, prevSnapshots);
+
+  // 近5分钟展示数差值（用于CPM）
+  const lastSnap = prevSnapshots.find(s => s.impressions > 0);
+  const recentImp = lastSnap && data.impressions > lastSnap.impressions ? data.impressions - lastSnap.impressions : 0;
+  data._near5mCPM = rolling.last5min > 0 && recentImp > 0 ? (rolling.last5min / recentImp * 1000) : 0;
   
   console.log(`  累计消耗: ¥${getSpend(data).toFixed(0)} | 近${Math.round(rolling.last5minMinutes || 5)}分钟: ¥${rolling.last5min.toFixed(0)} | 投放中: ${data.activeCount}`);
   
@@ -315,7 +526,16 @@ async function main() {
       }
     } catch {}
     if (shouldPush) {
-      await pushToLark(data, rolling);
+      const now = new Date();
+      const minute = now.getMinutes();
+      const isQuarterHour = (minute % 15 === 0);
+
+      if (isQuarterHour) {
+        console.log('  📊 整刻钟 — 推送15分钟详细卡片');
+        await pushDetailedCard();
+      } else {
+        await pushToLark(data, rolling);
+      }
       atomicWriteAtomic(lastPushFile, JSON.stringify({ timestamp: Date.now() }));
     }
   }

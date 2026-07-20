@@ -21,7 +21,7 @@ function getDb() {
   _db = new Database(DB_PATH);
   _db.pragma('journal_mode = WAL');
   _db.pragma('foreign_keys = ON');
-  _db.pragma('synchronous = NORMAL'); // WAL模式下NORMAL即可，兼顾性能与安全
+  _db.pragma('synchronous = FULL'); // FULL 确保断电不丢已提交事务（WAL + FULL 兼顾性能与安全）
 
   _stmts = {
     upsertCampaign: _db.prepare(`
@@ -189,6 +189,7 @@ export function closeDb() {
   }
 }
 
-// 进程退出时自动关闭
+// 进程退出时自动关闭（覆盖 PM2 SIGTERM / SIGINT / 正常退出）
 process.on('exit', () => closeDb());
 process.on('SIGINT', () => { closeDb(); process.exit(0); });
+process.on('SIGTERM', () => { closeDb(); process.exit(0); });
