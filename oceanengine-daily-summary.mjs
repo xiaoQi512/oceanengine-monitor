@@ -1,4 +1,4 @@
-﻿// oceanengine-daily-summary.mjs — 大号日汇报（管理层版）
+// oceanengine-daily-summary.mjs — 大号日汇报（管理层版）
 // 每天下播后触发：HTTP API 拉直播全天 + 短视频全天 → 合并 → 推飞书群
 // 推送目标: 上架群
 //
@@ -13,18 +13,18 @@ import https from "node:https";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createClient, getSessionStats } from "./oceanengine-api-client.mjs";
-import { findLarkCli, DATA_DIR, getLocalDate, getShiftsPerDay } from "./monitor-utils.mjs";
+import {
+  findLarkCli, DATA_DIR, getLocalDate, getShiftsPerDay,
+  SHIFT_SPREADSHEET_TOKEN as SPREADSHEET_TOKEN, SHIFT_SHEET_ID as SHEET_ID,
+  FEISHU_ANCHOR_CHAT_ID as SUMMARY_CHAT_ID, ACCOUNT_ID as LIVE_ACCOUNT_ID,
+  VIDEO_ACCOUNT_ID,
+} from "./monitor-utils.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OEC_FORCE = process.env.OEC_FORCE === "1";
 const OEC_DRY_RUN = process.env.OEC_DRY_RUN === "1";
 
-// ====== 配置 ======
-const SPREADSHEET_TOKEN = "GiNOslsWQhyHDPtclPscns3GnAf";
-const SHEET_ID = "j69tpS";
-const SUMMARY_CHAT_ID = "oc_b245ee4b255c7b25b7f8d953802c49ff"; // 上架群
-const LIVE_ACCOUNT_ID = "1842681352509635";
-const VIDEO_ACCOUNT_ID = "1852666142648332";
+// ====== 配置（从 monitor-utils 导入）======
 
 // ====== 排班读取 ======
 function getSessionsForDate(dateStr) {

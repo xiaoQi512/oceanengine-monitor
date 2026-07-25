@@ -1,10 +1,10 @@
-﻿// ecosystem.config.cjs — PM2 进程配置（巨量引擎监控全家桶）
+// ecosystem.config.cjs — PM2 进程配置（巨量引擎监控全家桶）
 // 用法: pm2 start ecosystem.config.cjs
 //       pm2 start ecosystem.config.cjs --only pm2-5min   (仅启动5分钟)
 //       pm2 start ecosystem.config.cjs --only pm2-15min  (仅启动15分钟)
-const MONITOR_DIR = "E:\\炼丹炉\\WorkBuddy\\巨量引擎监控";
+const MONITOR_DIR = process.env.MONITOR_DIR || __dirname;
 const LOG_DIR = `${MONITOR_DIR}\\monitor-data`;
-const NODE = "C:\\Users\\HTF2026\\.workbuddy\\binaries\\node\\versions\\22.22.2\\node.exe";
+const NODE = process.env.NODE_EXE || "C:\\Users\\HTF2026\\.workbuddy\\binaries\\node\\versions\\22.22.2\\node.exe";
 
 module.exports = {
   apps: [

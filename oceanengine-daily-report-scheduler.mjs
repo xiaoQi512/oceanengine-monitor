@@ -4,7 +4,7 @@
 // 步骤: 重新采集最新数据 → 读取全天采样 → 推送到飞书群
 // ============================================================
 import { execSync } from 'child_process';
-import { writeFileSync, readFileSync, existsSync, appendFileSync } from 'fs';
+import { writeFileSync, readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import http from 'http';
@@ -14,7 +14,9 @@ import {
   DATA_DIR, FEISHU_CHAT_ID, FEEDBACK_PORT,
 } from './monitor-utils.mjs';
 import { pushCard } from './feishu-push-guard.mjs';
+import { createLogger } from './logger.mjs';
 
+const log = createLogger('日报').info;
 const OEC_FORCE = process.env.OEC_FORCE === "1";
 
 // ====== 去重检查：每天只允许推送一次日报 ======
@@ -40,19 +42,11 @@ if (waitMs > 0 && waitMs < 3600000) {
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const LOG = join(__dirname, 'scheduler.log');
 const SCRIPT = join(__dirname, 'oceanengine-monitor-v3.mjs');
 const NODE = process.execPath;
 const LARK_CLI = findLarkCli();
 const CHAT_ID = FEISHU_CHAT_ID;
 
-function now() { return new Date().toISOString().replace('T', ' ').slice(0, 19); }
-function log(msg) {
-  const line = `[${now()}] [日报] ${msg}`;
-  console.log(line);
-  // 直接写文件，不经过 shell（避免注入风险）
-  try { appendFileSync(LOG, line + '\n'); } catch {}
-}
 
 log('📊 启动 23:05 日报汇总流程');
 

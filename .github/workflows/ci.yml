@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    # UTC 19:00 = Beijing 03:00 (监控低峰期)
+    - cron: '0 19 * * *'
+  workflow_dispatch:
+
+jobs:
+  # ====== 单元测试 (push/PR/schedule) ======
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: node scripts/ci-test.mjs
+
+  # ====== 备份恢复验证 (schedule/manual, push 时也跑) ======
+  backup-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: node scripts/backup-verify.mjs

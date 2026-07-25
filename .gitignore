@@ -1,6 +1,5 @@
 # 依赖
 node_modules/
-package-lock.json
 
 # 运行时数据(大文件)
 monitor-data/

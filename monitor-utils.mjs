@@ -1,10 +1,11 @@
-﻿// monitor-utils.mjs — 共享工具模块 (v3.2 配置中心化 2026-06-29)
+// monitor-utils.mjs — 共享工具模块 (v3.2 配置中心化 2026-06-29)
 // 供 monitor-v3 / daily-report-scheduler / feedback-server / daily-report / ai-regions 共用
 import fs from 'node:fs';
 import path from 'node:path';
 import { execSync, execFileSync, spawnSync, spawn } from 'node:child_process';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
+import { installConsoleInterceptor } from './logger.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -17,25 +18,9 @@ if (fs.existsSync(ENV_FILE)) {
   }
 }
 
-// ====== 静默模式 (OEC_SILENT=1 时抑制所有控制台输出) ======
-const IS_SILENT = process.env.OEC_SILENT === '1';
-if (IS_SILENT) {
-  const noop = () => {};
-  const LOG_FILE = path.join(__dirname, 'monitor-data', 'monitor.log');
-  const toFile = (...args) => {
-    const line = `[${new Date().toLocaleString()}] ${args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ')}\n`;
-    try { fs.appendFileSync(LOG_FILE, line); } catch {}
-  };
-  console.log = toFile;
-  console.warn = toFile;
-  console.error = toFile;
-  console.info = toFile;
-  // 保持 process.stdout/stderr 静默
-  const origStdout = process.stdout.write.bind(process.stdout);
-  const origStderr = process.stderr.write.bind(process.stderr);
-  process.stdout.write = noop;
-  process.stderr.write = noop;
-}
+// 统一日志聚合：结构化 ndjson + 纯文本 monitor.log，按日轮转
+// OEC_SILENT=1 时抑制 stdout（由 logger.mjs 处理）
+installConsoleInterceptor();
 
 // ====== 共享路径常量 ======
 export const DATA_DIR = path.join(__dirname, 'monitor-data');
@@ -46,18 +31,19 @@ export const FEISHU_CHAT_ID = process.env.LARK_MONITOR_CHAT_ID || 'oc_8deeb3061b
 export const FEISHU_ANCHOR_CHAT_ID = process.env.LARK_ANCHOR_CHAT_ID || 'oc_b245ee4b255c7b25b7f8d953802c49ff';
 export const ACCOUNT_NAME = '极狐-区域福利号-直播';
 export const ACCOUNT_ID = process.env.OEC_ACCOUNT_ID || '1842681352509635';
+export const VIDEO_ACCOUNT_ID = process.env.OEC_VIDEO_ACCOUNT_ID || '1852666142648332';
 export const CAMPAIGN_URL = `https://ad.oceanengine.com/promotion/promote-manage/project?aadvid=${ACCOUNT_ID}`;
-export const DAILY_BUDGET = 45000;
+export const DAILY_BUDGET = Number(process.env.OEC_DAILY_BUDGET || '45000');
 export const DAILY_START_HOUR = 7;
 export const DAILY_END_HOUR = 23;
 
 // ====== 动态排班窗口：从飞书排班表读取当天直播起止小时 ======
 // 返回 { startHour, startMinute, endHour }，失败时回退 DAILY_START_HOUR/DAILY_END_HOUR
 // 优先读取本地缓存（sync-tomorrow-shifts.mjs 每日23:00同步）
-const SHIFT_SPREADSHEET_TOKEN = 'GiNOslsWQhyHDPtclPscns3GnAf';
-const SHIFT_SHEET_ID = 'j69tpS';
-const SHIFT_BASE_DATE = new Date(2026, 5, 26);
-const SHIFT_BASE_ROW = 200;
+export const SHIFT_SPREADSHEET_TOKEN = process.env.SHIFT_SPREADSHEET_TOKEN || 'GiNOslsWQhyHDPtclPscns3GnAf';
+export const SHIFT_SHEET_ID = process.env.SHIFT_SHEET_ID || 'j69tpS';
+export const SHIFT_BASE_DATE = new Date(2026, 5, 26);
+export const SHIFT_BASE_ROW = 200;
 let _shiftWindowCache = null;
 let _shiftWindowCacheDate = '';
 
@@ -193,18 +179,18 @@ export const AI_REGIONS = [
 ];
 
 // ====== 基础设施端口（统一管理，避免散落） ======
-export const CDP_PORT = 9222;
+export const CDP_PORT = Number(process.env.CDP_PORT || '9222');
 export const CDP_PROXY_PORT = 3456;   // ai-regions 仍依赖，待后续迁移
 export const CDP_PROXY_URL = `http://localhost:${CDP_PROXY_PORT}`;
-export const FEEDBACK_PORT = 8899;
+export const FEEDBACK_PORT = Number(process.env.FEEDBACK_PORT || '8899');
 
 // ====== 浏览器配置 ======
 // Chrome User Data 目录（Chrome149要求CDP使用非默认目录，故用D盘独立副本）
 // 主数据: C:\Users\HTF2026\AppData\Local\Google\Chrome\User Data (日常使用)
 // CDP副本: D:\ChromeCDP\User Data (监控专用，自动脚本同步)
-export const CHROME_USER_DATA_DIR = 'D:\\ChromeCDP\\User Data';
+export const CHROME_USER_DATA_DIR = process.env.CHROME_USER_DATA_DIR || 'D:\\ChromeCDP\\User Data';
 // 默认使用 Profile 4（小七身份）
-export const CHROME_PROFILE_DIRECTORY = 'Profile 4';
+export const CHROME_PROFILE_DIRECTORY = process.env.CHROME_PROFILE_DIRECTORY || 'Profile 4';
 // Chrome 安装路径搜索列表（D盘Chrome）
 export const CHROME_PATHS = [
   'D:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',

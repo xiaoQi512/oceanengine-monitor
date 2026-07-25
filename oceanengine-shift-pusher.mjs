@@ -22,6 +22,8 @@ import { createClient } from './oceanengine-api-client.mjs';
 import { getShiftDelta } from './巨量引擎快照数据库/snapshot-db.mjs';
 import {
   findLarkCli, DATA_DIR, getLocalDate, atomicWriteJSON, getShiftsPerDay, getShiftRowForDate,
+  SHIFT_SPREADSHEET_TOKEN as SPREADSHEET_TOKEN, SHIFT_SHEET_ID as SHEET_ID,
+  FEISHU_ANCHOR_CHAT_ID as SHIFT_CHAT_ID, ACCOUNT_ID,
 } from './monitor-utils.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -30,11 +32,7 @@ const OEC_DRY_RUN = process.env.OEC_DRY_RUN === '1';
 const OEC_SKIP_WRITE_SHEET = process.env.OEC_SKIP_WRITE_SHEET === '1';
 const OEC_SHIFT_LABEL = process.env.OEC_SHIFT_LABEL || '';
 
-// ====== 配置常量 ======
-const SPREADSHEET_TOKEN = 'GiNOslsWQhyHDPtclPscns3GnAf';
-const SHEET_ID = 'j69tpS';
-const SHIFT_CHAT_ID = 'oc_b245ee4b255c7b25b7f8d953802c49ff';
-const ACCOUNT_ID = '1842681352509635';
+// ====== 配置常量（从 monitor-utils 导入）======
 const CAR_MODEL_DEFAULT = '贝塔S3';
 const CAR_MODEL_OVERRIDE = {
   '2026-06-30': '问道V9',

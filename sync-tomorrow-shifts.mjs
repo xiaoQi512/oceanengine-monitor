@@ -1,4 +1,4 @@
-﻿// sync-tomorrow-shifts.mjs — 每日同步次日主播排班到本地缓存
+// sync-tomorrow-shifts.mjs — 每日同步次日主播排班到本地缓存
 // PM2 cron: 0 23 * * *（每天23:00执行）
 // 读取飞书排班表次日班次，写入 monitor-data/shifts-YYYY-MM-DD.json
 // 供 getTodayShiftWindow() / readTodayShifts() / readTodayShiftTimes() 优先读取
@@ -7,64 +7,18 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import {
+  findLarkCli, DATA_DIR, getLocalDate, getShiftsPerDay, getShiftRowForDate,
+  SHIFT_SPREADSHEET_TOKEN as SPREADSHEET_TOKEN, SHIFT_SHEET_ID as SHEET_ID,
+} from "./monitor-utils.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, "monitor-data");
 
-// ====== 配置 ======
-const SPREADSHEET_TOKEN = "GiNOslsWQhyHDPtclPscns3GnAf";
-const SHEET_ID = "j69tpS";
-const BASE_DATE = new Date(2026, 5, 26); // 2026-06-26
-const BASE_ROW = 200;
-
-// ====== lark-cli 查找 ======
-function findLarkCli() {
-  const home = process.env.HOME || process.env.USERPROFILE || "C:/Users/HTF2026";
-  const larkPkgDir = path.join(home, ".workbuddy/binaries/node/cli-connector-packages");
-  const candidates = [
-    path.join(larkPkgDir, "node_modules/@larksuite/cli/bin/lark-cli.exe"),
-    path.join(larkPkgDir, "lark-cli.cmd"),
-    path.join(larkPkgDir, "lark-cli"),
-    "lark-cli",
-    "lark-cli.cmd",
-  ];
-  for (const c of candidates) {
-    try {
-      if (c.endsWith(".exe")) {
-        if (!fs.existsSync(c)) continue;
-      }
-      return c;
-    } catch {}
-  }
-  return "";
-}
-
-// ====== 日期工具 ======
-function getLocalDate(d = new Date()) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
+// getTomorrowDate 依赖 getLocalDate（已从 monitor-utils 导入）
 function getTomorrowDate() {
   const d = new Date();
   d.setDate(d.getDate() + 1);
   return getLocalDate(d);
-}
-
-// ====== 排班表行号计算 ======
-function getShiftsPerDay(dateStr) {
-  if (dateStr >= "2026-07-08" && dateStr <= "2026-07-10") return 9;
-  return 8;
-}
-
-function getShiftRowForDate(dateStr) {
-  const target = new Date(dateStr + "T00:00:00+08:00");
-  let row = BASE_ROW;
-  const d = new Date(BASE_DATE);
-  while (d < target) {
-    row += getShiftsPerDay(d.toISOString().slice(0, 10));
-    d.setDate(d.getDate() + 1);
-  }
-  return row;
 }
 
 // ====== 从飞书读取排班 ======

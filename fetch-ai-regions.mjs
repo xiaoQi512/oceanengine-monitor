@@ -2,13 +2,7 @@
 // 用法: node fetch-ai-regions.mjs
 // 依次通过CDP Proxy打开5个AI账户报表，提取直播/短视频数据
 
-const REPORT_IDS = {
-  '东区': { aadvid: '1842681994872135', reportId: '299497419' },
-  '西区': { aadvid: '1842681830951944', reportId: '299491275' },
-  '中区': { aadvid: '1842663909080452', reportId: '298926513' },
-  '南区': { aadvid: '1842682454270468', reportId: '299530471' },
-  '北区': { aadvid: '1842683071403332', reportId: '299540674' }
-};
+import { AI_REGIONS as REPORT_IDS } from './monitor-utils.mjs';
 
 const PROXY = 'http://localhost:3456';
 const TODAY = new Date().toISOString().slice(0, 10); // 2026-06-26
@@ -120,7 +114,9 @@ async function main() {
   console.log(`目标日期: ${TODAY}`);
   
   const results = [];
-  for (const [name, config] of Object.entries(REPORT_IDS)) {
+  for (const region of REPORT_IDS) {
+  const { name, aadvid, reportId } = region;
+  const config = { aadvid, reportId };
     const result = await fetchRegion(name, config);
     results.push(result);
     await sleep(1000); // 区域间间隔

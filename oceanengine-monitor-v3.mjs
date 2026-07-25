@@ -1,4 +1,4 @@
-﻿// oceanengine-monitor-v3.mjs — 巨量引擎监控 v4
+// oceanengine-monitor-v3.mjs — 巨量引擎监控 v4
 // v4: HTTP API主方案 + CDP降级（速度提升30-60倍）
 // 使用逆向工程验证的3个内部API端点
 
@@ -25,27 +25,8 @@ import { pushCard, pushFile } from './feishu-push-guard.mjs';
 import { insertSnapshot, verifyConsistency, closeDb as closeWriterDb } from './db/writer.mjs';
 import { refreshMaterialized } from './db/refresh-materialized.mjs';
 
-// ====== 日志文件 (所有 console 输出同时写文件；OEC_SILENT=1 时静默) ======
-const LOG_FILE = path.join(DATA_DIR, 'monitor.log');
-const SILENT = process.env.OEC_SILENT === '1';
+// 日志聚合由 monitor-utils.mjs -> logger.mjs 统一处理（console 劫持 + 按日轮转）
 const PM2_PREFIX = process.env.OEC_PM2_TEST === '1' ? '🧪 [PM2测试] ' : '';
-const origLog = console.log;
-const origError = console.error;
-const origWarn = console.warn;
-function logToFile(...args) {
-  const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ');
-  const line = `[${new Date().toLocaleTimeString()}] ${msg}\n`;
-  try { fs.appendFileSync(LOG_FILE, line); } catch {}
-}
-if (SILENT) {
-  console.log = logToFile;
-  console.error = (...args) => logToFile('[ERROR]', ...args);
-  console.warn = (...args) => logToFile('[WARN]', ...args);
-} else {
-  console.log = (...args) => { origLog(...args); logToFile(...args); };
-  console.error = (...args) => { origError(...args); logToFile('[ERROR]', ...args); };
-  console.warn = (...args) => { origWarn(...args); logToFile('[WARN]', ...args); };
-}
 
 // 动态读取排班窗口,覆盖默认值
 const _shiftWin = getTodayShiftWindow();
@@ -58,7 +39,9 @@ const CONFIG = {
   pageSize: 50,
   // ====== 投放窗口 ======
   dailyStartHour: _shiftWin.startHour,
+  dailyStartMinute: _shiftWin.startMinute || 0,
   dailyEndHour: _shiftWin.endHour,
+  dailyEndMinute: _shiftWin.endMinute || 0,
   dailyBudget: DAILY_BUDGET,
   feedbackPort: FEEDBACK_PORT,
   // ====== 告警阈值 (集中管理，方便调优) ======
@@ -1410,11 +1393,13 @@ function analyzeData(campaigns, accountSpend = 0, accountBudget = 0, accountBala
   console.log('  [DEBUG] CK5: pacing calc start, totalSpend=' + totalSpend + ' effectiveBudget=' + effectiveBudget);
 
   // ====== 消耗节奏分析 ======
-  const { dailyStartHour, dailyEndHour } = CONFIG;
+  const { dailyStartHour, dailyStartMinute, dailyEndHour, dailyEndMinute } = CONFIG;
   const now = new Date();
   const currentHour = now.getHours() + now.getMinutes() / 60;
-  const windowDuration = dailyEndHour - dailyStartHour;
-  const elapsedHours = Math.max(0, Math.min(currentHour - dailyStartHour, windowDuration));
+  const startH = dailyStartHour + (dailyStartMinute || 0) / 60;
+  const endH = dailyEndHour + (dailyEndMinute || 0) / 60;
+  const windowDuration = endH - startH;
+  const elapsedHours = Math.max(0, Math.min(currentHour - startH, windowDuration));
   const timeProgress = Math.min(elapsedHours / windowDuration, 1); // 0-1
   const idealSpend = timeProgress * effectiveBudget;
   const pacingRatio = idealSpend > 0 ? totalSpend / idealSpend : 0;
@@ -1422,7 +1407,7 @@ function analyzeData(campaigns, accountSpend = 0, accountBudget = 0, accountBala
   // 预估今日总消耗（按当前均速推算）
   const minutesElapsed = Math.max(elapsedHours * 60, 1);
   const avgSpeed = totalSpend / minutesElapsed; // 今日平均元/分钟
-  const remainingMinutes = Math.max((dailyEndHour - Math.min(currentHour, dailyEndHour)) * 60, 0);
+  const remainingMinutes = Math.max((endH - Math.min(currentHour, endH)) * 60, 0);
   const projectedDaily = totalSpend + avgSpeed * remainingMinutes;
   
   let pacingHealth;
@@ -1432,13 +1417,13 @@ function analyzeData(campaigns, accountSpend = 0, accountBudget = 0, accountBala
   
   // 当前时段标签（由排班表动态计算）
   let timeSlot;
-  if (currentHour < dailyStartHour) timeSlot = '未开始';
+  if (currentHour < startH) timeSlot = '未开始';
   else if (currentHour < 9) timeSlot = '冷启动期';
   else if (currentHour < 11) timeSlot = '早高峰';
   else if (currentHour < 14) timeSlot = '午高峰';
   else if (currentHour < 17) timeSlot = '午后平稳期';
   else if (currentHour < 20) timeSlot = '晚高峰';
-  else if (currentHour < dailyEndHour) timeSlot = '夜间收尾';
+  else if (currentHour < endH) timeSlot = '夜间收尾';
   else timeSlot = '已结束';
   
   console.log('  [DEBUG] CK6: alerts-start, pacingHealth=' + pacingHealth + ' timeSlot=' + timeSlot);
