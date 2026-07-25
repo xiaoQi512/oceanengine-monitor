@@ -1,5 +1,7 @@
 # 巨量引擎监控
 
+[![CI](https://github.com/xiaoQi512/oceanengine-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/xiaoQi512/oceanengine-monitor/actions/workflows/ci.yml)
+
 巨量引擎广告账户实时监控系统，5分钟/15分钟定时推送飞书卡片，支持主播换班数据同步、日程报表生成、Dashboard 可视化。
 
 ## 代码量统计
