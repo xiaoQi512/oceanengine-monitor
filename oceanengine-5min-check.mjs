@@ -124,7 +124,7 @@ async function pushToLark(data, rolling) {
             `💰 **近${Math.round(rolling.last5minMinutes || 5)}分钟消耗**: ¥${rolling.last5min.toFixed(0)} | **今日累计**: ¥${getSpend(data).toFixed(0)}`,
             `📊 **预算**: ¥${data.accountBudget > 0 ? data.accountBudget.toFixed(0) : '--'} | **投放中**: ${data.activeCount}条`,
             `🎯 **近${Math.round(rolling.last5minMinutes || 5)}分钟转化**: +${rolling.convLast5min}条 | **今日累计**: ${getConv(data)}条`,
-            `📡 **近5m CPM**: ¥${data._near5mCPM > 0 ? data._near5mCPM.toFixed(1) : '--'}`,
+            `📡 **近${Math.round(rolling.last5minMinutes || 5)}m CPM**: ¥${data._recentCPM > 0 ? data._recentCPM.toFixed(1) : '--'}`,
             ``,
             `📈 **消耗环比**:`,
             `${trendLines}`,
@@ -481,10 +481,10 @@ async function main() {
 
   const rolling = calcRolling(data, prevSnapshots);
 
-  // 近5分钟展示数差值（用于CPM）
-  const lastSnap = prevSnapshots.find(s => s.impressions > 0);
-  const recentImp = lastSnap && data.impressions > lastSnap.impressions ? data.impressions - lastSnap.impressions : 0;
-  data._near5mCPM = rolling.last5min > 0 && recentImp > 0 ? (rolling.last5min / recentImp * 1000) : 0;
+  // 与"近X分钟消耗"同一快照窗口算 CPM (消耗增量 / 展示增量 × 1000)
+  const baseSnap = prevSnapshots[0];
+  const recentImp = baseSnap && data.impressions > baseSnap.impressions ? data.impressions - baseSnap.impressions : 0;
+  data._recentCPM = rolling.last5min > 0 && recentImp > 0 ? (rolling.last5min / recentImp * 1000) : 0;
   
   console.log(`  累计消耗: ¥${getSpend(data).toFixed(0)} | 近${Math.round(rolling.last5minMinutes || 5)}分钟: ¥${rolling.last5min.toFixed(0)} | 投放中: ${data.activeCount}`);
   
