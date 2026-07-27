@@ -1315,6 +1315,31 @@ function analyzeData(campaigns, accountSpend = 0, accountBudget = 0, accountBala
   const prevIndex15 = prev.t15 ? buildCampaignIndex(prevCampaigns15) : new Map();
   const prevIndex30 = prev.t30 ? buildCampaignIndex(prevCampaigns30) : new Map();
 
+  // ====== 检测计划状态变化：投放中 -> 项目超出预算 ======
+  // 对比本次快照与上一次15分钟快照，找出状态由「投放中」变为「项目超出预算」的计划
+  const budgetExceededChanges = [];
+  if (prev.t15) {
+    for (const c of allSpending) {
+      const prevC = prevIndex15.get(c.id);
+      if (!prevC) continue;
+      const wasActive = prevC.status === '投放中';
+      const nowExceeded = typeof c.status === 'string' && c.status.includes('超出预算');
+      if (wasActive && nowExceeded) {
+        budgetExceededChanges.push({
+          id: c.id,
+          name: c.name,
+          spend: c.spend || 0,
+          budget: c.budget || 0,
+          prevStatus: prevC.status,
+          curStatus: c.status,
+        });
+      }
+    }
+    if (budgetExceededChanges.length > 0) {
+      console.log(`  ⚠️ 检测到 ${budgetExceededChanges.length} 条计划从「投放中」变为「项目超出预算」: ${budgetExceededChanges.map(c => c.name.slice(0, 20)).join(', ')}`);
+    }
+  }
+
   // 历史总消耗/CPA 对比基线
   // 规则: 当前用账户消耗时, 历史也必须用账户消耗(同源比较); 若历史快照accountSpend=0说明跨天/重置, 视为无效基线(null)
   // 若当前不用账户消耗(无账户数据), 才回退到totalSpend
@@ -1831,6 +1856,7 @@ function analyzeData(campaigns, accountSpend = 0, accountBudget = 0, accountBala
   console.log('  [DEBUG] CK16: pre-return, totalSpend=' + totalSpend + ' totalConversions=' + totalConversions + ' avgCPA=' + avgCPA.toFixed(2));
   return {
     active, allSpending, paused: campaigns.filter(c => c.status.includes('暂停')).length,
+    budgetExceededChanges,
     summary: {
       totalActive: active.length, totalSpending: allSpending.length,
       totalSpend, totalConversions, avgCPA, avgCTR, avgCVR, avgCPM,
@@ -2411,6 +2437,20 @@ async function buildFeishuCard(analysis) {
     tag: 'div',
     text: { tag: 'lark_md', content: alertLines.join('\n') }
   });
+
+  // --- 计划状态变化提醒：投放中 -> 项目超出预算 ---
+  if (analysis.budgetExceededChanges && analysis.budgetExceededChanges.length > 0) {
+    elements.push({ tag: 'hr' });
+    const lines = [`🔴 **预算超限提醒**：${analysis.budgetExceededChanges.length} 条计划刚从「投放中」变为「项目超出预算」`];
+    for (const c of analysis.budgetExceededChanges.slice(0, 5)) {
+      const pct = c.budget > 0 ? ((c.spend / c.budget) * 100).toFixed(0) : '--';
+      lines.push(`  • ${c.name.slice(0, 30)} - 消耗 ¥${c.spend.toFixed(0)} / 预算 ¥${c.budget.toFixed(0)} (${pct}%)`);
+    }
+    elements.push({
+      tag: 'div',
+      text: { tag: 'lark_md', content: lines.join('\n') }
+    });
+  }
 
   // 可执行建议 (不在卡片中展示，仅通过 sendFeishuPush 发送)
   const pendingSuggestions = [];
