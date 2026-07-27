@@ -173,6 +173,7 @@ module.exports = {
       exec_mode: "fork",
       interpreter: NODE,
       env: { NODE_ENV: "production" },
+      // [v1.1] 必须单实例：文件锁 wx 标志依赖单进程互斥；容器化时需升级为 Redis 锁
       instances: 1,
       autorestart: true,
       max_restarts: 10,

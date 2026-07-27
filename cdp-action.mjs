@@ -417,20 +417,21 @@ export async function togglePlanStatus(planName, action) {
       return /暂停|未投放|关停/.test(st);
     }, { maxRetries: 2, intervalMs: 5000 });
 
-    writeAuditLog({
-      action: `toggle:${action}`,
-      plan: planName,
-      before: beforeState.found
-        ? { status: beforeState.status, budget: beforeState.budget }
-        : { found: false },
-      after: verify.state?.found
-        ? { status: verify.state.status, budget: verify.state.budget }
-        : { found: false },
-      result: execResult?.ok ? 'success' : (execResult?.alreadyDone ? 'noop' : 'failed'),
-      retries: Math.max(0, verify.attempts - 1),
-      execResult,
-      apiVerified: verify.ok,
-    });
+    // [v1.1 D1] 审计归一到 action-queue-worker，此处不再写入
+    // writeAuditLog({
+    //   action: `toggle:${action}`,
+    //   plan: planName,
+    //   before: beforeState.found
+    //     ? { status: beforeState.status, budget: beforeState.budget }
+    //     : { found: false },
+    //   after: verify.state?.found
+    //     ? { status: verify.state.status, budget: verify.state.budget }
+    //     : { found: false },
+    //   result: execResult?.ok ? 'success' : (execResult?.alreadyDone ? 'noop' : 'failed'),
+    //   retries: Math.max(0, verify.attempts - 1),
+    //   execResult,
+    //   apiVerified: verify.ok,
+    // });
 
     // 若 CDP 验证失败但 API 校验通过，以 API 为准
     if (execResult && !execResult.ok && verify.ok) {
@@ -532,16 +533,17 @@ export async function adjustBudget(planName, amount) {
       return s.budget != null && Math.abs(s.budget - amount) < 0.01;
     }, { maxRetries: 2, intervalMs: 5000 });
 
-    writeAuditLog({
-      action: 'adjust_budget',
-      plan: planName,
-      before: { budget: beforeState.budget ?? null, rawBudget: oldBudget },
-      after: { budget: verify.state?.budget ?? null, expected: amount },
-      result: execResult?.ok ? 'success' : 'failed',
-      retries: Math.max(0, verify.attempts - 1),
-      execResult,
-      apiVerified: verify.ok,
-    });
+    // [v1.1 D1] 审计归一到 action-queue-worker
+    // writeAuditLog({
+    //   action: 'adjust_budget',
+    //   plan: planName,
+    //   before: { budget: beforeState.budget ?? null, rawBudget: oldBudget },
+    //   after: { budget: verify.state?.budget ?? null, expected: amount },
+    //   result: execResult?.ok ? 'success' : 'failed',
+    //   retries: Math.max(0, verify.attempts - 1),
+    //   execResult,
+    //   apiVerified: verify.ok,
+    // });
 
     if (execResult && !execResult.ok && verify.ok) {
       console.log('[cdp-action] CDP 未确认，但 API 校验预算已生效');
@@ -654,16 +656,17 @@ export async function adjustBid(planName, bid) {
       return String(s.bid).includes(String(safeBid));
     }, { maxRetries: 2, intervalMs: 5000 });
 
-    writeAuditLog({
-      action: 'adjust_bid',
-      plan: planName,
-      before: { bid: beforeState.bid || oldBid || null },
-      after: { bid: verify.state?.bid ?? null, expected: safeBid },
-      result: execResult?.ok ? 'success' : 'failed',
-      retries: Math.max(0, verify.attempts - 1),
-      execResult,
-      apiVerified: verify.ok,
-    });
+    // [v1.1 D1] 审计归一到 action-queue-worker
+    // writeAuditLog({
+    //   action: 'adjust_bid',
+    //   plan: planName,
+    //   before: { bid: beforeState.bid || oldBid || null },
+    //   after: { bid: verify.state?.bid ?? null, expected: safeBid },
+    //   result: execResult?.ok ? 'success' : 'failed',
+    //   retries: Math.max(0, verify.attempts - 1),
+    //   execResult,
+    //   apiVerified: verify.ok,
+    // });
 
     if (execResult && !execResult.ok && verify.ok) {
       console.log('[cdp-action] CDP 未确认，但 API 校验出价已生效');

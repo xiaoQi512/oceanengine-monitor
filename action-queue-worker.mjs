@@ -75,12 +75,33 @@ function saveQueue(q) {
 
 // ====== 审计日志 ======
 
+// [v1.1 D1/D7] 唯一审计写入点（cdp-action 的 writeAuditLog 已废弃）
+// source: auto/manual/dashboard/feishu
+// method: http_api/cdp/none
+const VALID_SOURCES = ['auto', 'manual', 'dashboard', 'feishu'];
 function writeAudit(entry) {
   try {
     if (!fs.existsSync(path.dirname(AUDIT_LOG_FILE))) {
       fs.mkdirSync(path.dirname(AUDIT_LOG_FILE), { recursive: true });
     }
-    fs.appendFileSync(AUDIT_LOG_FILE, JSON.stringify({ time: new Date().toISOString(), ...entry }) + '\n');
+    const record = {
+      time: entry.time || new Date().toISOString(),
+      traceRef: entry.traceRef || '',
+      actionType: entry.actionType || '',
+      planName: entry.planName || '',
+      projectId: entry.projectId || '',
+      source: VALID_SOURCES.includes(entry.source) ? entry.source : 'unknown',
+      beforeValue: entry.beforeValue ?? null,
+      afterValue: entry.afterValue ?? null,
+      result: {
+        ok: entry.result?.ok ?? false,
+        method: entry.result?.method || 'none',
+        attempts: entry.result?.attempts || 0,
+        error: entry.result?.error || null,
+      },
+      workerPid: process.pid,
+    };
+    fs.appendFileSync(AUDIT_LOG_FILE, JSON.stringify(record) + '\n');
   } catch (e) {
     console.warn('[worker] 审计写入失败:', e.message);
   }
@@ -165,16 +186,20 @@ async function processHead() {
     }
   }
 
-  // 写审计
+  // [v1.1 D1/D7] 写审计（唯一写入点，含扩展字段）
   writeAudit({
-    action: auditAction,
-    plan: planName,
-    before: head.before || null,
-    after: result?.freshData || result?.newBudget || result?.newBid || null,
-    result: result?.ok ? 'success' : 'failed',
-    retries: attempts - 1,
-    source: head.source || 'queue',
-    execResult: result,
+    traceRef: head.traceRef || '',
+    actionType: auditAction,
+    planName: planName,
+    projectId: head.projectId || '',
+    beforeValue: head.before || head.amount || head.bid || null,
+    result: {
+      ok: result?.ok ?? false,
+      method: result?.method || 'http_api',
+      attempts: attempts,
+      error: result?.err || result?.error || null,
+    },
+    source: head.source || 'feishu',
   });
 
   // 出队 or 标记 failed

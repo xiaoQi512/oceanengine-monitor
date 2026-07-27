@@ -15,8 +15,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawnSync, spawn, exec } from 'child_process';
 import { pushText } from './feishu-push-guard.mjs';
-import { findLarkCli, loadSuggestionHistory, saveSuggestionHistory, recalcSummary, DATA_DIR, CHROME_USER_DATA_DIR, CHROME_PROFILE_DIRECTORY, findChromeExe } from './monitor-utils.mjs';
+import { findLarkCli, loadSuggestionHistory, saveSuggestionHistory, recalcSummary, DATA_DIR, CHROME_USER_DATA_DIR, CHROME_PROFILE_DIRECTORY, findChromeExe, ACTION_AUDIT_FILE, ACTION_PENDING_FILE, initPendingFile } from './monitor-utils.mjs';
 import { checkCDP } from './cdp-client.mjs';
+import crypto from 'crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -315,6 +316,131 @@ function removeQueued(idx) {
   if (idx >= 0 && idx < (q.actions?.length || 0)) { q.actions.splice(idx, 1); saveQueue(q); }
 }
 
+// ====== [v1.1 D2] Pending 表（待确认操作） ======
+
+function loadPending() {
+  try { return JSON.parse(fs.readFileSync(ACTION_PENDING_FILE, 'utf-8')); } catch { return { pending: [] }; }
+}
+function savePending(data) { fs.writeFileSync(ACTION_PENDING_FILE, JSON.stringify(data, null, 2), 'utf-8'); }
+
+function addPending(action, chatId, meta = {}) {
+  initPendingFile();
+  const data = loadPending();
+  data.pending.push({
+    tempId: crypto.randomUUID(),
+    action: { planName: action.planName, type: action.type, amount: action.amount || null },
+    chatId,
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 3 * 60 * 1000).toISOString(),
+    ...meta,
+  });
+  savePending(data);
+}
+
+// ====== [v1.1 D2] 当日重复指令检测 ======
+
+function checkDuplicateToday(action) {
+  try {
+    initPendingFile();
+    if (!fs.existsSync(ACTION_AUDIT_FILE)) return null;
+    const today = new Date().toISOString().slice(0, 10);
+    const lines = fs.readFileSync(ACTION_AUDIT_FILE, 'utf-8').split('\n').filter(Boolean);
+    const duplicates = lines
+      .map(l => { try { return JSON.parse(l); } catch { return null; } })
+      .filter(r => r &&
+        r.time?.startsWith(today) &&
+        r.planName === action.planName &&
+        r.actionType === action.type &&
+        r.result?.ok === true
+      );
+    return duplicates.length > 0 ? duplicates : null;
+  } catch { return null; }
+}
+
+// ====== [v1.1 D2+D5] 命令审核（预检查 + 重复检测 + 入队） ======
+
+async function precheckAction(action) {
+  try {
+    const { createClient } = await import('./oceanengine-api-client.mjs');
+    const client = await createClient({ useCache: true });
+    const resp = await client.request(
+      'https://ad.oceanengine.com/ad/api/promotion/projects/list?aadvid=1842681352509635',
+      { method: 'POST', body: JSON.stringify({ limit: 50, page: 1, project_status: [-1], isSophonx: 1, need_trans_toLocal: true }) }
+    );
+    const projects = resp?.data?.data?.projects || [];
+    const target = projects.find(c => c.project_name?.includes(action.planName));
+    if (!target) return { ok: false, reason: '未找到计划 ' + action.planName };
+    if (action.type === 'pause' && target.project_status_name !== '启用')
+      return { ok: false, reason: `计划已处于「${target.project_status_name}」状态，无需重复暂停` };
+    if (action.type === 'resume' && target.project_status_name === '启用')
+      return { ok: false, reason: '计划已在投放中，无需重复恢复' };
+    return { ok: true, target };
+  } catch (e) { return { ok: false, reason: '预检查失败: ' + e.message }; }
+}
+
+async function acknowledgeStart(chatId, action, typeText) {
+  // 1. 预检查
+  const precheck = await precheckAction(action);
+  if (!precheck.ok) {
+    await sendMsg(chatId, '⚠️ ' + precheck.reason);
+    return null;
+  }
+
+  // 2. 检测当日重复指令
+  const duplicates = checkDuplicateToday(action);
+  if (duplicates) {
+    const count = duplicates.length;
+    const last = duplicates[duplicates.length - 1];
+    const lastTime = (last.time || '').slice(11, 19) || '未知';
+    addPending(action, chatId, { isDuplicate: true, lastCount: count, lastTime });
+    await sendMsg(chatId,
+      '🟡 当日已对「' + action.planName + '」执行过 ' + count + ' 次' + typeText + '操作\n' +
+      '   最近一次：' + lastTime + '\n' +
+      '   确认要再次执行吗？\n' +
+      '   回复"执行"确认 · 回复"拒绝"取消'
+    );
+    return { status: 'pending_confirm', isDuplicate: true };
+  }
+
+  // 3. 正常入队
+  const queueLen = await enqueue(action);
+  await sendMsg(chatId,
+    '🔵 ' + typeText + '「' + action.planName + '」\n' +
+    '   已入队 #' + queueLen + ' · 等待 worker 执行'
+  );
+  return { status: 'queued', position: queueLen };
+}
+
+// ====== [v1.1 D2] Pending 超时扫描（30s） ======
+
+async function scanPending() {
+  const data = loadPending();
+  if (!data.pending.length) return;
+
+  const now = new Date();
+  const remaining = [];
+
+  for (const item of data.pending) {
+    if (new Date(item.expiresAt) < now) {
+      await sendMsg(item.chatId,
+        '⏰ 操作已超时取消\n' +
+        '   「' + item.action.planName + '」确认超时（3分钟）\n' +
+        '   如需执行请重新发送指令'
+      );
+    } else {
+      remaining.push(item);
+    }
+  }
+
+  if (remaining.length !== data.pending.length) {
+    data.pending = remaining;
+    savePending(data);
+  }
+}
+
+// 命令分发用操作中文名
+const ACTION_TEXT = { pause: '暂停', stop: '关停', resume: '恢复', adjust_budget: '加预算', reject: '拒绝', execute: '执行' };
+
 // ====== 命令分发（入队模式：确认 → 入队 → 报告排队结果） ======
 // 队列模式下，listener 只负责入队；实际执行由 action-queue-worker 完成。
 // L3 二次输入确认：在 cdp-action 内的 confirmPopupIfAny 完成（飞书端的 acknowledgeStart 已是 L1 确认）。
@@ -354,10 +480,8 @@ async function dispatch(cmd, sender, chatId) {
       await sendMsg(chatId, `⚠️ 未指定计划名。用法: ${usage}`);
       return;
     }
-    await acknowledgeStart(chatId, type, planName, '已入队，等待 worker 执行');
-
-    const queueLen = await enqueue({ type, planName, source: 'feishu', by });
-    await reportResult(chatId, true, type, planName, `已入队 (位置 #${queueLen})，将由 worker 串行执行`);
+    const action = { type, planName, source: 'feishu', by };
+    await acknowledgeStart(chatId, action, ACTION_TEXT[type] || type);
     return;
   }
 
@@ -367,10 +491,8 @@ async function dispatch(cmd, sender, chatId) {
       await sendMsg(chatId, '⚠️ 未指定计划名或金额。用法: 加预算 「计划名」 8000');
       return;
     }
-    await acknowledgeStart(chatId, type, planName, `→ ${amount} 已入队`);
-
-    const queueLen = await enqueue({ type, planName, amount, source: 'feishu', by });
-    await reportResult(chatId, true, type, planName, `已入队 (位置 #${queueLen}，金额 ${amount})，将由 worker 串行执行`);
+    const action = { type, planName, amount, source: 'feishu', by };
+    await acknowledgeStart(chatId, action, '加预算');
     return;
   }
 
@@ -542,6 +664,8 @@ async function main() {
     console.log('[listener] ' + CHAT_NAMES[_cid] + ' lastMsgId=' + (st.lastMsgId || 'none'));
   }
   console.log('[listener] polling every 10s');
+  // [v1.1 D2] 30s 扫描超时 pending 操作
+  setInterval(scanPending, 30000);
   setInterval(async function() {
     for (var _j = 0; _j < CHAT_IDS.length; _j++) {
       var cid = CHAT_IDS[_j];

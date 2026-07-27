@@ -25,6 +25,20 @@ installConsoleInterceptor();
 // ====== 共享路径常量 ======
 export const DATA_DIR = path.join(__dirname, 'monitor-data');
 export const REPORT_DIR = __dirname;
+
+// [v1.1 D4] 操作队列与审计文件路径常量（集中管理，避免散落）
+export const ACTION_QUEUE_FILE = process.env.ACTION_QUEUE_FILE || path.join(__dirname, 'action-queue.json');
+export const ACTION_LOCK_FILE = process.env.ACTION_LOCK_FILE || path.join(__dirname, 'action-queue.json.lock');
+export const ACTION_AUDIT_FILE = process.env.ACTION_AUDIT_FILE || path.join(DATA_DIR, 'action-audit.jsonl');
+export const ACTION_PENDING_FILE = process.env.ACTION_PENDING_FILE || path.join(DATA_DIR, 'pending-actions.json');
+
+/** 初始化 pending 文件（如果不存在） */
+export function initPendingFile() {
+  const PENDING_FILE = ACTION_PENDING_FILE;
+  if (!fs.existsSync(PENDING_FILE)) {
+    fs.writeFileSync(PENDING_FILE, JSON.stringify({ pending: [] }, null, 2), 'utf-8');
+  }
+}
 export const HISTORY_FILE = path.join(DATA_DIR, 'suggestion-history.json');
 // ====== 业务配置（优先读环境变量，回退默认值） ======
 export const FEISHU_CHAT_ID = process.env.LARK_MONITOR_CHAT_ID || 'oc_8deeb3061bdbd43608de252a44c97a25';
