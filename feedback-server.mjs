@@ -418,6 +418,124 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // [v1.1 P2] POST /api/actions/rollback — 基于审计记录 beforeValue 反向入队
+  // body: { traceRef } 或 { time, planName } 用于定位审计记录
+  // 找到审计记录后，根据 actionType 和 beforeValue 构造反向操作入队
+  if (url.pathname === '/api/actions/rollback' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body || '{}');
+        // 读取审计日志查找目标记录
+        let auditLines = [];
+        try {
+          auditLines = fs.readFileSync(ACTION_AUDIT_FILE, 'utf-8')
+            .split('\n')
+            .filter(Boolean)
+            .map(l => { try { return JSON.parse(l); } catch { return null; } })
+            .filter(Boolean);
+        } catch (e) {
+          if (e.code !== 'ENOENT') console.error('[audit-read]', e.message);
+        }
+
+        // 定位审计记录：优先 traceRef，否则 time+planName
+        let record = null;
+        if (data.traceRef) {
+          record = auditLines.find(r => r.traceRef === data.traceRef);
+        } else if (data.time && data.planName) {
+          record = auditLines.find(r => r.time === data.time && r.planName === data.planName);
+        } else {
+          // 取最近一条成功的可回滚记录
+          record = [...auditLines].reverse().find(r =>
+            r.result?.ok === true &&
+            r.beforeValue != null &&
+            ['pause', 'stop', 'resume', 'adjust_budget', 'adjust_bid'].includes(r.actionType)
+          );
+        }
+
+        if (!record) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: '未找到可回滚的审计记录' }));
+          return;
+        }
+
+        if (!record.beforeValue) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: '审计记录缺少 beforeValue，无法回滚' }));
+          return;
+        }
+
+        // 根据 actionType + beforeValue 构造反向操作
+        let rollbackAction = null;
+        const bv = record.beforeValue;
+        switch (record.actionType) {
+          case 'pause':
+          case 'stop':
+            rollbackAction = { type: 'resume', planName: record.planName };
+            break;
+          case 'resume':
+            rollbackAction = { type: 'pause', planName: record.planName };
+            break;
+          case 'adjust_budget':
+            rollbackAction = { type: 'adjust_budget', planName: record.planName, amount: bv.budget ?? bv };
+            break;
+          case 'adjust_bid':
+            rollbackAction = { type: 'adjust_bid', planName: record.planName, bid: bv.bid ?? bv };
+            break;
+          default:
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: '不支持回滚的操作类型: ' + record.actionType }));
+            return;
+        }
+
+        if (rollbackAction.type === 'adjust_budget' && (!rollbackAction.amount || rollbackAction.amount <= 0)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'beforeValue 预算值无效，无法回滚' }));
+          return;
+        }
+
+        // 入队
+        const item = {
+          time: new Date().toISOString(),
+          source: 'dashboard',
+          by: sanitize(data.by || 'dashboard-rollback'),
+          type: rollbackAction.type,
+          planName: rollbackAction.planName,
+          campaignId: '',
+          amount: rollbackAction.amount ?? null,
+          bid: rollbackAction.bid ?? null,
+          status: 'pending',
+          rollbackOf: record.time,  // 标记回滚来源
+        };
+
+        await withWriteLock(() => {
+          let q;
+          try { q = JSON.parse(fs.readFileSync(ACTION_QUEUE_FILE, 'utf-8')); }
+          catch { q = { actions: [] }; }
+          if (!Array.isArray(q.actions)) q = { actions: [] };
+          q.actions.push(item);
+          fs.writeFileSync(ACTION_QUEUE_FILE, JSON.stringify(q, null, 2));
+        });
+
+        console.log(`[server] /api/actions/rollback 入队: ${item.type} plan="${item.planName}" (回滚 ${record.time})`);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          ok: true,
+          queued: true,
+          rollbackAction: item.type,
+          planName: item.planName,
+          originalRecord: { time: record.time, actionType: record.actionType, beforeValue: record.beforeValue },
+        }));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
   // ====== API: GET /api/live-status ======
   if (url.pathname === '/api/live-status') {
     try {

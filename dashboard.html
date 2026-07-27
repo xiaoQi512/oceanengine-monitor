@@ -160,7 +160,7 @@
 
 <!-- [v1.1 D5] Operations Panel: Queue / Pending / Audit -->
 <section class="card" x-data="{
-  opsTab: 'queue', opsQueue: [], opsPending: [], opsAudit: [], opsLoading: false,
+  opsTab: 'queue', opsQueue: [], opsPending: [], opsAudit: [], opsLoading: false, rollbackLoading: null,
   async loadOps() {
     this.opsLoading = true;
     try {
@@ -174,6 +174,26 @@
       this.opsAudit = aRes?.data || [];
     } catch(e) { console.error('ops', e); }
     this.opsLoading = false;
+  },
+  async rollbackAction(r) {
+    if (!confirm('确认回滚: ' + r.actionType + '「' + r.planName + '」？')) return;
+    this.rollbackLoading = r.time;
+    try {
+      const resp = await fetch('/api/actions/rollback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ traceRef: r.traceRef, time: r.time, planName: r.planName, by: 'dashboard' })
+      }).then(r => r.json());
+      if (resp.ok) {
+        alert('回滚已入队: ' + resp.rollbackAction + '「' + resp.planName + '」');
+        await this.loadOps();
+      } else {
+        alert('回滚失败: ' + (resp.error || '未知错误'));
+      }
+    } catch(e) {
+      alert('回滚请求失败: ' + e.message);
+    }
+    this.rollbackLoading = null;
   },
   tabStyle(name) {
     const active = this.opsTab === name;
@@ -238,7 +258,7 @@
   <!-- Audit tab -->
   <div x-show="opsTab==='audit'" class="tbl-wrap" style="max-height:400px;overflow-y:auto">
     <table>
-      <thead><tr><th>时间</th><th>计划</th><th>操作</th><th>结果</th><th>来源</th><th>方式</th></tr></thead>
+      <thead><tr><th>时间</th><th>计划</th><th>操作</th><th>结果</th><th>来源</th><th>方式</th><th>回滚</th></tr></thead>
       <tbody>
         <template x-for="r in opsAudit" :key="r.time+r.planName">
           <tr>
@@ -248,9 +268,16 @@
             <td><span class="badge" :class="r.result?.ok?'badge-live':'badge-upcoming'" x-text="r.result?.ok?'成功':'失败'"></span></td>
             <td x-text="r.source"></td>
             <td x-text="r.result?.method||'-'"></td>
+            <td>
+              <button x-show="r.result?.ok && r.beforeValue && ['pause','stop','resume','adjust_budget','adjust_bid'].includes(r.actionType)"
+                style="padding:2px 8px;font-size:11px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;border-radius:3px"
+                @click="rollbackAction(r)"
+                x-text="rollbackLoading === r.time ? '⏳' : '↩ 回滚'">
+              </button>
+            </td>
           </tr>
         </template>
-        <tr x-show="!opsAudit.length"><td colspan="6" style="color:var(--muted);text-align:center">无审计记录</td></tr>
+        <tr x-show="!opsAudit.length"><td colspan="7" style="color:var(--muted);text-align:center">无审计记录</td></tr>
       </tbody>
     </table>
   </div>

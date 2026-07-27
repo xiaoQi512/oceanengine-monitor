@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pushText } from './feishu-push-guard.mjs';
-import { findLarkCli, ACTION_QUEUE_FILE, ACTION_LOCK_FILE, ACTION_AUDIT_FILE } from './monitor-utils.mjs';
+import { findLarkCli, ACTION_QUEUE_FILE, ACTION_LOCK_FILE, ACTION_AUDIT_FILE, ACCOUNT_ID } from './monitor-utils.mjs';
 import { checkCDP } from './cdp-client.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -159,6 +159,37 @@ async function isChromeHealthy() {
   }
 }
 
+// ====== [v1.1 P2] afterValue 回读：操作成功后调 API 读取实际状态 ======
+// 用于审计日志 afterValue 字段，确保记录真实状态而非目标值
+let _apiClient = null;
+async function getApiClient() {
+  if (!_apiClient) _apiClient = await import('./oceanengine-api-client.mjs');
+  return _apiClient;
+}
+
+async function readPlanAfterValue(planName) {
+  try {
+    const { createClient } = await getApiClient();
+    const client = await createClient({ useCache: true });
+    const resp = await client.request(
+      'https://ad.oceanengine.com/ad/api/promotion/projects/list?aadvid=' + ACCOUNT_ID,
+      { method: 'POST', body: JSON.stringify({ limit: 50, page: 1, project_status: [-1], isSophonx: 1, need_trans_toLocal: true }) }
+    );
+    const projects = resp?.data?.data?.projects || [];
+    const target = projects.find(c => c.project_name?.includes(planName));
+    if (!target) return null;
+    return {
+      status: target.project_status_name || '',
+      budget: target.campaign_budget ?? null,
+      bid: target.project_deep_cpa_bid ?? null,
+      projectId: target.project_id || '',
+    };
+  } catch (e) {
+    console.warn('[worker] afterValue 回读失败:', e.message);
+    return null;
+  }
+}
+
 // ====== 处理队首（带重试 + CDP 熔断） ======
 
 async function processHead() {
@@ -238,13 +269,19 @@ async function processHead() {
   }
 
   // [v1.1 D1/D7] 写审计（唯一写入点，含扩展字段）
-  // [v1.1 P0-fix] 补 afterValue：从 result 提取执行后的状态/预算/出价
+  // [v1.1 P2] afterValue 回读：优先用 result 自带值，不足时调 API 回读实际状态
   let afterValue = null;
   if (result?.ok) {
     if (result.freshData) afterValue = result.freshData;
     else if (result.newBudget != null) afterValue = { budget: result.newBudget };
     else if (result.newBid != null) afterValue = { bid: result.newBid };
     else if (result.state) afterValue = result.state;
+
+    // [v1.1 P2] result 缺乏可靠 afterValue 时，调 API 回读
+    if (!afterValue) {
+      console.log('[worker] afterValue 缺失，调 API 回读:', planName);
+      afterValue = await readPlanAfterValue(planName);
+    }
   }
   writeAudit({
     traceRef: head.traceRef || '',
