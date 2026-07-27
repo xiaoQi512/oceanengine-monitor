@@ -12,6 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pushText } from './feishu-push-guard.mjs';
 import { findLarkCli, ACTION_QUEUE_FILE, ACTION_LOCK_FILE, ACTION_AUDIT_FILE } from './monitor-utils.mjs';
+import { checkCDP } from './cdp-client.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // [v1.1 D4] 路径常量统一从 monitor-utils 导入（支持环境变量覆盖）
@@ -147,10 +148,9 @@ async function executeAction(action) {
 }
 
 // ====== [v1.1 D3] CDP 熔断：检查 Chrome CDP 是否可达 ======
-// 复用 cdp-client 的 checkCDP 探测 9222 端口
+// 顶部 import checkCDP，避免热路径动态 import
 async function isChromeHealthy() {
   try {
-    const { checkCDP } = await import('./cdp-client.mjs');
     const status = await checkCDP();
     return status?.reachable === true;
   } catch (e) {
@@ -164,6 +164,17 @@ async function isChromeHealthy() {
 async function processHead() {
   const q = loadQueue();
   if (!q.actions?.length) return { processed: false, reason: 'empty' };
+
+  // [v1.1 P1-fix] 跳过队首 failed 项（避免重复处理已放弃的操作）
+  let skippedFailed = 0;
+  while (q.actions.length && q.actions[0].failed) {
+    q.actions.shift();
+    skippedFailed++;
+  }
+  if (skippedFailed > 0) saveQueue(q);
+  if (!q.actions.length) {
+    return { processed: false, reason: 'all-failed-skipped' };
+  }
 
   const head = q.actions[0];
   const planName = head.planName || head.plan || '';

@@ -394,7 +394,8 @@ async function precheckAction(action) {
 
 // ====== [v1.1 D6] 操作确认卡片 ======
 // 发送飞书交互卡片替代纯文本二次确认
-async function sendConfirmCard(chatId, action, tempId, count, lastTime) {
+// 注：当前版本卡片仅作展示，确认/取消仍通过文字指令「执行」/「拒绝」触发 dispatch
+async function sendConfirmCard(chatId, action, count, lastTime) {
   const typeText = ACTION_TEXT[action.type] || action.type;
   const card = {
     config: { wide_screen_mode: true },
@@ -430,7 +431,7 @@ async function sendConfirmCard(chatId, action, tempId, count, lastTime) {
   } catch (e) {
     console.warn('[listener] 卡片发送失败，回退文本:', e.message);
     await sendMsg(chatId,
-      '🟡 当日已对「' + action.planName + '」执行过 ' + count + ' 次' + typeText + '操作\n' +
+      '🟡 [卡片发送失败] 当日已对「' + action.planName + '」执行过 ' + count + ' 次' + typeText + '操作\n' +
       '   最近一次：' + lastTime + '\n' +
       '   确认要再次执行吗？\n' +
       '   回复"执行"确认 · 回复"拒绝"取消'
@@ -452,9 +453,9 @@ async function acknowledgeStart(chatId, action, typeText) {
     const count = duplicates.length;
     const last = duplicates[duplicates.length - 1];
     const lastTime = (last.time || '').slice(11, 19) || '未知';
-    const pendingItem = addPending(action, chatId, { isDuplicate: true, lastCount: count, lastTime });
+    addPending(action, chatId, { isDuplicate: true, lastCount: count, lastTime });
     // [v1.1 D6] 发送飞书交互卡片（失败时回退文本消息）
-    await sendConfirmCard(chatId, action, pendingItem.tempId, count, lastTime);
+    await sendConfirmCard(chatId, action, count, lastTime);
     return { status: 'pending_confirm', isDuplicate: true };
   }
 

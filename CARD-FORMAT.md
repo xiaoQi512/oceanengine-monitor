@@ -306,7 +306,7 @@ getTimeSlotAdvice(d.timeSlot, d.budgetUsed, rampingUp.length, dropping.length)
 ```
 用户指令 → acknowledgeStart → 预检查 → 重复检测 → addPending + sendConfirmCard
                                                      ↓
-用户回复「执行」→ dispatch(type=execute) → findPending → enqueue → 执行
+用户回复「执行」→ dispatch(type=execute) → findPending → removePending → enqueue → 报告
 用户回复「拒绝」→ dispatch(type=reject) → findPending → removePending → 取消
 3分钟超时    → scanPending → sendMsg(超时取消) → removePending
 ```

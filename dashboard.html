@@ -159,23 +159,29 @@
 </section>
 
 <!-- [v1.1 D5] Operations Panel: Queue / Pending / Audit -->
-<section class="card" x-data="{ opsTab: 'queue', opsQueue: [], opsPending: [], opsAudit: [], opsLoading: false }" x-init="
-  loadOps = async () => {
-    opsLoading = true;
+<section class="card" x-data="{
+  opsTab: 'queue', opsQueue: [], opsPending: [], opsAudit: [], opsLoading: false,
+  async loadOps() {
+    this.opsLoading = true;
     try {
       const [qRes, pRes, aRes] = await Promise.all([
         fetch('/api/actions', {cache:'no-store'}).then(r=>r.json()),
         fetch('/api/pending', {cache:'no-store'}).then(r=>r.json()),
         fetch('/api/audit/recent?limit=50', {cache:'no-store'}).then(r=>r.json()),
       ]);
-      opsQueue = qRes?.actions || [];
-      opsPending = pRes?.data || [];
-      opsAudit = aRes?.data || [];
+      this.opsQueue = qRes?.actions || [];
+      this.opsPending = pRes?.data || [];
+      this.opsAudit = aRes?.data || [];
     } catch(e) { console.error('ops', e); }
-    opsLoading = false;
-  };
-  loadOps();
-">
+    this.opsLoading = false;
+  },
+  tabStyle(name) {
+    const active = this.opsTab === name;
+    return 'padding:8px 16px;border:none;background:' + (active ? 'var(--primary)' : 'transparent') +
+           ';color:' + (active ? '#fff' : 'var(--muted)') +
+           ';cursor:pointer;font-size:14px;font-weight:600;border-radius:6px 6px 0 0;transition:all .2s';
+  }
+}" x-init="loadOps()">
   <div class="card-hd">
     <span class="title">操作面板</span>
     <button class="btn btn-ghost btn-sm" @click="loadOps()" :disabled="opsLoading">
@@ -183,11 +189,11 @@
     </button>
   </div>
   <div style="display:flex;gap:8px;margin:0 0 12px;border-bottom:2px solid var(--border)">
-    <button @click="opsTab='queue'" :style="'padding:8px 16px;border:none;background:'+(opsTab==='queue'?'var(--primary)':'transparent')+';color:'+(opsTab==='queue'?'#fff':'var(--muted)')+';cursor:pointer;font-size:14px;font-weight:600;border-radius:6px 6px 0 0;transition:all .2s'"
+    <button @click="opsTab='queue'" :style="tabStyle('queue')"
       x-text="'当前队列 ('+opsQueue.filter(a=>!a.failed).length+')'"></button>
-    <button @click="opsTab='pending'" :style="'padding:8px 16px;border:none;background:'+(opsTab==='pending'?'var(--primary)':'transparent')+';color:'+(opsTab==='pending'?'#fff':'var(--muted)')+';cursor:pointer;font-size:14px;font-weight:600;border-radius:6px 6px 0 0;transition:all .2s'"
+    <button @click="opsTab='pending'" :style="tabStyle('pending')"
       x-text="'待确认 ('+opsPending.length+')'"></button>
-    <button @click="opsTab='audit'" :style="'padding:8px 16px;border:none;background:'+(opsTab==='audit'?'var(--primary)':'transparent')+';color:'+(opsTab==='audit'?'#fff':'var(--muted)')+';cursor:pointer;font-size:14px;font-weight:600;border-radius:6px 6px 0 0;transition:all .2s'"
+    <button @click="opsTab='audit'" :style="tabStyle('audit')"
       x-text="'最近审计 ('+opsAudit.length+')'"></button>
   </div>
 

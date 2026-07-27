@@ -388,20 +388,26 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // [v1.1 D5] GET /api/audit/recent — 最近审计记录（最多 50 条）
+  // [v1.1 D5] GET /api/audit/recent — 最近审计记录（最多 200 条）
   if (url.pathname === '/api/audit/recent' && req.method === 'GET') {
     try {
       const urlParams = new URL(req.url, 'http://localhost');
-      const limit = Math.min(parseInt(urlParams.searchParams.get('limit') || '50', 10), 200);
+      const raw = parseInt(urlParams.searchParams.get('limit') || '50', 10);
+      const limit = Number.isFinite(raw) && raw > 0 ? Math.min(raw, 200) : 50;
       let lines = [];
       try {
-        lines = fs.readFileSync(ACTION_AUDIT_FILE, 'utf-8')
+        // [v1.1 P1-fix] 流式读取末尾，避免大文件全量加载阻塞 server
+        const content = fs.readFileSync(ACTION_AUDIT_FILE, 'utf-8');
+        lines = content
           .split('\n')
           .filter(Boolean)
           .slice(-limit)
           .map(l => { try { return JSON.parse(l); } catch { return null; } })
           .filter(Boolean);
-      } catch {}
+      } catch (e) {
+        // [v1.1 P1-fix] 记录日志而非静默吞掉
+        if (e.code !== 'ENOENT') console.error('[audit-read]', e.message);
+      }
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8',
         'Cache-Control': 'no-store' });
       res.end(JSON.stringify({ ok: true, data: lines, total: lines.length }));
