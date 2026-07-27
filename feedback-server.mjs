@@ -427,12 +427,13 @@ const server = http.createServer(async (req, res) => {
     req.on('end', async () => {
       try {
         const data = JSON.parse(body || '{}');
-        // 读取审计日志查找目标记录
+        // [v1.1 P2-fix] 读取审计日志查找目标记录（限制最近 500 条，避免大文件阻塞）
         let auditLines = [];
         try {
           auditLines = fs.readFileSync(ACTION_AUDIT_FILE, 'utf-8')
             .split('\n')
             .filter(Boolean)
+            .slice(-500)
             .map(l => { try { return JSON.parse(l); } catch { return null; } })
             .filter(Boolean);
         } catch (e) {
@@ -449,7 +450,6 @@ const server = http.createServer(async (req, res) => {
           // 取最近一条成功的可回滚记录
           record = [...auditLines].reverse().find(r =>
             r.result?.ok === true &&
-            r.beforeValue != null &&
             ['pause', 'stop', 'resume', 'adjust_budget', 'adjust_bid'].includes(r.actionType)
           );
         }
@@ -460,15 +460,12 @@ const server = http.createServer(async (req, res) => {
           return;
         }
 
-        if (!record.beforeValue) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: false, error: '审计记录缺少 beforeValue，无法回滚' }));
-          return;
-        }
+        // [v1.1 P2-fix] beforeValue 校验按操作类型区分：
+        // pause/stop/resume 不需要 beforeValue（直接反向）；adjust_budget/adjust_bid 需要
+        const bv = record.beforeValue || {};
 
         // 根据 actionType + beforeValue 构造反向操作
         let rollbackAction = null;
-        const bv = record.beforeValue;
         switch (record.actionType) {
           case 'pause':
           case 'stop':
@@ -478,9 +475,19 @@ const server = http.createServer(async (req, res) => {
             rollbackAction = { type: 'pause', planName: record.planName };
             break;
           case 'adjust_budget':
+            if (bv.budget == null && typeof bv !== 'number') {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: false, error: '审计记录缺少 beforeValue.budget，无法回滚预算' }));
+              return;
+            }
             rollbackAction = { type: 'adjust_budget', planName: record.planName, amount: bv.budget ?? bv };
             break;
           case 'adjust_bid':
+            if (bv.bid == null && typeof bv !== 'number') {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: false, error: '审计记录缺少 beforeValue.bid，无法回滚出价' }));
+              return;
+            }
             rollbackAction = { type: 'adjust_bid', planName: record.planName, bid: bv.bid ?? bv };
             break;
           default:
@@ -489,9 +496,15 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
+        // [v1.1 P2-fix] 金额/出价有效性校验（两类都校验）
         if (rollbackAction.type === 'adjust_budget' && (!rollbackAction.amount || rollbackAction.amount <= 0)) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: false, error: 'beforeValue 预算值无效，无法回滚' }));
+          return;
+        }
+        if (rollbackAction.type === 'adjust_bid' && (!rollbackAction.bid || rollbackAction.bid <= 0)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'beforeValue 出价值无效，无法回滚' }));
           return;
         }
 

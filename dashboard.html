@@ -183,7 +183,7 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ traceRef: r.traceRef, time: r.time, planName: r.planName, by: 'dashboard' })
-      }).then(r => r.json());
+      }).then(res => res.json());
       if (resp.ok) {
         alert('回滚已入队: ' + resp.rollbackAction + '「' + resp.planName + '」');
         await this.loadOps();
@@ -269,7 +269,10 @@
             <td x-text="r.source"></td>
             <td x-text="r.result?.method||'-'"></td>
             <td>
-              <button x-show="r.result?.ok && r.beforeValue && ['pause','stop','resume','adjust_budget','adjust_bid'].includes(r.actionType)"
+              <button x-show="r.result?.ok && (
+                  ['pause','stop','resume'].includes(r.actionType) ||
+                  (r.beforeValue && ['adjust_budget','adjust_bid'].includes(r.actionType))
+                )"
                 style="padding:2px 8px;font-size:11px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;border-radius:3px"
                 @click="rollbackAction(r)"
                 x-text="rollbackLoading === r.time ? '⏳' : '↩ 回滚'">

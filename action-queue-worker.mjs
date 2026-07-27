@@ -159,23 +159,27 @@ async function isChromeHealthy() {
   }
 }
 
-// ====== [v1.1 P2] afterValue 回读：操作成功后调 API 读取实际状态 ======
-// 用于审计日志 afterValue 字段，确保记录真实状态而非目标值
+// ====== [v1.1 P2] 计划状态回读：操作前后调 API 读取实际状态 ======
+// 用于审计日志 beforeValue/afterValue 字段，确保记录真实状态
 let _apiClient = null;
 async function getApiClient() {
   if (!_apiClient) _apiClient = await import('./oceanengine-api-client.mjs');
   return _apiClient;
 }
 
-async function readPlanAfterValue(planName) {
+// [v1.1 P2-fix] 加超时保护，避免 API 慢阻塞 worker 持锁
+async function readPlanAfterValue(planName, timeoutMs = 10000) {
   try {
     const { createClient } = await getApiClient();
     const client = await createClient({ useCache: true });
-    const resp = await client.request(
-      'https://ad.oceanengine.com/ad/api/promotion/projects/list?aadvid=' + ACCOUNT_ID,
-      { method: 'POST', body: JSON.stringify({ limit: 50, page: 1, project_status: [-1], isSophonx: 1, need_trans_toLocal: true }) }
-    );
-    const projects = resp?.data?.data?.projects || [];
+    const result = await Promise.race([
+      client.request(
+        'https://ad.oceanengine.com/ad/api/promotion/projects/list?aadvid=' + ACCOUNT_ID,
+        { method: 'POST', body: JSON.stringify({ limit: 50, page: 1, project_status: [-1], isSophonx: 1, need_trans_toLocal: true }) }
+      ),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('readPlanAfterValue timeout')), timeoutMs)),
+    ]);
+    const projects = result?.data?.data?.projects || [];
     const target = projects.find(c => c.project_name?.includes(planName));
     if (!target) return null;
     return {
@@ -185,7 +189,7 @@ async function readPlanAfterValue(planName) {
       projectId: target.project_id || '',
     };
   } catch (e) {
-    console.warn('[worker] afterValue 回读失败:', e.message);
+    console.warn('[worker] 计划状态回读失败:', e.message);
     return null;
   }
 }
@@ -213,6 +217,10 @@ async function processHead() {
   // 便于 checkDuplicateToday 跨进程匹配，不再做 toggle: 前缀转换
   const auditAction = head.type || '';
 
+  // [v1.1 P2-fix] 执行前回读 beforeValue，确保审计记录有真实操作前状态
+  // 入队的 head.before 通常为空，这里主动调 API 读取
+  const beforeValue = await readPlanAfterValue(planName);
+
   let result = null;
   let attempts = 0;
 
@@ -224,8 +232,8 @@ async function processHead() {
       traceRef: head.traceRef || '',
       actionType: auditAction,
       planName: planName,
-      projectId: head.projectId || '',
-      beforeValue: head.before || head.amount || head.bid || null,
+      projectId: head.projectId || beforeValue?.projectId || '',
+      beforeValue,
       afterValue: null,
       result: {
         ok: false,
@@ -287,8 +295,8 @@ async function processHead() {
     traceRef: head.traceRef || '',
     actionType: auditAction,
     planName: planName,
-    projectId: head.projectId || '',
-    beforeValue: head.before || head.amount || head.bid || null,
+    projectId: beforeValue?.projectId || head.projectId || '',
+    beforeValue,
     afterValue,
     result: {
       ok: result?.ok ?? false,
