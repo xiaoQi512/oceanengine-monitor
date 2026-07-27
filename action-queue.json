@@ -1,15 +1,3 @@
 {
-  "actions": [
-    {
-      "time": "2026-07-27T14:27:25.425Z",
-      "source": "manual",
-      "by": "user",
-      "type": "pause",
-      "planName": "0724-����ֱ��-����ֱͶ_1",
-      "campaignId": "",
-      "amount": null,
-      "bid": null,
-      "status": "pending"
-    }
-  ]
+  "actions": []
 }

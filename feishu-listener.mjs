@@ -15,7 +15,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawnSync, spawn, exec } from 'child_process';
 import { pushText } from './feishu-push-guard.mjs';
-import { findLarkCli, loadSuggestionHistory, saveSuggestionHistory, recalcSummary, DATA_DIR, CHROME_USER_DATA_DIR, CHROME_PROFILE_DIRECTORY, findChromeExe, ACTION_AUDIT_FILE, ACTION_PENDING_FILE, initPendingFile } from './monitor-utils.mjs';
+import { findLarkCli, loadSuggestionHistory, saveSuggestionHistory, recalcSummary, DATA_DIR, CHROME_USER_DATA_DIR, CHROME_PROFILE_DIRECTORY, findChromeExe, ACTION_QUEUE_FILE, ACTION_AUDIT_FILE, ACTION_PENDING_FILE, initPendingFile } from './monitor-utils.mjs';
 import { checkCDP } from './cdp-client.mjs';
 import crypto from 'crypto';
 
@@ -27,7 +27,7 @@ const CHAT_IDS = [MONITOR_CHAT_ID, ANCHOR_CHAT_ID];
 var CHAT_NAMES = {}; CHAT_NAMES[MONITOR_CHAT_ID] = 'monitor'; CHAT_NAMES[ANCHOR_CHAT_ID] = 'anchor';
 const STATE_FILE = path.join(__dirname, 'listener-state.json');
 const STATE_FILE_ANCHOR = path.join(__dirname, 'listener-state-anchor.json');
-const ACTION_QUEUE = path.join(__dirname, 'action-queue.json');
+const ACTION_QUEUE = ACTION_QUEUE_FILE; // [v1.1 D4] 统一从 monitor-utils 导入
 const LARK_CLI = findLarkCli() || 'lark-cli';
 
 const SIMULATE_CDP = process.env.SIMULATE_CDP === '1';
@@ -217,14 +217,8 @@ function cleanAtText(text) {
 }
 
 // ====== 三阶段反馈：确认 → 执行 → 验证 → 报告 ======
-// 阶段1: 收到指令后立即回复「开始执行」
-async function acknowledgeStart(chatId, action, planName, detail) {
-  const actionMap = { pause: '暂停', stop: '关停', resume: '恢复', adjust_budget: '加预算', reject: '拒绝', execute: '执行' };
-  const actionText = actionMap[action] || action;
-  let msg = `🔵 开始执行: ${actionText}「${planName}」`;
-  if (detail) msg += ` ${detail}`;
-  await sendMsg(msg);
-}
+// [v1.1 D2] acknowledgeStart 已下沉到「命令审核」区（precheck + 重复检测 + 入队）
+// 阶段1 由新 acknowledgeStart 统一承担；此处仅保留 reportResult
 
 // 阶段3: 验证结果后回复「执行完成」或「执行失败」
 async function reportResult(chatId, ok, action, planName, detail, errMsg) {
@@ -337,6 +331,28 @@ function addPending(action, chatId, meta = {}) {
   savePending(data);
 }
 
+// [v1.1 D2] 查找并消费 pending 项（用于 execute/reject 二次确认）
+// 优先匹配 planName，否则取该 chat 下最近一条
+function findPending(chatId, planName) {
+  initPendingFile();
+  const data = loadPending();
+  let idx = -1;
+  if (planName) {
+    idx = data.pending.findIndex(p => p.chatId === chatId && p.action?.planName === planName);
+  }
+  if (idx === -1) {
+    for (let i = data.pending.length - 1; i >= 0; i--) {
+      if (data.pending[i].chatId === chatId) { idx = i; break; }
+    }
+  }
+  return idx >= 0 ? { idx, item: data.pending[idx], data } : null;
+}
+
+function removePending(data, idx) {
+  data.pending.splice(idx, 1);
+  savePending(data);
+}
+
 // ====== [v1.1 D2] 当日重复指令检测 ======
 
 function checkDuplicateToday(action) {
@@ -361,18 +377,14 @@ function checkDuplicateToday(action) {
 
 async function precheckAction(action) {
   try {
-    const { createClient } = await import('./oceanengine-api-client.mjs');
-    const client = await createClient({ useCache: true });
-    const resp = await client.request(
-      'https://ad.oceanengine.com/ad/api/promotion/projects/list?aadvid=1842681352509635',
-      { method: 'POST', body: JSON.stringify({ limit: 50, page: 1, project_status: [-1], isSophonx: 1, need_trans_toLocal: true }) }
-    );
-    const projects = resp?.data?.data?.projects || [];
-    const target = projects.find(c => c.project_name?.includes(action.planName));
+    // [v1.1 D5] 复用 getCampaignList 的 5 分钟缓存，避免每次新建 API 客户端触发限流
+    const camps = await getCampaignList();
+    if (!camps.length) return { ok: false, reason: '计划列表为空，无法预检查' };
+    const target = camps.find(c => c.name?.includes(action.planName));
     if (!target) return { ok: false, reason: '未找到计划 ' + action.planName };
-    if (action.type === 'pause' && target.project_status_name !== '启用')
-      return { ok: false, reason: `计划已处于「${target.project_status_name}」状态，无需重复暂停` };
-    if (action.type === 'resume' && target.project_status_name === '启用')
+    if (action.type === 'pause' && target.status !== '启用')
+      return { ok: false, reason: `计划已处于「${target.status}」状态，无需重复暂停` };
+    if (action.type === 'resume' && target.status === '启用')
       return { ok: false, reason: '计划已在投放中，无需重复恢复' };
     return { ok: true, target };
   } catch (e) { return { ok: false, reason: '预检查失败: ' + e.message }; }
@@ -459,14 +471,30 @@ async function dispatch(cmd, sender, chatId) {
     return;
   }
 
-  // --- reject 命令：确认 → 移除队列 → 报告 ---
+  // --- reject 命令：优先消费 pending 确认 → 否则移除队列队首 ---
   if (type === 'reject') {
+    // [v1.1 D2] 二次确认拒绝：消费 pending 项
+    const pending = findPending(chatId, planName);
+    if (pending) {
+      const item = pending.item;
+      removePending(pending.data, pending.idx);
+      if (new Date(item.expiresAt) < new Date()) {
+        await sendMsg(chatId, '⏰ 该操作已超时取消，请重新发送指令');
+      } else {
+        await sendMsg(chatId,
+          '⏹️ 已取消 ' + (ACTION_TEXT[item.action.type] || item.action.type) +
+          '「' + item.action.planName + '」'
+        );
+      }
+      return;
+    }
+    // 无 pending → 走原队列移除逻辑
     const q = loadQueue();
     if (!q.actions?.length) { await sendMsg(chatId, 'ℹ️ 队列为空，无需拒绝'); return; }
     const f = planName ? findQueued(planName) : { idx: 0, action: q.actions[0], queue: q };
     if (!f) { await sendMsg(chatId, `⚠️ 未在队列中找到「${planName}」`); return; }
     const rejectedPlan = f.action.planName;
-    await acknowledgeStart(chatId, 'reject', rejectedPlan, '移除队列');
+    await sendMsg(chatId, `🔵 拒绝「${rejectedPlan}」\n   移除队列`);
     f.queue.actions.splice(f.idx, 1); saveQueue(f.queue);
     recordHistoryResponse(rejectedPlan, 'reject');
     await reportResult(chatId, true, 'reject', rejectedPlan, '已从队列移除');
@@ -497,8 +525,32 @@ async function dispatch(cmd, sender, chatId) {
   }
 
   // --- 执行（采纳队列中的建议，无计划名取队首） ---
-  // 队列模式下，「执行」等价于：标记队首建议为 accepted（已采纳），等待 worker 自动处理
+  // [v1.1 D2] 二次确认执行：优先消费 pending 项
   if (type === 'execute') {
+    const pending = findPending(chatId, planName);
+    if (pending) {
+      const item = pending.item;
+      if (new Date(item.expiresAt) < new Date()) {
+        removePending(pending.data, pending.idx);
+        await sendMsg(chatId, '⏰ 该操作已超时取消，请重新发送指令');
+        return;
+      }
+      removePending(pending.data, pending.idx);
+      const queueLen = await enqueue({
+        type: item.action.type,
+        planName: item.action.planName,
+        amount: item.action.amount || undefined,
+        source: 'feishu',
+        by,
+      });
+      await sendMsg(chatId,
+        '🔵 已确认执行 ' + (ACTION_TEXT[item.action.type] || item.action.type) +
+        '「' + item.action.planName + '」\n' +
+        '   已入队 #' + queueLen + ' · 等待 worker 执行'
+      );
+      return;
+    }
+    // 无 pending → 走原队列建议采纳逻辑
     const q = loadQueue();
     if (!planName && !q.actions?.length) {
       await sendMsg(chatId, '⚠️ 未指定计划名，且队列为空。\n用法: 执行（后跟计划名）/ 暂停 计划名 / 关停 计划名');
@@ -513,7 +565,7 @@ async function dispatch(cmd, sender, chatId) {
     const actType = (act === 'adjust_budget' || act === 'budget') ? 'adjust_budget' : act;
     const actDetail = actType === 'adjust_budget' ? `→ ${f.action.amount || amount}` : '';
 
-    await acknowledgeStart(chatId, actType, execPlan, `${actDetail} 已采纳，等待 worker 执行`);
+    await sendMsg(chatId, `🔵 执行「${execPlan}」 ${actDetail} 已采纳，等待 worker 执行`);
     // 标记为已采纳（不立即出队，由 worker 完成后出队）
     f.action.accepted = true;
     f.action.acceptedAt = new Date().toISOString();

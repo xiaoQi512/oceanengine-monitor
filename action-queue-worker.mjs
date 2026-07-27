@@ -11,12 +11,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pushText } from './feishu-push-guard.mjs';
-import { findLarkCli } from './monitor-utils.mjs';
+import { findLarkCli, ACTION_QUEUE_FILE, ACTION_LOCK_FILE, ACTION_AUDIT_FILE } from './monitor-utils.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const QUEUE_FILE = path.join(__dirname, 'action-queue.json');
-const LOCK_FILE = path.join(__dirname, 'action-queue.json.lock');
-const AUDIT_LOG_FILE = path.join(__dirname, 'monitor-data', 'action-audit.jsonl');
+// [v1.1 D4] 路径常量统一从 monitor-utils 导入（支持环境变量覆盖）
+const QUEUE_FILE = ACTION_QUEUE_FILE;
+const LOCK_FILE = ACTION_LOCK_FILE;
+const AUDIT_LOG_FILE = ACTION_AUDIT_FILE;
 
 const MAX_RETRIES = 3;
 const RETRY_INTERVAL_MS = 5000;
@@ -128,18 +129,6 @@ async function reportToFeishu(action, result, planName) {
 }
 // ====== 单个 action 执行 ======
 
-function mapActionType(type) {
-  // 队列 action.type → cdp-action 函数
-  // pause / stop / resume / adjust_budget / adjust_bid
-  return {
-    pause: 'toggle:pause',
-    stop: 'toggle:stop',
-    resume: 'toggle:resume',
-    adjust_budget: 'adjust_budget',
-    adjust_bid: 'adjust_bid',
-  }[type] || type;
-}
-
 async function executeAction(action) {
   const { type, planName, amount, bid } = action;
   console.log(`[worker] 执行: ${type} plan="${planName}" amount=${amount ?? '-'} bid=${bid ?? '-'}`);
@@ -165,7 +154,9 @@ async function processHead() {
 
   const head = q.actions[0];
   const planName = head.planName || head.plan || '';
-  const auditAction = mapActionType(head.type);
+  // [v1.1 D7] 审计 actionType 统一用原始 type（pause/stop/resume/adjust_budget/adjust_bid）
+  // 便于 checkDuplicateToday 跨进程匹配，不再做 toggle: 前缀转换
+  const auditAction = head.type || '';
 
   let result = null;
   let attempts = 0;
@@ -187,12 +178,21 @@ async function processHead() {
   }
 
   // [v1.1 D1/D7] 写审计（唯一写入点，含扩展字段）
+  // [v1.1 P0-fix] 补 afterValue：从 result 提取执行后的状态/预算/出价
+  let afterValue = null;
+  if (result?.ok) {
+    if (result.freshData) afterValue = result.freshData;
+    else if (result.newBudget != null) afterValue = { budget: result.newBudget };
+    else if (result.newBid != null) afterValue = { bid: result.newBid };
+    else if (result.state) afterValue = result.state;
+  }
   writeAudit({
     traceRef: head.traceRef || '',
     actionType: auditAction,
     planName: planName,
     projectId: head.projectId || '',
     beforeValue: head.before || head.amount || head.bid || null,
+    afterValue,
     result: {
       ok: result?.ok ?? false,
       method: result?.method || 'http_api',
