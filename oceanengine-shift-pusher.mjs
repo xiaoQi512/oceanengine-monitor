@@ -184,6 +184,13 @@ async function runShift(shift) {
     return;
   }
 
+  // 班次结束后等待30秒，确保结束时刻的15分钟快照已写入磁盘，
+  // 否则 getSnapshotAt 会回退取5分钟前的快照，导致该场次数据不完整
+  if (!OEC_FORCE) {
+    log('⏳ 班次已结束，等待30秒以确保结束快照完整...');
+    await new Promise(r => setTimeout(r, 30_000));
+  }
+
   let shiftData;
   try {
     const today = getLocalDate();

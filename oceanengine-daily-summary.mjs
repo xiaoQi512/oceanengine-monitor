@@ -105,11 +105,11 @@ async function fetchLiveAllDay() {
     const sessionLeads = result.total?.leads || 0;
     totalConsume += sessionCost;
     totalLeads += sessionLeads;
-    log(`    [${session.start}-${session.end}]: ¥${sessionCost.toFixed(2)} / ${sessionLeads}线索`);
+    log(`    [${session.start}-${session.end}]: ¥${sessionCost.toFixed(2)} / ${sessionLeads}转化`);
   }
 
   const cpl = totalLeads > 0 ? (totalConsume / totalLeads).toFixed(2) : "0.00";
-  log(`  ✅ 直播全天: ¥${totalConsume.toFixed(2)} / ${totalLeads}线索 / CPL¥${cpl}`);
+  log(`  ✅ 直播全天: ¥${totalConsume.toFixed(2)} / ${totalLeads}转化 / CPL¥${cpl}`);
   return { totalConsume, totalLeads, cpl };
 }
 
@@ -183,7 +183,7 @@ async function fetchVideoAllDay() {
     const goal = row.Dimensions?.cdp_marketing_goal?.ValueStr || "";
     const m = row.Metrics || {};
     const cost = parseFloat((m.stat_cost?.ValueStr || "0").replace(/,/g, "")) || 0;
-    const leads = parseInt((m.clue_message_count?.ValueStr || "0").replace(/,/g, "")) || 0;
+    const leads = parseInt((m.convert_cnt?.ValueStr || "0").replace(/,/g, "")) || 0;
 
     if (goal.includes("短视频") || goal.includes("图文")) {
       videoConsume += cost;
@@ -192,7 +192,7 @@ async function fetchVideoAllDay() {
   }
 
   const cpl = videoLeads > 0 ? (videoConsume / videoLeads).toFixed(2) : "0.00";
-  log(`  ✅ 短视频全天: ¥${videoConsume.toFixed(2)} / ${videoLeads}线索 / CPL¥${cpl}`);
+  log(`  ✅ 短视频全天: ¥${videoConsume.toFixed(2)} / ${videoLeads}转化 / CPL¥${cpl}`);
   return { totalConsume: videoConsume, totalLeads: videoLeads, cpl };
 }
 

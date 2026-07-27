@@ -493,6 +493,111 @@ export async function getSessionStats(client, options = {}) {
   return { total: { cost: totalCost, leads: totalLeads }, rows };
 }
 
+// ====== 暂停/启动项目 ======
+export async function updateProjectStatus(client, options = {}) {
+  const { projectId, status, accountId = ACCOUNT_ID } = options;
+  // update_status API: 0=启用(resume), 1=暂停(pause)
+  // 注意: 与 projects/list 返回的 project_status 字段值不同 (list中 0=启用,2=暂停)
+  const statusValue = (status === 'enable' || status === 'resume' || status === 'start') ? 0 : 1;
+
+  const body = JSON.stringify({
+    status_map: { [String(projectId)]: statusValue },
+    is_async: false,
+  });
+
+  const resp = await apiRequest(
+    `${BASE_URL}/ad/api/promotion/projects/update_status?aadvid=${accountId}`,
+    { method: 'POST', body, cookieData: client.cookieData }
+  );
+
+  // apiRequest 返回 {ok, status, data}，data 为 API 原始 JSON
+  const apiCode = resp?.data?.code;
+  if (apiCode === 0) {
+    const innerData = resp?.data?.data || {};
+    const results = innerData?.results || {};
+    const result = results[String(projectId)] || {};
+    return {
+      ok: true,
+      projectId: String(projectId),
+      status: status,
+      message: result.msg || '',
+      data: result,
+    };
+  } else {
+    return {
+      ok: false,
+      error: resp?.data?.msg || resp?.data?.message || 'unknown error',
+      code: apiCode,
+    };
+  }
+}
+
+// ====== 调整预算 ======
+export async function updateProjectBudget(client, options = {}) {
+  const { projectId, budget, accountId = ACCOUNT_ID } = options;
+
+  const body = JSON.stringify({
+    budgets: {
+      [String(projectId)]: {
+        budget: String(parseFloat(budget).toFixed(2)),
+        budget_mode: 0,
+        campaign_budget_mode_name: '按日预算',
+      },
+    },
+  });
+
+  const resp = await apiRequest(
+    `${BASE_URL}/ad/api/promotion/projects/update_budget?aadvid=${accountId}`,
+    { method: 'POST', body, cookieData: client.cookieData }
+  );
+
+  const apiCode = resp?.data?.code;
+  if (apiCode === 0) {
+    return { ok: true, projectId: String(projectId), budget: String(budget) };
+  }
+  return { ok: false, error: resp?.data?.msg || 'unknown error', code: apiCode };
+}
+
+// ====== 调整出价 ======
+export async function updateProjectBid(client, options = {}) {
+  const { projectId, bid, accountId = ACCOUNT_ID } = options;
+
+  const body = JSON.stringify({
+    bids: {
+      [String(projectId)]: String(parseFloat(bid).toFixed(2)),
+    },
+  });
+
+  const resp = await apiRequest(
+    `${BASE_URL}/ad/api/promotion/projects/update_bid?aadvid=${accountId}`,
+    { method: 'POST', body, cookieData: client.cookieData }
+  );
+
+  const apiCode = resp?.data?.code;
+  if (apiCode === 0) {
+    return { ok: true, projectId: String(projectId), bid: String(bid) };
+  }
+  return { ok: false, error: resp?.data?.msg || 'unknown error', code: apiCode };
+}
+
+// ====== 调整账户日预算 ======
+export async function updateAccountBudget(client, options = {}) {
+  const { budget, accountId = ACCOUNT_ID } = options;
+
+  const body = JSON.stringify({ budget: Number(budget) });
+
+  const resp = await apiRequest(
+    `${BASE_URL}/ad/api/account/update_budget?aadvid=${accountId}`,
+    { method: 'POST', body, cookieData: client.cookieData }
+  );
+
+  const apiCode = resp?.data?.code;
+  if (apiCode === 0) {
+    return { ok: true, budget: Number(budget) };
+  }
+  return { ok: false, error: resp?.data?.msg || 'unknown error', code: apiCode };
+}
+
 // ====== 客户端工厂 ======
 export async function createClient(options = {}) {
   const { forceRefresh = false, useCache = true } = options;
@@ -562,4 +667,4 @@ export async function getLiveRoomStatus(client, roomId) {
   };
 }
 
-export default { createClient, getProjects, getDashboardStats, getHourlyStats, getSessionStats, collectAllData, getOnlineRoomList, getLiveRoomStatus };
+export default { createClient, getProjects, getDashboardStats, getHourlyStats, getSessionStats, collectAllData, getOnlineRoomList, getLiveRoomStatus, updateProjectStatus, updateProjectBudget, updateProjectBid, updateAccountBudget };

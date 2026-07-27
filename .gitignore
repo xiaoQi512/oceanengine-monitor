@@ -49,3 +49,6 @@ Thumbs.db
 monitor-data/
 archive/
 .daemon-backups/
+_q*
+*.bak-*
+ls/

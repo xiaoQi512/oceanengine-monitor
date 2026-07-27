@@ -1661,7 +1661,7 @@ function analyzeData(campaigns, accountSpend = 0, accountBudget = 0, accountBala
       alerts.push({
         type: 'zero_conv',
         planName: c.name, // 存全名，供 action-queue 使用
-        name: `零转化消耗: ${c.name.slice(0, 25)}`,
+        name: `零转化消耗: ${c.name.slice(0, 35)}`,
         detail: `消耗 ¥${c.spend.toFixed(0)} 但零转化，是否需要暂停？`,
         severity: c.spend > 200 ? 'high' : 'medium',
         campaignId: c.id,
@@ -1672,7 +1672,7 @@ function analyzeData(campaigns, accountSpend = 0, accountBudget = 0, accountBala
       alerts.push({
         type: 'high_cpa',
         planName: c.name,
-        name: `高成本计划: ${c.name.slice(0, 25)}`,
+        name: `高成本计划: ${c.name.slice(0, 35)}`,
         detail: `CPL ¥${c.cpa.toFixed(2)} (均值 ¥${avgCPA.toFixed(2)}的 ${(c.cpa/avgCPA).toFixed(1)}x)，消耗 ¥${c.spend.toFixed(0)}，建议关停`,
         severity: c.spend > 100 ? 'high' : 'medium',
         campaignId: c.id,
@@ -1687,7 +1687,7 @@ function analyzeData(campaigns, accountSpend = 0, accountBudget = 0, accountBala
         alerts.push({
           type: 'budget_cap',
           planName: c.name,
-          name: `已撞线暂停: ${c.name.slice(0, 22)}`,
+          name: `已撞线暂停: ${c.name.slice(0, 30)}`,
           detail: `消耗 ¥${c.spend.toFixed(0)} 已达计划预算 ¥${planBudget.toFixed(0)} (${exceedPct.toFixed(0)}%)，已暂停投放，建议追加预算并手动恢复`,
           severity: 'high',
           campaignId: c.id,
@@ -1696,7 +1696,7 @@ function analyzeData(campaigns, accountSpend = 0, accountBudget = 0, accountBala
         // 阶梯1: 超过80%，预算即将耗尽
         alerts.push({
           type: 'budget_cap',
-          name: `预算即将耗尽: ${c.name.slice(0, 22)}`,
+          name: `预算即将耗尽: ${c.name.slice(0, 30)}`,
           detail: `消耗 ¥${c.spend.toFixed(0)} / 计划预算 ¥${planBudget.toFixed(0)} (${exceedPct.toFixed(0)}%)，接近上限建议追加`,
           severity: 'medium',
           campaignId: c.id,
@@ -1773,7 +1773,7 @@ function analyzeData(campaigns, accountSpend = 0, accountBudget = 0, accountBala
     alerts.push({
       type: 'dropping',
       name: `${dropping.length} 条计划在掉量`,
-      detail: dropping.map(c => `${c.name.slice(0, 15)}: 近${Math.round(age15||15)}分钟消耗 ¥${c.spendDelta.toFixed(1)} (变化 ${(c.changeRate*100).toFixed(0)}%)`).join('\n'),
+      detail: dropping.map(c => `${c.name.slice(0, 30)}: 近${Math.round(age15||15)}分钟消耗 ¥${c.spendDelta.toFixed(1)} (变化 ${(c.changeRate*100).toFixed(0)}%)`).join('\n'),
       severity: dropping.length >= 5 ? 'medium' : 'low',
     });
   }
@@ -1818,7 +1818,7 @@ function analyzeData(campaigns, accountSpend = 0, accountBudget = 0, accountBala
     alerts.push({
       type: 'dead_plan',
       name: `${deadCampaigns.length} 条计划疑似死亡`,
-      detail: deadCampaigns.map(c => `${c.name.slice(0, 15)}: 时均消耗<¥100 且 已投放≥3h`).join('; '),
+      detail: deadCampaigns.map(c => `${c.name.slice(0, 30)}: 时均消耗<¥100 且 已投放≥3h`).join('; '),
       severity: 'low',
     });
   }
@@ -2138,7 +2138,7 @@ tr:hover{background:#f8faff}
       <thead><tr><th>计划</th><th>消耗</th><th>${Math.round(d.age15||15)}m新增</th><th>环比</th><th>CPL</th></tr></thead>
       <tbody>${(rampingUp||[]).length > 0 ? (rampingUp||[]).map(c => `
       <tr>
-        <td title="${escHtml(c.name)}">${escHtml(c.name.slice(0, 22))}</td>
+        <td title="${escHtml(c.name)}">${escHtml(c.name.slice(0, 35))}</td>
         <td>¥${c.spend.toFixed(0)}</td>
         <td style="color:#e74c3c">¥${(c.spendDelta||0).toFixed(0)}</td>
         <td style="color:#e74c3c">+${((c.changeRate||0)*100).toFixed(0)}%</td>
@@ -2152,7 +2152,7 @@ tr:hover{background:#f8faff}
       <thead><tr><th>计划</th><th>消耗</th><th>${Math.round(d.age15||15)}m新增</th><th>环比</th><th>CPL</th></tr></thead>
       <tbody>${(dropping||[]).length > 0 ? (dropping||[]).map(c => `
       <tr>
-        <td title="${escHtml(c.name)}">${escHtml(c.name.slice(0, 22))}</td>
+        <td title="${escHtml(c.name)}">${escHtml(c.name.slice(0, 35))}</td>
         <td>¥${c.spend.toFixed(0)}</td>
         <td style="color:#27ae60">¥${(c.spendDelta||0).toFixed(0)}</td>
         <td style="color:#27ae60">${((c.changeRate||0)*100).toFixed(0)}%</td>
@@ -2355,7 +2355,7 @@ async function buildFeishuCard(analysis) {
   const metricsLines = [
     '━ **累计** ━',
     `💰 **消耗**: ¥${summary.totalSpend.toFixed(0)}${summary.useAccountSpend ? ' (账户)' : ''} | CPL ¥${summary.avgCPA.toFixed(0)}${cpaEmoji ? ' ' + cpaEmoji : ''}`,
-    `🎯 **转化**: ${summary.totalConversions}条`,
+    `🎯 **转化**: ${summary.totalConversions}条（线索数：${summary.totalLeads||0}条）`,
     `📨 **开口成本**: ¥${(summary.totalPrivateMsgOpen||0) > 0 ? (summary.totalSpend / summary.totalPrivateMsgOpen).toFixed(1) : '--'} | **开口留资率**: ${(summary.openRetainRate ? (summary.openRetainRate*100).toFixed(1) + '%' : 'N/A')}`,
     `━ **近${Math.round(d.age15||15)}分差值** ━`,
     `📊 **新增消耗**: +¥${d.spendLast15min.toFixed(0)} | **新增线索**: +${d.convLast15min === -1 ? '?' : d.convLast15min}条`,
@@ -2385,7 +2385,7 @@ async function buildFeishuCard(analysis) {
       const c = topNewSpenders[i];
       const rateStr = c.spendPrev > 0.01 ? `${(c.changeRate >= 0 ? '+' : '')}${(c.changeRate * 100).toFixed(0)}%` : 'NEW';
       const cplRecentStr = c.convDelta > 0 ? `¥${c.cpa15.toFixed(0)}` : '—';
-      topLines.push(`${i + 1}. ${trendTag(c.trend)} ${c.name.slice(0, 18)} — ¥${c.spendDelta.toFixed(0)} (${rateStr}) · ${Math.round(d.age15||15)}mCPL ${cplRecentStr}`);
+      topLines.push(`${i + 1}. ${trendTag(c.trend)} ${c.name.slice(0, 30)} — ¥${c.spendDelta.toFixed(0)} (${rateStr}) · ${Math.round(d.age15||15)}mCPL ${cplRecentStr}`);
     }
   }
 
@@ -2426,7 +2426,7 @@ async function buildFeishuCard(analysis) {
 
   // --- 起量摘要 ---
   if (rampingUp.length > 0) {
-    const trendLines = [`🔥 起量: ${rampingUp.slice(0, 3).map(c => c.name.slice(0, 12) + '+' + (c.changeRate*100).toFixed(0) + '%').join(', ')}`];
+    const trendLines = [`🔥 起量: ${rampingUp.slice(0, 3).map(c => c.name.slice(0, 25) + '+' + (c.changeRate*100).toFixed(0) + '%').join(', ')}`];
     elements.push({ tag: 'hr' });
     elements.push({
       tag: 'div',
@@ -2838,27 +2838,6 @@ async function sendFeishuPush(analysis) {
     if (pending.length > 0) {
       recordPendingSuggestions(pending);
       console.log(`  📋 已记录 ${pending.length} 条待处理建议`);
-    }
-
-    // 写入 action-queue.json（供监听脚本自动执行）
-    if (pending.length > 0) {
-      const queueFile = path.join(CONFIG.dataDir, 'action-queue.json');
-      let queue = { actions: [] };
-      if (fs.existsSync(queueFile)) {
-        try { queue = JSON.parse(fs.readFileSync(queueFile, 'utf8')); } catch {}
-      }
-      for (const p of pending) {
-        if (p.planName) {
-          queue.actions.push({
-            type: p.type === 'zero_conv' || p.type === 'high_cpa' ? 'pause' : 'adjust_budget',
-            planName: p.planName,
-            reason: p.detail || '',
-            timestamp: new Date().toISOString()
-          });
-        }
-      }
-      fs.writeFileSync(queueFile, JSON.stringify(queue, null, 2));
-      console.log(`  📝 已写入 action-queue.json (${queue.actions.length} 条待执行)`);
     }
 
     // 截图附送已禁用（2026-06-27）

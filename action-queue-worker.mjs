@@ -10,6 +10,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pushText } from './feishu-push-guard.mjs';
+import { findLarkCli } from './monitor-utils.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const QUEUE_FILE = path.join(__dirname, 'action-queue.json');
@@ -84,6 +86,25 @@ function writeAudit(entry) {
   }
 }
 
+// ====== 飞书反馈（小七端闭环）======
+async function reportToFeishu(action, result, planName) {
+  try {
+    const larkCli = findLarkCli();
+    if (!larkCli) { console.warn('[worker] 未找到 lark-cli，跳过飞书反馈'); return; }
+    const actionText = { pause: '暂停', stop: '关停', resume: '恢复', adjust_budget: '加预算', adjust_bid: '改出价' }[action.type] || action.type;
+    let msg;
+    if (result?.ok) {
+      const extra = result.alreadyDone ? '（已是目标状态）' : '';
+      msg = `✅ ${actionText}「${planName}」完成${extra}\n来源: ${action.source || '手动'}`;
+    } else {
+      msg = `❌ ${actionText}「${planName}」失败\n原因: ${result?.err || '未知'}\n来源: ${action.source || '手动'}`;
+    }
+    await pushText(larkCli, msg);
+    console.log(`[worker] 飞书反馈已发送: ${result?.ok ? '成功' : '失败'}`);
+  } catch (e) {
+    console.warn('[worker] 飞书反馈异常:', e.message);
+  }
+}
 // ====== 单个 action 执行 ======
 
 function mapActionType(type) {
@@ -174,6 +195,9 @@ async function processHead() {
     }
     saveQueue(qLatest);
   }
+
+  // 反馈到飞书（小七端闭环）
+  await reportToFeishu(head, result, planName);
 
   return { processed: true, ok: !!result?.ok, result, attempts };
 }

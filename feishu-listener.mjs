@@ -154,6 +154,22 @@ async function sendMsg(chatId, text) {
   return true;
 }
 
+// ====== 表情反应：给收到的消息加表情（"收到，处理中"效果） ======
+function addReaction(messageId, emojiType = 'Get') {
+  if (!messageId) return;
+  try {
+    const r = spawnSync(LARK_CLI, [
+      'im', 'reactions', 'create',
+      '--params', JSON.stringify({ message_id: messageId }),
+      '--data', JSON.stringify({ reaction_type: { emoji_type: emojiType } }),
+    ], { encoding: 'utf8', cwd: __dirname, timeout: 10000, windowsHide: true });
+    if (process.env.OEC_SILENT !== '1') {
+      const ok = JSON.parse(r.stdout || '{}')?.ok;
+      if (!ok) console.error('[react]', r.stdout?.substring(0, 200));
+    }
+  } catch (e) { console.error('[react]', e.message); }
+}
+
 async function fetchMessages(chatId, pageSize = 10) {
   try {
     const r = spawnSync(LARK_CLI, [
@@ -392,32 +408,122 @@ async function dispatch(cmd, sender, chatId) {
 
 // ====== AI对话 ======
 
+async function getAccountContext() {
+  try {
+    const dataDir = path.join(__dirname, 'monitor-data');
+    const files = fs.readdirSync(dataDir).filter(f => f.startsWith('5m-') && f.endsWith('.json')).sort().reverse();
+    if (!files.length) return null;
+    const latest = JSON.parse(fs.readFileSync(path.join(dataDir, files[0]), 'utf-8'));
+    return {
+      time: latest.time,
+      totalSpend: Math.round(latest.accountSpend || 0),
+      budget: Math.round(latest.accountBudget || 0),
+      pct: Math.round((latest.accountSpend / (latest.accountBudget || 1)) * 100),
+      conversions: latest.totalConv || 0,
+      activeCount: latest.activeCount || 0,
+      spendingCount: latest.spendingCount || 0,
+      balance: Math.round(latest.accountBalance || 0),
+      balanceDays: latest.accountSpend ? Math.round(latest.accountBalance / (latest.accountSpend / Math.max(latest._elapsedHours || 1, 1))) : '?',
+    };
+  } catch { return null; }
+}
+
+// 计划列表缓存（5分钟过期，避免频繁调 API）
+let campaignCache = null;
+async function getCampaignList() {
+  const now = Date.now();
+  if (campaignCache && (now - campaignCache.time) < 300000) return campaignCache.data;
+
+  try {
+    const { createClient } = await import('./oceanengine-api-client.mjs');
+    const client = await createClient({ useCache: true });
+    const resp = await client.request(
+      'https://ad.oceanengine.com/ad/api/promotion/projects/list?aadvid=1842681352509635',
+      { method: 'POST', body: JSON.stringify({ limit: 50, page: 1, project_status: [-1], isSophonx: 1, need_trans_toLocal: true }) }
+    );
+    const projects = resp?.data?.data?.projects || [];
+    const list = projects.map(p => ({
+      name: p.project_name || '',
+      status: p.project_status_name || '',
+      budget: p.campaign_budget || 0,
+      bid: p.project_deep_cpa_bid || 0,
+    }));
+    campaignCache = { time: now, data: list };
+    return list;
+  } catch (e) {
+    console.error('[campaign]', e.message);
+    return campaignCache?.data || [];
+  }
+}
 
 async function callAI(userMessage) {
-  const systemPrompt = "你是小七，巨量引擎广告投放监控助手（账户：极狐-区域福利号-直播，日预算45000元）。你已在这个群聊中，直接自然回答问题，不要自我介绍。中文回复，不超过3句话。";
-  const prompt = systemPrompt + "\n\n用户: " + userMessage + "\n小七:";
-  const escaped = prompt.replace(/"/g, '\\"');
+  const ctx = await getAccountContext();
+  let dataBlock = '';
+  if (ctx) dataBlock = `消耗¥${ctx.totalSpend}/${ctx.budget}(${ctx.pct}%) 转化${ctx.conversions}次 投放中${ctx.spendingCount}条`;
+
+  const camps = await getCampaignList();
+  let campBlock = '';
+  if (camps.length) {
+    const active = camps.filter(c => c.status === '启用' || c.status === '投放中');
+    campBlock = ' 计划: ' + active.map(c => c.name+'(¥'+c.budget+')').join(' ');
+  }
+
+  const prompt = `账户:极狐-区域福利号-直播 日预算¥60000。${dataBlock}。${campBlock}。根据以上信息回答: ${userMessage}`;
+
+  // 写入 .bat 文件，通过 cmd 管道执行（绕过命令行长度限制）
+  const { tmpdir } = await import('node:os');
+  const tmpDir = path.join(tmpdir(), 'oec-ai');
+  if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+  const txtFile = path.join(tmpDir, 'prompt.txt');
+  const batFile = path.join(tmpDir, 'run.bat');
+  const outFile = path.join(tmpDir, 'output.txt');
+  fs.writeFileSync(txtFile, prompt, 'utf-8');
+  fs.writeFileSync(batFile, `@echo off\r\ntype "${txtFile}" | codebuddy -p -y`, 'utf-8');
+
+  // 写 prompt 到文件，bat 脚本执行 codebuddy 并捕获输出到文件
+  fs.writeFileSync(batFile, `@echo off\r\ntype "${txtFile}" | codebuddy -p -y > "${outFile}" 2>&1\r\nexit /b 0`, 'utf-8');
+
   return new Promise((resolve) => {
-    exec(`codebuddy -p -y "${escaped}"`, {
-      cwd: __dirname, windowsHide: true, timeout: 60000,
-      shell: "C:\\Windows\\System32\\cmd.exe",
-    }, (err, stdout, stderr) => {
-      if (err) { console.error("[AI]", err.message); resolve(null); return; }
-      const out = (stdout || "").trim();
-      const noise = /^(我是小七|小七|您好|你好|我是)/;
-      resolve(noise.test(out) ? out : out);
-    });
+    try {
+      // 不设 timeout — 让 codebuddy 自然完成
+      const result = spawnSync('cmd', ['/c', batFile], {
+        cwd: __dirname, windowsHide: true,
+        encoding: 'utf-8', maxBuffer: 8 * 1024 * 1024,
+      });
+      // 读输出文件
+      let out = '';
+      try { out = fs.readFileSync(outFile, 'utf-8').trim(); } catch {}
+      if (result.error) {
+        console.error('[AI] spawnSync error:', result.error.message);
+      }
+      if (!out) {
+        console.error('[AI] empty output, exit:', result.status, 'pid:', result.pid);
+      }
+      resolve(out || null);
+    } catch (e) {
+      console.error('[AI] catch:', e.message);
+      resolve(null);
+    } finally {
+      try { fs.rmSync(tmpDir, { recursive: true }); } catch {}
+    }
   });
 }
 
 async function handleAtMention(text, chatId) {
   const cleaned = cleanAtText(text);
   console.log("[listener] @ in " + (CHAT_NAMES[chatId]||chatId) + ": " + cleaned);
-  if (!cleaned) { await sendMsg(chatId, "我在，有什么事？"); return; }
-  await sendMsg(chatId, "收到，思考中...");
+  if (!cleaned) {
+    await sendMsg(chatId,
+      '我在。\n\n' +
+      '可查询数据: @小七 今天消耗多少 / 当前告警 / 余额\n' +
+      '可执行操作: 暂停/关停/恢复/加预算 「计划名」\n' +
+      '查看帮助: 状态 / 帮助');
+    return;
+  }
+  // 直接回复，不再发送 "收到，思考中..."
   const reply = await callAI(cleaned);
   if (reply) { await sendMsg(chatId, reply); }
-  else { await sendMsg(chatId, "抱歉，暂时无法处理，请稍后再试。"); }
+  else { await sendMsg(chatId, "抱歉，暂时无法处理，请稍后再试。状态 查看帮助"); }
 }
 
 // ====== 主循环 ======
@@ -451,6 +557,7 @@ async function main() {
           var m = fresh[_m];
           var t = msgText(m);
           if (isBotMsg(m, t)) { _st.lastMsgId = m.message_id; continue; }
+          addReaction(m.message_id);  // 收到用户消息立即打 Get 表情
           var cmd = parseCommand(m);
           if (cmd) {
             console.log('[' + new Date().toLocaleTimeString() + '] [' + CHAT_NAMES[cid] + '] ' + (m.sender && m.sender.name || '?') + ' : ' + cmd.raw);
