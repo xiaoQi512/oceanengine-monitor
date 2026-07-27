@@ -14,7 +14,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawnSync, spawn, exec } from 'child_process';
-import { pushText } from './feishu-push-guard.mjs';
+import { pushText, pushCard } from './feishu-push-guard.mjs';
 import { findLarkCli, loadSuggestionHistory, saveSuggestionHistory, recalcSummary, DATA_DIR, CHROME_USER_DATA_DIR, CHROME_PROFILE_DIRECTORY, findChromeExe, ACTION_QUEUE_FILE, ACTION_AUDIT_FILE, ACTION_PENDING_FILE, initPendingFile } from './monitor-utils.mjs';
 import { checkCDP } from './cdp-client.mjs';
 import crypto from 'crypto';
@@ -320,15 +320,17 @@ function savePending(data) { fs.writeFileSync(ACTION_PENDING_FILE, JSON.stringif
 function addPending(action, chatId, meta = {}) {
   initPendingFile();
   const data = loadPending();
-  data.pending.push({
+  const item = {
     tempId: crypto.randomUUID(),
     action: { planName: action.planName, type: action.type, amount: action.amount || null },
     chatId,
     createdAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + 3 * 60 * 1000).toISOString(),
     ...meta,
-  });
+  };
+  data.pending.push(item);
   savePending(data);
+  return item;
 }
 
 // [v1.1 D2] 查找并消费 pending 项（用于 execute/reject 二次确认）
@@ -390,6 +392,52 @@ async function precheckAction(action) {
   } catch (e) { return { ok: false, reason: '预检查失败: ' + e.message }; }
 }
 
+// ====== [v1.1 D6] 操作确认卡片 ======
+// 发送飞书交互卡片替代纯文本二次确认
+async function sendConfirmCard(chatId, action, tempId, count, lastTime) {
+  const typeText = ACTION_TEXT[action.type] || action.type;
+  const card = {
+    config: { wide_screen_mode: true },
+    header: {
+      title: { tag: 'plain_text', content: '操作确认' },
+      template: 'orange',
+    },
+    elements: [
+      {
+        tag: 'div',
+        text: {
+          tag: 'lark_md',
+          content:
+            '当日已对 **' + action.planName + '** 执行过 ' + count + ' 次' + typeText + '操作\n' +
+            '最近一次：' + lastTime + '\n' +
+            '确认要再次执行吗？',
+        },
+      },
+      {
+        tag: 'hr',
+      },
+      {
+        tag: 'note',
+        elements: [
+          { tag: 'plain_text', content: '回复「执行」确认 · 回复「拒绝」取消 · 3分钟后超时自动取消' },
+        ],
+      },
+    ],
+  };
+  try {
+    await pushCard(LARK_CLI, card, chatId);
+    console.log('[listener] 已发送确认卡片: ' + action.planName);
+  } catch (e) {
+    console.warn('[listener] 卡片发送失败，回退文本:', e.message);
+    await sendMsg(chatId,
+      '🟡 当日已对「' + action.planName + '」执行过 ' + count + ' 次' + typeText + '操作\n' +
+      '   最近一次：' + lastTime + '\n' +
+      '   确认要再次执行吗？\n' +
+      '   回复"执行"确认 · 回复"拒绝"取消'
+    );
+  }
+}
+
 async function acknowledgeStart(chatId, action, typeText) {
   // 1. 预检查
   const precheck = await precheckAction(action);
@@ -398,19 +446,15 @@ async function acknowledgeStart(chatId, action, typeText) {
     return null;
   }
 
-  // 2. 检测当日重复指令
+  // 2. 检测当日重复指令 → 发送确认卡片
   const duplicates = checkDuplicateToday(action);
   if (duplicates) {
     const count = duplicates.length;
     const last = duplicates[duplicates.length - 1];
     const lastTime = (last.time || '').slice(11, 19) || '未知';
-    addPending(action, chatId, { isDuplicate: true, lastCount: count, lastTime });
-    await sendMsg(chatId,
-      '🟡 当日已对「' + action.planName + '」执行过 ' + count + ' 次' + typeText + '操作\n' +
-      '   最近一次：' + lastTime + '\n' +
-      '   确认要再次执行吗？\n' +
-      '   回复"执行"确认 · 回复"拒绝"取消'
-    );
+    const pendingItem = addPending(action, chatId, { isDuplicate: true, lastCount: count, lastTime });
+    // [v1.1 D6] 发送飞书交互卡片（失败时回退文本消息）
+    await sendConfirmCard(chatId, action, pendingItem.tempId, count, lastTime);
     return { status: 'pending_confirm', isDuplicate: true };
   }
 

@@ -146,7 +146,20 @@ async function executeAction(action) {
   return { ok: false, err: `未知 action 类型: ${type}` };
 }
 
-// ====== 处理队首（带重试） ======
+// ====== [v1.1 D3] CDP 熔断：检查 Chrome CDP 是否可达 ======
+// 复用 cdp-client 的 checkCDP 探测 9222 端口
+async function isChromeHealthy() {
+  try {
+    const { checkCDP } = await import('./cdp-client.mjs');
+    const status = await checkCDP();
+    return status?.reachable === true;
+  } catch (e) {
+    console.warn('[worker] Chrome 健康检查失败:', e.message);
+    return false;
+  }
+}
+
+// ====== 处理队首（带重试 + CDP 熔断） ======
 
 async function processHead() {
   const q = loadQueue();
@@ -160,6 +173,42 @@ async function processHead() {
 
   let result = null;
   let attempts = 0;
+
+  // [v1.1 D3] CDP 熔断：执行前检查 Chrome 是否可达
+  const chromeOk = await isChromeHealthy();
+  if (!chromeOk) {
+    console.log('[worker] CDP 熔断: Chrome 不可达，拒绝操作并存审计');
+    writeAudit({
+      traceRef: head.traceRef || '',
+      actionType: auditAction,
+      planName: planName,
+      projectId: head.projectId || '',
+      beforeValue: head.before || head.amount || head.bid || null,
+      afterValue: null,
+      result: {
+        ok: false,
+        method: 'none',
+        attempts: 0,
+        error: 'CHROME_UNREACHABLE',
+      },
+      source: head.source || 'feishu',
+    });
+
+    // 出队标记 failed 并跳过
+    const qUp = loadQueue();
+    if (qUp.actions?.length) {
+      const failed = qUp.actions.shift();
+      failed.failed = true;
+      failed.failedAt = new Date().toISOString();
+      failed.lastError = 'CHROME_UNREACHABLE';
+      failed.attempts = 0;
+      qUp.actions.push(failed);
+      saveQueue(qUp);
+    }
+
+    await reportToFeishu(head, { ok: false, err: 'Chrome 浏览器不可达，已熔断跳过' }, planName);
+    return { processed: true, ok: false, reason: 'CHROME_UNREACHABLE' };
+  }
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     attempts = attempt;

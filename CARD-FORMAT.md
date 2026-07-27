@@ -254,3 +254,70 @@ getTimeSlotAdvice(d.timeSlot, d.budgetUsed, rampingUp.length, dropping.length)
 | 日期 | 变更 |
 |------|------|
 | 2026-07-16 | 初始版本：累计/差值分区、开口成本/留资率、精简告警/建议、去账户预算余额重复 |
+| 2026-07-27 | **[v3.x]** 新增操作回执卡片 (D6)：重复指令二次确认交互卡片 |
+
+---
+
+## 十二、操作回执卡片 v3.x
+
+> 适用：`feishu-listener.mjs` 重复指令二次确认
+> 触发：当日已执行过同一操作的指令再次发起时
+> 发送：`sendConfirmCard(chatId, action, tempId, count, lastTime)` → `pushCard`
+
+### 卡片结构
+
+```
+┌─ orange header ───────────────────┐
+│ 操作确认                           │
+├────────────────────────────────────┤
+│                                    │
+│ 当日已对 **{planName}** 执行过      │
+│ {count} 次{actionType}操作          │
+│ 最近一次：{lastTime}               │
+│ 确认要再次执行吗？                  │
+│                                    │
+│ ──────────────────────────────────  │
+│ └ note: 回复「执行」确认 · 回复「拒绝」取消 · 3分钟后超时   │
+└────────────────────────────────────┘
+```
+
+### 数据字段
+
+| 字段 | 来源 | 说明 |
+|------|------|------|
+| `planName` | `action.planName` | 操作目标计划名 |
+| `count` | `checkDuplicateToday()` 返回值 `.length` | 当日同操作历史次数 |
+| `lastTime` | 审计记录 `time` 字段 `HH:MM:SS` | 最近一次执行时间 |
+| `actionType` | `ACTION_TEXT[action.type]` | 中文操作名（暂停/关停/恢复/加预算） |
+
+### 回退机制
+
+若 `pushCard` 调用失败（如 `lark-cli card` 未安装或不支持），自动回退为文本消息：
+
+```
+🟡 当日已对「{planName}」执行过 {count} 次{actionType}操作
+   最近一次：{lastTime}
+   确认要再次执行吗？
+   回复"执行"确认 · 回复"拒绝"取消
+```
+
+### 确认流程
+
+```
+用户指令 → acknowledgeStart → 预检查 → 重复检测 → addPending + sendConfirmCard
+                                                     ↓
+用户回复「执行」→ dispatch(type=execute) → findPending → enqueue → 执行
+用户回复「拒绝」→ dispatch(type=reject) → findPending → removePending → 取消
+3分钟超时    → scanPending → sendMsg(超时取消) → removePending
+```
+
+### 文件关系
+
+```
+feishu-listener.mjs
+  ├─ sendConfirmCard(chatId, action, tempId, count, lastTime)
+  │     └─ pushCard(LARK_CLI, card, chatId) → feishu-push-guard.mjs
+  ├─ addPending(action, chatId, meta) → pending-actions.json
+  ├─ findPending(chatId, planName) → dispatch consume
+  └─ scanPending() → 30s 定时器超时清理
+```

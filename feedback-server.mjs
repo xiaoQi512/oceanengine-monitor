@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import {
   getLocalDate, loadSuggestionHistory, saveSuggestionHistory, recalcSummary,
   DATA_DIR, HISTORY_FILE, FEEDBACK_PORT, ACCOUNT_NAME,
+  ACTION_AUDIT_FILE, ACTION_PENDING_FILE,
 } from './monitor-utils.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -316,7 +317,7 @@ const server = http.createServer(async (req, res) => {
         // 构造入队项（字段与 worker 期望一致）
         const item = {
           time: new Date().toISOString(),
-          source: sanitize(data.source || 'api'),
+          source: sanitize(data.source || 'dashboard'),  // [v1.1 D7] Dashboard 入口默认 source=dashboard
           by: sanitize(data.by || 'api'),
           type: data.type,
           planName: data.planName || '',     // 若空，worker 端需用 campaign_id 反查
@@ -364,6 +365,46 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8',
         'Cache-Control': 'no-store' });
       res.end(JSON.stringify(q));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // [v1.1 D5] GET /api/pending — 待确认操作列表
+  if (url.pathname === '/api/pending' && req.method === 'GET') {
+    try {
+      let data;
+      try { data = JSON.parse(fs.readFileSync(ACTION_PENDING_FILE, 'utf-8')); }
+      catch { data = { pending: [] }; }
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ ok: true, data: data.pending || [] }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // [v1.1 D5] GET /api/audit/recent — 最近审计记录（最多 50 条）
+  if (url.pathname === '/api/audit/recent' && req.method === 'GET') {
+    try {
+      const urlParams = new URL(req.url, 'http://localhost');
+      const limit = Math.min(parseInt(urlParams.searchParams.get('limit') || '50', 10), 200);
+      let lines = [];
+      try {
+        lines = fs.readFileSync(ACTION_AUDIT_FILE, 'utf-8')
+          .split('\n')
+          .filter(Boolean)
+          .slice(-limit)
+          .map(l => { try { return JSON.parse(l); } catch { return null; } })
+          .filter(Boolean);
+      } catch {}
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ ok: true, data: lines, total: lines.length }));
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: e.message }));
