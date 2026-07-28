@@ -254,6 +254,26 @@ async function processHead() {
 
   // [v1.1 P2-fix] 执行前回读 beforeValue，确保审计记录有真实操作前状态
   // 入队的 head.before 通常为空，这里主动调 API 读取
+  // 防御：检测 curl/Windows bash 导致的 UTF-8 替换字符损坏（中文变 ?????）
+  if (/(\?{3,}|[\ufffd]{2,})/.test(planName)) {
+    console.warn(`[worker] 计划名疑似 UTF-8 编码损坏，拒绝执行: ${planName}`);
+    const reason = 'UTF8_CORRUPTED';
+    writeAudit({
+      traceRef: head.traceRef || '',
+      actionType: auditAction,
+      planName: planName,
+      projectId: head.projectId || '',
+      beforeValue: null,
+      afterValue: null,
+      result: { ok: false, method: 'none', attempts: 0, error: reason },
+      source: head.source || 'feishu',
+    });
+    // 出队（直接丢弃，不入队尾循环）
+    const qCorrupted = loadQueue();
+    if (qCorrupted.actions?.length) { qCorrupted.actions.shift(); saveQueue(qCorrupted); }
+    await reportToFeishu(head, { ok: false, err: '计划名编码损坏（可能来自 curl），请用 Write 工具重新入队' }, planName);
+    return { processed: true, ok: false, reason };
+  }
   const beforeValue = await readPlanAfterValue(planName);
 
   let result = null;
