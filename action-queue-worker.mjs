@@ -20,9 +20,13 @@ const QUEUE_FILE = ACTION_QUEUE_FILE;
 const LOCK_FILE = ACTION_LOCK_FILE;
 const AUDIT_LOG_FILE = ACTION_AUDIT_FILE;
 
-const MAX_RETRIES = 3;
-const RETRY_INTERVAL_MS = 5000;
 const WATCH_INTERVAL_MS = 15000;
+
+// [v1.1 P2-fix] 双路径重试：HTTP API 主方案（快）+ CDP 降级（慢）
+const API_MAX_RETRIES = 3;
+const API_RETRY_INTERVAL_MS = 2000;
+const CDP_MAX_RETRIES = 2;
+const CDP_RETRY_INTERVAL_MS = 5000;
 
 // ====== 动态 import cdp-action（避免空队列时强依赖 ws 等浏览器依赖） ======
 let _cdpAction = null;
@@ -128,11 +132,11 @@ async function reportToFeishu(action, result, planName) {
     console.warn('[worker] 飞书反馈异常:', e.message);
   }
 }
-// ====== 单个 action 执行 ======
+// ====== 单个 action 执行（CDP 降级路径，仅在 HTTP API 失败时使用） ======
 
 async function executeAction(action) {
   const { type, planName, amount, bid } = action;
-  console.log(`[worker] 执行: ${type} plan="${planName}" amount=${amount ?? '-'} bid=${bid ?? '-'}`);
+  console.log(`[worker] CDP 执行: ${type} plan="${planName}" amount=${amount ?? '-'} bid=${bid ?? '-'}`);
 
   const cdp = await getCdpAction();
   if (type === 'pause' || type === 'stop' || type === 'resume') {
@@ -145,6 +149,37 @@ async function executeAction(action) {
     return await cdp.adjustBid(planName, bid);
   }
   return { ok: false, err: `未知 action 类型: ${type}` };
+}
+
+// ====== [v1.1 P2-fix] HTTP API 主方案：优先通过 API 执行操作 ======
+// 使用 projectId（from readPlanAfterValue）调 HTTP API，避免 CDP 文本搜索不可靠
+async function tryHttpApi(head, projectId) {
+  const { createClient, updateProjectStatus, updateProjectBudget, updateProjectBid } = await getApiClient();
+  const client = await createClient({ useCache: true });
+
+  const { type, planName, amount, bid } = head;
+  console.log(`[worker] HTTP API 执行: ${type} plan="${planName}" projectId=${projectId}`);
+
+  let result = null;
+  switch (type) {
+    case 'pause':
+    case 'stop':
+      result = await updateProjectStatus(client, { projectId, status: 'pause' });
+      break;
+    case 'resume':
+      result = await updateProjectStatus(client, { projectId, status: 'enable' });
+      break;
+    case 'adjust_budget':
+      result = await updateProjectBudget(client, { projectId, budget: amount });
+      break;
+    case 'adjust_bid':
+      result = await updateProjectBid(client, { projectId, bid });
+      break;
+    default:
+      return { ok: false, err: `HTTP API 不支持的 action: ${type}` };
+  }
+  result.method = 'http_api';
+  return result;
 }
 
 // ====== [v1.1 D3] CDP 熔断：检查 Chrome CDP 是否可达 ======
@@ -223,57 +258,86 @@ async function processHead() {
 
   let result = null;
   let attempts = 0;
+  let method = 'none';
 
-  // [v1.1 D3] CDP 熔断：执行前检查 Chrome 是否可达
-  const chromeOk = await isChromeHealthy();
-  if (!chromeOk) {
-    console.log('[worker] CDP 熔断: Chrome 不可达，拒绝操作并存审计');
-    writeAudit({
-      traceRef: head.traceRef || '',
-      actionType: auditAction,
-      planName: planName,
-      projectId: head.projectId || beforeValue?.projectId || '',
-      beforeValue,
-      afterValue: null,
-      result: {
-        ok: false,
-        method: 'none',
-        attempts: 0,
-        error: 'CHROME_UNREACHABLE',
-      },
-      source: head.source || 'feishu',
-    });
-
-    // 出队标记 failed 并跳过
-    const qUp = loadQueue();
-    if (qUp.actions?.length) {
-      const failed = qUp.actions.shift();
-      failed.failed = true;
-      failed.failedAt = new Date().toISOString();
-      failed.lastError = 'CHROME_UNREACHABLE';
-      failed.attempts = 0;
-      qUp.actions.push(failed);
-      saveQueue(qUp);
+  // [v1.1 P2-fix] 双路径执行：HTTP API 主方案 → CDP 降级
+  // Phase 1: 尝试 HTTP API（需要 projectId，from readPlanAfterValue）
+  const projectId = beforeValue?.projectId || head.projectId || '';
+  if (projectId) {
+    for (let attempt = 1; attempt <= API_MAX_RETRIES; attempt++) {
+      attempts = attempt;
+      console.log(`[worker] HTTP API 尝试 ${attempt}/${API_MAX_RETRIES}: ${head.type} "${planName}" projectId=${projectId}`);
+      try {
+        result = await tryHttpApi(head, projectId);
+      } catch (e) {
+        result = { ok: false, err: e.message };
+      }
+      if (result?.ok) {
+        method = 'http_api';
+        break;
+      }
+      if (attempt < API_MAX_RETRIES) {
+        console.log(`[worker] HTTP API 失败，${API_RETRY_INTERVAL_MS}ms 后重试: ${result?.err || result?.error || '?'}`);
+        await new Promise(r => setTimeout(r, API_RETRY_INTERVAL_MS));
+      }
     }
-
-    await reportToFeishu(head, { ok: false, err: 'Chrome 浏览器不可达，已熔断跳过' }, planName);
-    return { processed: true, ok: false, reason: 'CHROME_UNREACHABLE' };
+  } else {
+    console.log('[worker] 无 projectId，跳过 HTTP API，直接尝试 CDP');
   }
 
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    attempts = attempt;
-    console.log(`[worker] 尝试 ${attempt}/${MAX_RETRIES}: ${head.type} "${planName}"`);
-    try {
-      result = await executeAction(head);
-    } catch (e) {
-      result = { ok: false, err: e.message };
-    }
-    if (result?.ok) break;
+  // Phase 2: HTTP API 失败 → CDP 降级（需 Chrome 健康）
+  if (!result?.ok) {
+    console.log(`[worker] HTTP API ${projectId ? '全部失败' : '跳过'}，检查 CDP 降级可行性`);
 
-    if (attempt < MAX_RETRIES) {
-      console.log(`[worker] 失败，${RETRY_INTERVAL_MS}ms 后重试: ${result?.err || '?'}`);
-      await new Promise(r => setTimeout(r, RETRY_INTERVAL_MS));
+    // [v1.1 D3] CDP 熔断：执行前检查 Chrome 是否可达
+    const chromeOk = await isChromeHealthy();
+    if (!chromeOk) {
+      console.log('[worker] CDP 熔断: Chrome 不可达，拒绝操作并存审计');
+      writeAudit({
+        traceRef: head.traceRef || '',
+        actionType: auditAction,
+        planName: planName,
+        projectId: projectId || beforeValue?.projectId || '',
+        beforeValue,
+        afterValue: null,
+        result: { ok: false, method: 'none', attempts: attempts, error: 'HTTP_API_FAILED + CHROME_UNREACHABLE' },
+        source: head.source || 'feishu',
+      });
+      // 出队标记 failed
+      const qUp1 = loadQueue();
+      if (qUp1.actions?.length) {
+        const failed = qUp1.actions.shift();
+        failed.failed = true;
+        failed.failedAt = new Date().toISOString();
+        failed.lastError = 'HTTP_API_FAILED + CHROME_UNREACHABLE';
+        failed.attempts = 0;
+        qUp1.actions.push(failed);
+        saveQueue(qUp1);
+      }
+      await reportToFeishu(head, { ok: false, err: 'HTTP API 失败 + Chrome 不可达，已熔断跳过' }, planName);
+      return { processed: true, ok: false, reason: 'CDP_UNREACHABLE' };
     }
+
+    // CDP 降级执行
+    console.log(`[worker] CDP 降级执行: ${head.type} "${planName}"`);
+    for (let attempt = 1; attempt <= CDP_MAX_RETRIES; attempt++) {
+      attempts++;
+      console.log(`[worker] CDP 尝试 ${attempt}/${CDP_MAX_RETRIES}: ${head.type} "${planName}"`);
+      try {
+        result = await executeAction(head);
+      } catch (e) {
+        result = { ok: false, err: e.message };
+      }
+      if (result?.ok) {
+        method = 'cdp';
+        break;
+      }
+      if (attempt < CDP_MAX_RETRIES) {
+        console.log(`[worker] CDP 失败，${CDP_RETRY_INTERVAL_MS}ms 后重试: ${result?.err || '?'}`);
+        await new Promise(r => setTimeout(r, CDP_RETRY_INTERVAL_MS));
+      }
+    }
+    if (!method) method = 'cdp-failed';
   }
 
   // [v1.1 D1/D7] 写审计（唯一写入点，含扩展字段）
@@ -300,7 +364,7 @@ async function processHead() {
     afterValue,
     result: {
       ok: result?.ok ?? false,
-      method: result?.method || 'http_api',
+      method: result?.method || method || 'http_api',
       attempts: attempts,
       error: result?.err || result?.error || null,
     },
