@@ -124,7 +124,7 @@ async function pushToLark(data, rolling) {
             `💰 **近${Math.round(rolling.last5minMinutes || 5)}分钟消耗**: ¥${rolling.last5min.toFixed(0)} | **今日累计**: ¥${getSpend(data).toFixed(0)}`,
             `📊 **预算**: ¥${data.accountBudget > 0 ? data.accountBudget.toFixed(0) : '--'} | **投放中**: ${data.activeCount}条`,
             `🎯 **近${Math.round(rolling.last5minMinutes || 5)}分钟转化**: +${rolling.convLast5min}条 | **今日累计**: ${getConv(data)}条`,
-            `📡 **近${Math.round(rolling.last5minMinutes || 5)}m CPM**: ¥${data._recentCPM > 0 ? data._recentCPM.toFixed(1) : '--'}`,
+            `📡 **近${Math.round(rolling.last5minMinutes || 5)}m CPL**: ¥${rolling.last5min > 0 && rolling.convLast5min > 0 ? (rolling.last5min / rolling.convLast5min).toFixed(0) : '--'} | **CPM**: ¥${data._recentCPM > 0 ? data._recentCPM.toFixed(1) : '--'}`,
             ``,
             `📈 **消耗环比**:`,
             `${trendLines}`,
