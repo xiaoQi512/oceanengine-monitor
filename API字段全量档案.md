@@ -278,6 +278,69 @@ project_status=2, first=2, second=[2] → 暂停+未投放+已暂停 (192条)
 
 ---
 
+## 九、直播分析页（DOM 数据，替代 live_room/list 🔒）
+
+> URL: `/statistics_pages/ad_report/operation-analysis/webcast/report?aadvid={accountId}`
+> 页面导航: 数据模块 → 经营分析 → 直播分析
+> 获取方式: bsk navigate → snapshot → DOM 解析
+
+### 9.1 总览指标
+
+| 字段 | 类型 | 说明 | 状态 |
+|------|------|------|:---:|
+| `live_sessions` | int | 直播场次 | ⬜ |
+| `avg_stay_seconds` | int | 平均停留时长(秒) | ⬜ |
+| `total_views` | int | 整体观看数 | ⬜ |
+| `avg_views_per_session` | int | 场均观看数 | ⬜ |
+| `form_submit_count` | int | 表单提交数 | ⬜ |
+| `avg_form_per_session` | int | 场均表单提交数 | ⬜ |
+| `spend_summary` | float | 消耗汇总 | ⬜ |
+
+### 9.2 直播间列表（12 列）
+
+| 列名 | 类型 | 说明 | 状态 |
+|------|------|------|:---:|
+| `room_info` | str | 直播间状态+名称+ID+已投单元数 | ⬜ |
+| `action` | link | 详情入口 | ⬜ |
+| `live_time` | datetime | 直播时间范围 | ⬜ |
+| `douyin_id` | str | 抖音ID | ⬜ |
+| `total_views` | int | 整体观看数 | ⬜ |
+| `views_over_1min` | int | 整体超一分钟观看数 | ⬜ |
+| `live_room_viewers` | int | 整体直播间观看人数 | ⬜ |
+| `avg_stay_seconds` | int | 整体观众平均停留时长(秒) | ⬜ |
+| `follows` | int | 整体关注数 | ⬜ |
+| `comments` | int | 整体评论数 | ⬜ |
+| `ad_component_ctr` | % | 标准投放组件点击率 | ⬜ |
+| `ad_form_submit` | int | 标准投放表单提交数 | ⬜ |
+
+### 9.3 数据示例（2026-07-30）
+
+```json
+{
+  "total": { "sessions": 6, "avgStay": 77, "totalViews": 354243, "avgViews": 59041 },
+  "rooms": [
+    {
+      "name": "极狐贝塔S3来啦！！！",
+      "roomId": "7666596351811078955",
+      "unitCount": 16,
+      "status": "已结束",
+      "timeRange": "07-26 06:29 - 07-26 23:30",
+      "douyinId": "极狐｜区域福利营销中心(ID:88236056618)",
+      "totalViews": 63930,
+      "viewsOver1min": 4921,
+      "liveRoomViewers": 52925,
+      "avgStaySeconds": 74,
+      "follows": 387,
+      "comments": 1191,
+      "adComponentCtr": "1.23%",
+      "adFormSubmit": 0
+    }
+  ]
+}
+```
+
+---
+
 ## 统计总览
 
 | 端点 | 字段数 | 已入库 | 未入库 | 拦截 |
@@ -286,6 +349,7 @@ project_status=2, first=2, second=[2] → 暂停+未投放+已暂停 (192条)
 | projects/detail | — | 0 | 0 | 🔒 |
 | adgroups/list | — | 0 | 0 | 🔒 |
 | live_room/list | — | 0 | 0 | 🔒 |
+| 直播分析页 (DOM) | 19 | 0 | 19 | 0 (替代 live_room/list) |
 | dashboard/stats | 10 | 8 | 2 | 0 |
 | hourly/stats | 7指标×24h | 0 | 7 | 0 |
 | 5m snapshots | 17 | 5 | 12 | 0 |
@@ -293,7 +357,7 @@ project_status=2, first=2, second=[2] → 暂停+未投放+已暂停 (192条)
 | session/stats | 2 | 0 | 2 | 0 |
 | online_room | 5 | 0 | 5 | 0 |
 | action-audit | 9 | 9 | 0 | 0 |
-| **合计** | **≈130** | **~45** | **~85** | **3端点** |
+| **合计** | **≈149** | **~45** | **~104** | **3端点** |
 
 ---
 
