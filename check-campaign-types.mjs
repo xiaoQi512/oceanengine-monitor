@@ -3,7 +3,7 @@ import { createClient, getProjects } from './oceanengine-api-client.mjs';
 const client = await createClient({ useCache: true });
 const allProjects = [];
 for (let p = 1; p <= 5; p++) {
-  const r = await getProjects(client, { page: p, pageSize: 50 });
+  const r = await getProjects(client, { page: p, pageSize: 100 });
   if (!r || !r.projects || !r.projects.length) break;
   allProjects.push(...r.projects);
 }

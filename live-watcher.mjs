@@ -120,7 +120,7 @@ async function main() {
         state.lastChangeTime = new Date().toISOString();
         saveState(state);
 
-        // 日汇总由 PM2 cron (23:34) 统一调度，live-watcher 不再触发
+        // 日汇总由 PM2 cron (23:35) 统一调度，live-watcher 不再触发
       }
 
       // --- 持续在线或持续离线: 仅更新状态 ---

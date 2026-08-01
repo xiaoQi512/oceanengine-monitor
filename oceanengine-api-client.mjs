@@ -37,6 +37,19 @@ function localDateStr(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// ====== 失败日志限频：同类失败 5 分钟内只打印一次（跨进程共享状态，避免刷屏） ======
+const FAIL_LOG_STATE_FILE = path.join(DATA_DIR, '.fail-log-state.json');
+function failLogOnce(key, fn) {
+  const now = Date.now();
+  const WINDOW_MS = 5 * 60 * 1000;
+  let state = {};
+  try { state = JSON.parse(fs.readFileSync(FAIL_LOG_STATE_FILE, 'utf-8')); } catch {}
+  if (now - (state[key] || 0) < WINDOW_MS) return;
+  state[key] = now;
+  try { fs.writeFileSync(FAIL_LOG_STATE_FILE, JSON.stringify(state)); } catch {}
+  fn();
+}
+
 // ====== Cookie 提取（一次性，使用 CDP Network.getCookies） ======
 async function extractCookiesFromBrowser() {
   console.log('  🍪 从浏览器提取 Cookie...');
@@ -170,7 +183,7 @@ async function apiRequest(url, options = {}) {
  */
 export async function getProjects(client, options = {}) {
   const {
-    page = 1, pageSize = 50, accountId = ACCOUNT_ID,
+    page = 1, pageSize = 200, accountId = ACCOUNT_ID,
     date = localDateStr(),
   } = options;
 
@@ -202,7 +215,7 @@ export async function getProjects(client, options = {}) {
   });
 
   if (!resp.ok) {
-    console.log(`  ❌ projects/list 失败 [${resp.status}]`);
+    failLogOnce('projects/list:' + resp.status, () => console.log(`  ❌ projects/list 失败 [${resp.status}]`));
     return { projects: [], totalMetrics: null, pagination: null };
   }
 
@@ -223,7 +236,7 @@ export async function getDashboardStats(client, accountId = ACCOUNT_ID) {
   });
 
   if (!resp.ok) {
-    console.log(`  ❌ dashboard_stats 失败 [${resp.status}]`);
+    failLogOnce('dashboard_stats:' + resp.status, () => console.log(`  ❌ dashboard_stats 失败 [${resp.status}]`));
     return null;
   }
 
@@ -301,7 +314,7 @@ export async function getHourlyStats(client, options = {}) {
   });
 
   if (!resp.ok) {
-    console.log(`  ❌ statQuery 失败 [${resp.status}]`);
+    failLogOnce('statQuery:' + resp.status, () => console.log(`  ❌ statQuery 失败 [${resp.status}]`));
     return { rows: [], totalMetrics: null };
   }
 
@@ -334,7 +347,7 @@ export async function collectAllData(client) {
 
   // 并发请求3个API
   let [page1, stats] = await Promise.all([
-    getProjects(client, { page: 1, pageSize: 50 }),
+    getProjects(client, { page: 1, pageSize: 100 }),
     getDashboardStats(client),
   ]);
 
@@ -345,7 +358,7 @@ export async function collectAllData(client) {
       console.log('  ⚠ metrics为空，Cookie可能过期，强制刷新重试...');
       await client.refreshCookies();
       [page1, stats] = await Promise.all([
-        getProjects(client, { page: 1, pageSize: 50 }),
+        getProjects(client, { page: 1, pageSize: 100 }),
         getDashboardStats(client),
       ]);
     }
@@ -354,11 +367,11 @@ export async function collectAllData(client) {
   let allProjects = page1.projects;
   const pag = page1.pagination;
 
-  // 分页抓取（最多10页安全上限）
+  // 分页抓取（每页200条，最多5页安全上限 = 1000条）
   if (pag && pag.total_page > 1) {
     console.log(`  📄 分页抓取: ${pag.total_page} 页 / ${pag.total_count} 条`);
-    for (let p = 2; p <= Math.min(pag.total_page, 10); p++) {
-      const next = await getProjects(client, { page: p, pageSize: 50 });
+    for (let p = 2; p <= Math.min(pag.total_page, 5); p++) {
+      const next = await getProjects(client, { page: p, pageSize: 100 });
       if (next.projects.length === 0) break;
 
       // 检查该页是否有消耗项目
@@ -476,7 +489,7 @@ export async function getSessionStats(client, options = {}) {
   });
 
   if (!resp.ok) {
-    console.log(`  ❌ statQuery (session) 失败 [${resp.status}]`);
+    failLogOnce('statQuery_session:' + resp.status, () => console.log(`  ❌ statQuery (session) 失败 [${resp.status}]`));
     return { total: { cost: 0, leads: 0 }, rows: [] };
   }
 
@@ -631,7 +644,7 @@ export async function getOnlineRoomList(client) {
     `${BASE_URL}/nbs/api/statistics/live_show/online_room/list?aadvid=${ACCOUNT_ID}`,
     { method: "POST", cookieData: client.cookieData }
   );
-  if (!resp.ok) { console.log("  online room list failed [" + resp.status + "]"); return []; }
+  if (!resp.ok) { failLogOnce('online_room_list:' + resp.status, () => console.log("  online room list failed [" + resp.status + "]")); return []; }
   const raw = resp.data?.data || [];
   // API camelCase -> snake_case
   return raw.map(r => ({
@@ -653,7 +666,7 @@ export async function getLiveRoomStatus(client, roomId) {
     `${BASE_URL}/nbs/api/statistics/live_show/online_room/attributes?aadvid=${ACCOUNT_ID}`,
     { method: "POST", body, cookieData: client.cookieData }
   );
-  if (!resp.ok) { console.log("  room status failed [" + resp.status + "]"); return null; }
+  if (!resp.ok) { failLogOnce('room_status:' + resp.status, () => console.log("  room status failed [" + resp.status + "]")); return null; }
   const room = (resp.data?.data || [])[0];
   if (!room) return null;
   return {

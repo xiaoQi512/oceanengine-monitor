@@ -91,7 +91,7 @@ function calcRolling(data, prevSnapshots) {
 }
 
 // ====== 推送到飞书 (使用熔断守卫) ======
-async function pushToLark(data, rolling) {
+async function pushToLark(data, rolling, prevSnapshots = []) {
   const larkCli = findLarkCli();
   if (!larkCli) { console.log('  ⚠ lark-cli 不可用'); return false; }
 
@@ -108,6 +108,41 @@ async function pushToLark(data, rolling) {
     const sign = w.delta >= 0 ? '+' : '';
     return `${w.label}: ${dir}${Math.abs(parseFloat(w.pct)).toFixed(0)}% (${sign}¥${w.delta.toFixed(0)}) · ¥${w.rpm.toFixed(0)}/min${hot}`;
   }).join('\n');
+
+  // TOP5 消耗计划（5分钟增量 = 当前累计 - 上次快照累计）
+  const prevSpendMap = new Map();
+  const prevConvMap = new Map();
+  const prevSnap = prevSnapshots[0];
+  if (prevSnap && Array.isArray(prevSnap.allSpending)) {
+    for (const p of prevSnap.allSpending) {
+      if (p.id) {
+        prevSpendMap.set(p.id, p.spend || 0);
+        prevConvMap.set(p.id, p.conversions || 0);
+      }
+    }
+  }
+  const top5 = [...(data.allSpending || [])]
+    .map(c => {
+      const prevSpend = prevSpendMap.get(c.id) || 0;
+      const prevConv = prevConvMap.get(c.id) || 0;
+      const deltaSpend = Math.max(0, c.spend - prevSpend);
+      const deltaConv = Math.max(0, c.conversions - prevConv);
+      return {
+        name: c.name,
+        deltaSpend,
+        deltaConv,
+        cpl: deltaConv > 0 ? deltaSpend / deltaConv : null,
+      };
+    })
+    .filter(t => t.deltaSpend > 0)
+    .sort((a, b) => b.deltaSpend - a.deltaSpend)
+    .slice(0, 5);
+  const top5Lines = top5.length > 0
+    ? top5.map((t, i) => {
+        const cplStr = t.cpl !== null ? ` | CPL ¥${t.cpl.toFixed(0)}` : '';
+        return `${i + 1}. +¥${t.deltaSpend.toFixed(0)}${cplStr}  ${t.name}`;
+      }).join('\n')
+    : '暂无增量';
 
   const card = {
     config: { wide_screen_mode: false },
@@ -128,6 +163,9 @@ async function pushToLark(data, rolling) {
             ``,
             `📈 **消耗环比**:`,
             `${trendLines}`,
+            ``,
+            `🏆 **5min消耗TOP5**:`,
+            `${top5Lines}`,
           ].join('\n')
         }
       }
@@ -387,7 +425,7 @@ async function main() {
     const apiClient = await createApiClient({ useCache: true });
     const [stats, projectsPage] = await Promise.all([
       getDashboardStats(apiClient),
-      getProjects(apiClient, { page: 1, pageSize: 50 }), // 拉汇总行+投放中计数
+      getProjects(apiClient, { page: 1, pageSize: 100 }), // 拉汇总行+投放中计数
     ]);
     if (stats && stats.todaySpend > 0) {
       const totalConv = parseInt(String(projectsPage?.totalMetrics?.convert_cnt || '0').replace(/,/g, '')) || 0;
@@ -400,6 +438,31 @@ async function main() {
         const s = p.project_status_name || p.project_status_first_name || '';
         return s === '启用' || s === '启用中' || s === '投放中';
       }).length;
+
+      // 构造 per-plan 明细（与 collectAllData 的 campaigns 格式兼容）
+      const allProjects = projects.map(p => {
+        const m = p.metrics || {};
+        return {
+          id: p.project_id || '',
+          name: p.project_name || '',
+          status: p.project_status_name || p.project_status_first_name || '',
+          spend: parseFloat(String(m.stat_cost || '0').replace(/,/g, '')),
+          conversions: parseInt(String(m.convert_cnt || '0').replace(/,/g, '')) || 0,
+          formSubmit: parseInt(String(m.form || '0').replace(/,/g, '')) || 0,
+          privateMsgOpen: parseInt(String(m.message_action || '0').replace(/,/g, '')) || 0,
+          privateMsgRetain: parseInt(String(m.clue_message_count || '0').replace(/,/g, '')) || 0,
+          leads: parseInt(String(m.attribution_all_convert_clue_count || '0').replace(/,/g, '')) || 0,
+          ctr: parseFloat(String(m.ctr || '0%').replace(/%/g, '')) / 100 || 0,
+          cpm: parseFloat(String(m.cpm_platform || '0').replace(/,/g, '')),
+          cvr: parseFloat(String(m.conversion_rate || '0%').replace(/%/g, '')) / 100 || 0,
+          budget: parseFloat(String(p.campaign_budget || '0').replace(/,/g, '')),
+          liveViews: parseInt(String(m.luban_live_enter_cnt || '0').replace(/,/g, '')) || 0,
+          liveOver1Min: parseInt(String(m.live_watch_one_minute_count || '0').replace(/,/g, '')) || 0,
+          liveComments: parseInt(String(m.luban_live_comment_cnt || '0').replace(/,/g, '')) || 0,
+        };
+      });
+      const spendingCount = allProjects.filter(p => p.spend > 0).length;
+
       data = {
         accountSpend: stats.todaySpend,
         accountBudget: stats.todayBudget,
@@ -407,14 +470,19 @@ async function main() {
         summarySpend: stats.todaySpend,
         totalConv,
         activeCount: activeCnt,
-        spendingCount: 0,
+        spendingCount,
         impressions: totalImp,
         liveViews,
         liveOver1Min,
-        time: new Date().toISOString(),
+        allSpending: allProjects.filter(p => p.spend > 0),
+        active: allProjects.filter(p => p.status === '启用' || p.status === '启用中' || p.status === '投放中'),
+        campaigns: allProjects,
+        summary: { totalSpend: stats.todaySpend, totalLeads: totalConv },
+        sourceType: '5min',
+        time: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
         _method: 'http_api',
       };
-      console.log(`  ✅ HTTP API: 消耗 ¥${stats.todaySpend.toFixed(0)} | 预算 ¥${stats.todayBudget} | 转化 ${totalConv} | 投放中 ${activeCnt}`);
+      console.log(`  ✅ HTTP API: 消耗 ¥${stats.todaySpend.toFixed(0)} | 预算 ¥${stats.todayBudget} | 转化 ${totalConv} | 投放中 ${activeCnt} | 有消耗 ${spendingCount}`);
     }
   } catch (e) {
     console.log(`  ⚠ HTTP API 失败: ${e.message?.slice(0, 60)}`);
@@ -500,7 +568,7 @@ async function main() {
     } catch (e) {
       console.warn(`  ⚠ JSON 快照写入失败: ${e.message}`);
     }
-    // SQLite 双写 (5min-check 无 campaign 明细，writer 会自动跳过；保持双通道一致性)
+    // SQLite 双写 (含 campaign 明细: allSpending/active/sourceType)
     try {
       const r = insertSnapshot(snapData);
       if (r.ok && r.rows > 0) {
@@ -534,7 +602,7 @@ async function main() {
         console.log('  📊 整刻钟 — 推送15分钟详细卡片');
         await pushDetailedCard();
       } else {
-        await pushToLark(data, rolling);
+        await pushToLark(data, rolling, prevSnapshots);
       }
       atomicWriteAtomic(lastPushFile, JSON.stringify({ timestamp: Date.now() }));
     }

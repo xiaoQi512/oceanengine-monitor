@@ -11,8 +11,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pushText } from './feishu-push-guard.mjs';
-import { findLarkCli, ACTION_QUEUE_FILE, ACTION_LOCK_FILE, ACTION_AUDIT_FILE, ACCOUNT_ID } from './monitor-utils.mjs';
+import { findLarkCli, ACTION_QUEUE_FILE, ACTION_LOCK_FILE, ACTION_AUDIT_FILE, ACCOUNT_ID, DATA_DIR } from './monitor-utils.mjs';
 import { checkCDP } from './cdp-client.mjs';
+import { insertAction } from './db/writer.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // [v1.1 D4] 路径常量统一从 monitor-utils 导入（支持环境变量覆盖）
@@ -67,11 +68,19 @@ function releaseLock() {
 
 // ====== 队列读写 ======
 
-function loadQueue() {
+async function loadQueue() {
   try {
     return JSON.parse(fs.readFileSync(QUEUE_FILE, 'utf8'));
   } catch {
-    return { actions: [] };
+    // [v2 fix] JSON 解析失败可能因 server 并发写入导致读到不完整文件
+    // 等 200ms 重试一次，给 server 写完的时间窗口
+    await new Promise(resolve => setTimeout(resolve, 200));
+    try {
+      return JSON.parse(fs.readFileSync(QUEUE_FILE, 'utf8'));
+    } catch {
+      console.warn('[worker] 队列文件读取失败，已返回空队列');
+      return { actions: [] };
+    }
   }
 }
 
@@ -85,6 +94,29 @@ function saveQueue(q) {
 // source: auto/manual/dashboard/feishu
 // method: http_api/cdp/none
 const VALID_SOURCES = ['auto', 'manual', 'dashboard', 'feishu'];
+
+// [v2] 读取操作前的最近 5m 快照，用于后续效果追踪
+// 返回 { accountSpend, totalConv, time } 或 null
+function getSnapshotBefore() {
+  try {
+    const files = fs.readdirSync(DATA_DIR)
+      .filter(f => f.startsWith('5m-') && f.endsWith('.json'))
+      .sort();
+    if (files.length === 0) return null;
+    const latest = files[files.length - 1];
+    const snap = JSON.parse(fs.readFileSync(path.join(DATA_DIR, latest), 'utf-8'));
+    return {
+      accountSpend: Number(snap.accountSpend) || 0,
+      totalConv: Number(snap.totalConv) || 0,
+      time: snap.time || latest.replace(/^5m-/, '').replace(/\.json$/, '').replace(/-/g, (m, i) => i >= 10 ? ':' : '-'),
+      file: latest,
+    };
+  } catch (e) {
+    console.warn('[worker] 读快照失败:', e.message);
+    return null;
+  }
+}
+
 function writeAudit(entry) {
   try {
     if (!fs.existsSync(path.dirname(AUDIT_LOG_FILE))) {
@@ -99,6 +131,8 @@ function writeAudit(entry) {
       source: VALID_SOURCES.includes(entry.source) ? entry.source : 'unknown',
       beforeValue: entry.beforeValue ?? null,
       afterValue: entry.afterValue ?? null,
+      // [v2] 操作前账户快照，用于 AI 学习数据效果回溯
+      snapshotBefore: getSnapshotBefore(),
       result: {
         ok: entry.result?.ok ?? false,
         method: entry.result?.method || 'none',
@@ -108,6 +142,14 @@ function writeAudit(entry) {
       workerPid: process.pid,
     };
     fs.appendFileSync(AUDIT_LOG_FILE, JSON.stringify(record) + '\n');
+
+    // [v2] 同步写入 SQLite actions 表（与 jsonl 双写，互不阻塞）
+    try {
+      const r = insertAction(record);
+      if (!r.ok) console.warn('[worker] DB actions 写入失败:', r.error);
+    } catch (e) {
+      console.warn('[worker] DB actions 异常:', e.message);
+    }
   } catch (e) {
     console.warn('[worker] 审计写入失败:', e.message);
   }
@@ -232,7 +274,7 @@ async function readPlanAfterValue(planName, timeoutMs = 10000) {
 // ====== 处理队首（带重试 + CDP 熔断） ======
 
 async function processHead() {
-  const q = loadQueue();
+  const q = await loadQueue();
   if (!q.actions?.length) return { processed: false, reason: 'empty' };
 
   // [v1.1 P1-fix] 跳过队首 failed 项（避免重复处理已放弃的操作）
@@ -269,7 +311,7 @@ async function processHead() {
       source: head.source || 'feishu',
     });
     // 出队（直接丢弃，不入队尾循环）
-    const qCorrupted = loadQueue();
+    const qCorrupted = await loadQueue();
     if (qCorrupted.actions?.length) { qCorrupted.actions.shift(); saveQueue(qCorrupted); }
     await reportToFeishu(head, { ok: false, err: '计划名编码损坏（可能来自 curl），请用 Write 工具重新入队' }, planName);
     return { processed: true, ok: false, reason };
@@ -324,7 +366,7 @@ async function processHead() {
         source: head.source || 'feishu',
       });
       // 出队标记 failed
-      const qUp1 = loadQueue();
+      const qUp1 = await loadQueue();
       if (qUp1.actions?.length) {
         const failed = qUp1.actions.shift();
         failed.failed = true;
@@ -392,7 +434,7 @@ async function processHead() {
   });
 
   // 出队 or 标记 failed
-  const qLatest = loadQueue();
+  const qLatest = await loadQueue();
   if (qLatest.actions?.length) {
     if (result?.ok) {
       qLatest.actions.shift();
@@ -434,7 +476,7 @@ async function runWatch() {
   console.log(`[worker] watch 模式启动，每 ${WATCH_INTERVAL_MS / 1000}s 检查队列`);
   while (true) {
     try {
-      const q = loadQueue();
+      const q = await loadQueue();
       const pending = q.actions?.filter(a => !a.failed).length || 0;
       if (pending > 0) {
         console.log(`[worker] 队列待处理 ${pending} 条`);

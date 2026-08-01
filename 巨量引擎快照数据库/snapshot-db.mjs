@@ -95,12 +95,16 @@ const _5mScanCache = new Map(); // dateStr → { at: Date.now(), files: string[]
 function scan5mFiles(utcDate) {
   const now = Date.now();
   const cached = _5mScanCache.get(utcDate);
-  const pattern = `5m-${utcDate}T`;
+
+  // 5分钟快照文件名使用北京时间（如 5m-2026-08-01T07-31-02.json）
+  // 需同时按 UTC 日期和北京时间查
+  const bjDate = utcToBeijingDate(utcDate);
+  const patterns = ['5m-' + utcDate + 'T', '5m-' + bjDate + 'T'];
 
   if (cached && (now - cached.at) < 30000) {
     try {
       const currentCount = fs.readdirSync(MONITOR_DATA_DIR)
-        .filter(f => f.startsWith(pattern) && f.endsWith('.json')).length;
+        .filter(f => patterns.some(p => f.startsWith(p)) && f.endsWith('.json')).length;
       if (currentCount === cached.count) return cached.files;
     } catch {}
   }
@@ -108,7 +112,7 @@ function scan5mFiles(utcDate) {
   let files;
   try {
     files = fs.readdirSync(MONITOR_DATA_DIR)
-      .filter(f => f.startsWith(pattern) && f.endsWith('.json'))
+      .filter(f => patterns.some(p => f.startsWith(p)) && f.endsWith('.json'))
       .map(f => path.join(MONITOR_DATA_DIR, f))
       .sort();
   } catch {
@@ -116,6 +120,13 @@ function scan5mFiles(utcDate) {
   }
   _5mScanCache.set(utcDate, { at: now, files, count: files.length });
   return files;
+}
+
+// UTC date "2026-07-31" → Beijing date "2026-08-01"
+function utcToBeijingDate(utcDate) {
+  const [y, m, d] = utcDate.split('-').map(Number);
+  const dObj = new Date(Date.UTC(y, m-1, d) + 8*3600000);
+  return dObj.toISOString().slice(0, 10);
 }
 
 /**

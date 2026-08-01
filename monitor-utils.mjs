@@ -62,7 +62,9 @@ let _shiftWindowCache = null;
 let _shiftWindowCacheDate = '';
 
 export function getShiftsPerDay(dateStr) {
-  if (dateStr >= '2026-07-08' && dateStr <= '2026-07-10') return 9;
+  // 9 场制日期（含 21:30-23:30 晚班）
+  const NINE_SHIFT_DATES = ['2026-07-08','2026-07-09','2026-07-10','2026-08-01'];
+  if (NINE_SHIFT_DATES.includes(dateStr)) return 9;
   return 8;
 }
 

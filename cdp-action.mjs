@@ -35,7 +35,7 @@ const DEFAULT_OPTIONS = { verbose: false };
 async function readPlanStateFromApi(planName) {
   try {
     const apiClient = await createApiClient({ useCache: true });
-    const result = await apiGetProjects(apiClient, { page: 1, pageSize: 50 });
+    const result = await apiGetProjects(apiClient, { page: 1, pageSize: 100 });
     const projects = result?.projects || [];
     const hit = projects.find(p =>
       (p.project_name || '').includes(planName) || planName.includes(p.project_name || '')

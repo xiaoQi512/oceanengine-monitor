@@ -38,11 +38,11 @@ function getDb() {
       INSERT INTO snapshots(
         snapshot_time, campaign_id, cost, leads, conversions,
         msg_open, msg_lead, form_submit, ctr, cpm, cvr,
-        views, views_1min, comments, page_summary_json, raw_json
+        views, views_1min, comments, page_summary_json, raw_json, source_type, status
       ) VALUES (
         @snapshot_time, @campaign_id, @cost, @leads, @conversions,
         @msg_open, @msg_lead, @form_submit, @ctr, @cpm, @cvr,
-        @views, @views_1min, @comments, @page_summary_json, @raw_json
+        @views, @views_1min, @comments, @page_summary_json, @raw_json, @source_type, @status
       )
     `),
     countByTime: _db.prepare(
@@ -51,21 +51,32 @@ function getDb() {
     sumCostByTime: _db.prepare(
       `SELECT COALESCE(SUM(cost),0) as s FROM snapshots WHERE snapshot_time=?`
     ),
+    insertAction: _db.prepare(`
+      INSERT INTO actions(action_time, action_type, campaign_id, before_value, after_value, source, status, executed_at)
+      VALUES (@action_time, @action_type, @campaign_id, @before_value, @after_value, @source, @status, @executed_at)
+    `),
   };
   return _db;
 }
 
-function num(v) { return typeof v === 'number' && isFinite(v) ? v : 0; }
+function num(v) {
+  if (v === null || v === undefined) return 0;
+  // Number() 兼容字符串 "123.45" 和数字 123.45
+  const n = Number(v);
+  return isFinite(n) ? n : 0;
+}
 
 // 从文件名或时间对象解析 snapshot_time
 // 输入: 文件名 "2026-06-28T14-30-01.json" 或 ISO 字符串
+// 输出: 统一为 "YYYY-MM-DDTHH:MM:SS" 格式（无毫秒、无 Z），与 15min 路径一致
 function normalizeSnapshotTime(input) {
   if (!input) return null;
   const s = String(input).replace(/\.json$/, '');
   const m = s.match(/^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})$/);
   if (m) return `${m[1]}T${m[2]}:${m[3]}:${m[4]}`;
-  // 已经是 ISO 格式
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(s)) return s;
+  // ISO 格式: 去掉毫秒和 Z 后缀，统一到秒级
+  const isoMatch = s.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/);
+  if (isoMatch) return isoMatch[1];
   return null;
 }
 
@@ -87,7 +98,16 @@ export function insertSnapshot(data, snapshotTime) {
 
     if (!st) st = new Date().toISOString().replace(/\.\d+Z$/, '');
 
-    const campaigns = data.active || data.campaigns || [];
+    const seen = new Set();
+    const campaigns = [
+      ...(data.allSpending || []),
+      ...(data.active || []),
+      ...(data.campaigns || []),
+    ].filter(c => {
+      if (!c.id || seen.has(String(c.id))) return false;
+      seen.add(String(c.id));
+      return true;
+    });
     if (campaigns.length === 0) {
       return { ok: true, rows: 0, snapshot_time: st, note: 'no_campaigns' };
     }
@@ -126,6 +146,8 @@ export function insertSnapshot(data, snapshotTime) {
           comments: num(c.liveComments),
           page_summary_json: data.summary ? JSON.stringify(data.summary) : null,
           raw_json: JSON.stringify(c),
+          source_type: data.sourceType || '15min',
+          status: c.status || null,
         });
         rows++;
       }
@@ -149,7 +171,16 @@ export function verifyConsistency(jsonData, snapshotTime) {
   if (!db) return { ok: false, warn: 'db_not_initialized' };
 
   const st = normalizeSnapshotTime(snapshotTime) || snapshotTime;
-  const campaigns = jsonData.active || jsonData.campaigns || [];
+  const seen = new Set();
+  const campaigns = [
+    ...(jsonData.allSpending || []),
+    ...(jsonData.active || []),
+    ...(jsonData.campaigns || []),
+  ].filter(c => {
+    if (!c.id || seen.has(String(c.id))) return false;
+    seen.add(String(c.id));
+    return true;
+  });
 
   const dbRow = _stmts.countByTime.get(st);
   const dbCount = dbRow ? dbRow.n : 0;
@@ -176,6 +207,34 @@ export function verifyConsistency(jsonData, snapshotTime) {
   }
 
   return { ok: true, deviation };
+}
+
+/**
+ * 写入一条操作记录到 SQLite（与 action-audit.jsonl 双写，互不阻塞）
+ * @param {Object} entry - 与 writeAudit 入参同结构
+ *   { time, actionType, planName, projectId, source, beforeValue, afterValue, result, snapshotBefore }
+ * @returns {{ok:boolean, id?:number, error?:string}}
+ */
+export function insertAction(entry) {
+  const db = getDb();
+  if (!db) return { ok: false, error: 'db_not_initialized' };
+
+  try {
+    const result = _stmts.insertAction.run({
+      action_time: entry.time || new Date().toISOString(),
+      action_type: entry.actionType || '',
+      campaign_id: entry.projectId || entry.campaignId || '',
+      before_value: entry.beforeValue ? JSON.stringify(entry.beforeValue) : null,
+      after_value: entry.afterValue ? JSON.stringify(entry.afterValue) : null,
+      source: entry.source || 'unknown',
+      // result.ok=true -> 'success', 否则 'failed'; pending 状态由调用方显式传
+      status: entry.status || (entry.result?.ok ? 'success' : 'failed'),
+      executed_at: entry.result?.ok ? (entry.time || new Date().toISOString()) : null,
+    });
+    return { ok: true, id: Number(result.lastInsertRowid) };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
 }
 
 /**

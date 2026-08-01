@@ -89,6 +89,27 @@ export function createLogger(module) {
   };
 }
 
+// ====== 变更日志（统一聚合：运行日志 + agent 修改日志） ======
+// 任何 agent/工具对项目内容（代码/文档/配置/数据库）的更改，统一在此记录：
+//   reason  = 调试原因（为什么改）
+//   method  = 执行方法（怎么改的）
+//   result  = done / partial / failed（是否执行完成）
+// 写入位置与运行日志同一文件：monitor-data/logs/monitor-YYYY-MM-DD.ndjson + monitor.log
+const CHANGE_RESULTS = ['done', 'partial', 'failed'];
+export function writeChange({ agent = 'unknown', reason = '', method = '', files = '', result = 'done', tag = '', module = 'change' } = {}) {
+  if (!CHANGE_RESULTS.includes(result)) result = 'done';
+  const fileStr = Array.isArray(files) ? files.join(', ') : String(files || '');
+  const level = result === 'failed' ? 'error' : (result === 'partial' ? 'warn' : 'info');
+  const msg = '[CHANGE] agent=' + agent
+    + (tag ? ' tag=' + tag : '')
+    + ' 原因:' + reason
+    + ' 方法:' + method
+    + (fileStr ? ' 文件:' + fileStr : '')
+    + ' 结果:' + result;
+  writeLog(level, module, [msg]);
+  return { ts: new Date().toISOString(), agent, reason, method, files: fileStr, result, tag };
+}
+
 // 劫持 console.* 让现有脚本零改动聚合；OEC_SILENT=1 时抑制 stdout
 export function installConsoleInterceptor() {
   if (_interceptorInstalled) return;

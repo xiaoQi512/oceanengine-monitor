@@ -48,7 +48,7 @@ const SHIFT_SHEET_ID = SHEET_ID;
 // 读取当天班次：优先本地缓存，失败时实时从飞书表读
 function readTodayShifts() {
   const today = getLocalDate();
-  const cacheFile = path.join(DATA_DIR, 'shifts-.json');
+  const cacheFile = path.join(DATA_DIR, 'shifts-' + today + '.json');
   try {
     if (fs.existsSync(cacheFile)) {
       const cached = JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
@@ -206,7 +206,7 @@ async function runShift(shift) {
 
   let totalConsume = shiftData.spend;
   let totalLeads = shiftData.leads;
-  const cpl = totalLeads > 0 ? (totalConsume / totalLeads).toFixed(2) : '0.00';
+  let cpl = totalLeads > 0 ? (totalConsume / totalLeads).toFixed(2) : '0.00';
 
   if (shiftData.fromCache) {
     log('📊 快照差值 ' + shift.label + ': 消耗¥' + totalConsume.toFixed(2) + ' 线索' + totalLeads + ' CPL¥' + cpl);
@@ -219,6 +219,41 @@ async function runShift(shift) {
   } else {
     log('📊 API兜底 ' + shift.label + ': 消耗¥' + totalConsume.toFixed(2) + ' 线索' + totalLeads + ' CPL¥' + cpl);
     log('   原因: ' + (shiftData.detail?.reason || '未知'));
+
+    // 首场特判：无开始快照时，用最近 5m 快照的 accountSpend 作为时段总消耗
+    const reason = shiftData.detail?.reason || '';
+    if (reason.includes('startSnapshot')) {
+      try {
+        // 找最接近班次结束时间(Beijing)的 5m 快照
+        const endTime = shift.label.split('-')[1]; // e.g. "07:30"
+        const [eh, em] = endTime.split(':').map(Number);
+        const endMin = eh * 60 + em;
+        const files = fs.readdirSync(DATA_DIR)
+          .filter(f => f.startsWith('5m-') && f.endsWith('.json'))
+          .sort();
+
+        let bestFile = null, bestDiff = Infinity, bestHH = '', bestMM = '';
+        for (const f of files) {
+          const m = f.match(/T(\d{2})-(\d{2})/);
+          if (!m) continue;
+          const fh = parseInt(m[1]), fm = parseInt(m[2]);
+          const fMin = fh * 60 + fm;
+          const diff = Math.abs(fMin - endMin);
+          if (diff < bestDiff) { bestDiff = diff; bestFile = f; bestHH = m[1]; bestMM = m[2]; }
+        }
+        if (bestFile && bestDiff <= 30) {
+          const snap = JSON.parse(fs.readFileSync(path.join(DATA_DIR, bestFile), 'utf-8'));
+          const correctedSpend = snap.accountSpend || 0;
+          if (correctedSpend > 0) {
+            log('  🔧 首场修正(' + bestHH + ':' + bestMM + '): accountSpend ¥' + correctedSpend.toFixed(2) + ' (原API值 ¥' + totalConsume.toFixed(2) + ')');
+            totalConsume = correctedSpend;
+            const correctedLeads = snap.totalConv || totalLeads;
+            totalLeads = correctedLeads;
+            cpl = totalLeads > 0 ? (totalConsume / totalLeads).toFixed(2) : '0.00';
+          }
+        }
+      } catch {}
+    }
   }
 
   if (totalConsume <= 0) {

@@ -8,8 +8,10 @@ import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import http from 'node:http';
+import Database from 'better-sqlite3';
 import {
   getLocalDate, findLarkCli, checkFeedbackServer, guardFeedbackServer,
+  getCurrentAnchorName,
   loadSuggestionHistory, saveSuggestionHistory, recalcSummary,
   atomicWriteJSON, minutesBetween,
   DATA_DIR, REPORT_DIR, HISTORY_FILE, FEEDBACK_PORT, FEISHU_CHAT_ID,
@@ -36,7 +38,7 @@ const CONFIG = {
   campaignUrl: CAMPAIGN_URL,
   dataDir: DATA_DIR,
   reportDir: REPORT_DIR,
-  pageSize: 50,
+  pageSize: 100,
   // ====== 投放窗口 ======
   dailyStartHour: _shiftWin.startHour,
   dailyStartMinute: _shiftWin.startMinute || 0,
@@ -2271,6 +2273,35 @@ function loadLastPush() {
 }
 function saveLastPush(state) { atomicWriteJSON(LAST_PUSH_FILE, state); }
 
+// ====== 推送日志（仪表盘飞书推送板块） ======
+const PUSH_LOG_FILE = path.join(DATA_DIR, 'push-log.json');
+const PUSH_TYPES = { MAIN: '主力监控', BALANCE: '余额告警', BUDGET: '预算告警', DAILY: '日报', SUMMARY: '日结' };
+function appendPushLog(type, status, detail, analysis) {
+  try {
+    let log = { entries: [] };
+    if (fs.existsSync(PUSH_LOG_FILE)) {
+      try { log = JSON.parse(fs.readFileSync(PUSH_LOG_FILE, 'utf-8')); } catch {}
+    }
+    const now = new Date();
+    const anchor = analysis.currentAnchor || getCurrentAnchorName() || '';
+    const summary = analysis.summary || {};
+    log.entries.push({
+      time: now.toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+      type,
+      anchor,
+      status,
+      detail,
+      spend: summary.totalSpend || summary.totalSpending || 0,
+      leads: summary.totalLeads || summary.totalConversions || 0,
+    });
+    // 保留最近 50 条（仪表盘只显示非 5min/15min，足够覆盖全天）
+    if (log.entries.length > 50) log.entries = log.entries.slice(-50);
+    atomicWriteJSON(PUSH_LOG_FILE, log);
+  } catch (e) {
+    console.warn(`  ⚠ 推送日志写入失败: ${e.message}`);
+  }
+}
+
 function shouldPush(analysis) {
   // 空数据保护：无计划/无消耗时禁止推送，避免发送全零垃圾报告
   const hasData = (analysis.summary?.totalSpending ?? 0) > 0 || (analysis.summary?.totalSpend ?? 0) > 0;
@@ -2307,7 +2338,45 @@ function shouldPush(analysis) {
 
 // 构建飞书交互式卡片消息（v3：反馈按钮 + 历史参考 + 动态直播窗口）
 async function buildFeishuCard(analysis) {
-  const { summary, alerts, topNewSpenders, rampingUp, dropping, delta } = analysis;
+  const { summary, alerts, topNewSpenders: analysisTop5, rampingUp, dropping, delta } = analysis;
+
+  // TOP5 从 DB 统一取数（近 15 分钟消耗增量）
+  let dbTop5 = [];
+  let db = null;
+  try {
+    db = new Database(path.join(DATA_DIR, 'oceanengine.db'), { readonly: true });
+    // 取最近 3 个 5min 时刻，最早作为 prev，最新作为 curr
+    const times = db.prepare(`
+      SELECT DISTINCT snapshot_time FROM snapshots
+      WHERE source_type = '5min'
+      ORDER BY snapshot_time DESC LIMIT 3
+    `).all();
+    if (times.length >= 2) {
+      const prevTime = times[times.length - 1].snapshot_time;
+      const currTime = times[0].snapshot_time;
+      // JOIN 写法：单次查询得到 delta，避免 N+1 子查询
+      dbTop5 = db.prepare(`
+        SELECT c.name,
+          (curr.cost - COALESCE(prev.cost, 0)) as spendDelta,
+          (curr.leads - COALESCE(prev.leads, 0)) as convDelta
+        FROM snapshots curr
+        LEFT JOIN snapshots prev
+          ON curr.campaign_id = prev.campaign_id
+          AND prev.snapshot_time = ? AND prev.source_type = '5min'
+        INNER JOIN campaigns c ON curr.campaign_id = c.campaign_id
+        WHERE curr.snapshot_time = ? AND curr.source_type = '5min'
+        GROUP BY curr.campaign_id
+        HAVING spendDelta > 0
+        ORDER BY spendDelta DESC LIMIT 5
+      `).all(prevTime, currTime);
+    }
+  } catch (e) {
+    console.warn(`[card] DB TOP5 查询失败: ${e.message}`);
+  } finally {
+    if (db) { try { db.close(); } catch {} }
+  }
+  // 降级到 analysis 计算结果
+  const topNewSpenders = dbTop5.length > 0 ? dbTop5 : analysisTop5;
   const now = new Date().toLocaleString('zh-CN');
   const d = delta || {};
   const liveWin = getLiveWindowLabel();
@@ -2409,9 +2478,14 @@ async function buildFeishuCard(analysis) {
     };
     for (let i = 0; i < Math.min(5, topNewSpenders.length); i++) {
       const c = topNewSpenders[i];
-      const rateStr = c.spendPrev > 0.01 ? `${(c.changeRate >= 0 ? '+' : '')}${(c.changeRate * 100).toFixed(0)}%` : 'NEW';
-      const cplRecentStr = c.convDelta > 0 ? `¥${c.cpa15.toFixed(0)}` : '—';
-      topLines.push(`${i + 1}. ${trendTag(c.trend)} ${c.name.slice(0, 30)} — ¥${c.spendDelta.toFixed(0)} (${rateStr}) · ${Math.round(d.age15||15)}mCPL ${cplRecentStr}`);
+      // 兼容 DB 查询结果（仅有 name/spendDelta/convDelta）和分析结果（含完整趋势数据）
+      const rateStr = c.changeRate !== undefined
+        ? (c.spendPrev > 0.01 ? `${(c.changeRate >= 0 ? '+' : '')}${(c.changeRate * 100).toFixed(0)}%` : 'NEW')
+        : '';
+      const cpaVal = c.cpa15 !== undefined ? c.cpa15 : (c.convDelta > 0 ? c.spendDelta / c.convDelta : 0);
+      const cplRecentStr = c.convDelta > 0 ? `¥${cpaVal.toFixed(0)}` : '—';
+      const tag = c.trend ? trendTag(c.trend) : (c.spendDelta > 50 ? '🔥' : c.spendDelta > 10 ? '➡' : '');
+      topLines.push(`${i + 1}. ${tag} ${(c.name || '').slice(0, 30)} — ¥${c.spendDelta.toFixed(0)}${rateStr ? ' (' + rateStr + ')' : ''} · ${Math.round(d.age15||15)}mCPL ${cplRecentStr}`);
     }
   }
 
@@ -2874,6 +2948,8 @@ async function sendFeishuPush(analysis) {
     console.log(`  📨 飞书推送成功 [${levelTag} L${check.level}]`);
     // 记录推送时间，用于频率控制
     saveLastPush({ timestamp: Date.now(), level: check.level });
+    // 写入仪表盘推送日志
+    appendPushLog(PUSH_TYPES.MAIN, 'ok', `${levelTag} L${check.level}`, analysis);
     // 记录本次推送的待处理建议
     if (pending.length > 0) {
       recordPendingSuggestions(pending);
@@ -2891,6 +2967,7 @@ async function sendFeishuPush(analysis) {
   }
 
   console.log(`  ❌ 飞书推送异常: ${pushResult.error || 'unknown'}`);
+  appendPushLog(PUSH_TYPES.MAIN, 'fail', pushResult.error || 'unknown', analysis);
   if (pushResult.fallback) {
     console.log(`  📁 已 fallback 到本地日志: ${pushResult.path}`);
   }
@@ -2979,6 +3056,10 @@ async function main() {
         const roomStatus = await getLiveRoomStatus(roomClient, onlineRooms[0].room_id);
         isLive = roomStatus?.is_live || false;
         roomTitle = roomStatus?.room_title || '';
+      } else {
+        // API 返回空列表默认为开播（直播排班窗口内应视为在线）
+        isLive = true;
+        console.log('  ℹ 直播列表为空，按排班窗口视为在线');
       }
     } catch (e) { console.log(`  ⚠ 直播状态查询失败: ${e.message?.slice(0, 80)}，继续执行`); isLive = true; }
     if (!isLive) {
@@ -2990,7 +3071,7 @@ async function main() {
     console.log(`[${now.toLocaleTimeString()}] 🧪 OEC_FORCE=1 强制绕过直播状态检查`);
   }
 
-  console.log(`\n[${new Date().toLocaleTimeString()}] 🚀 巨量引擎监控启动 (v4: HTTP API + CDP降级)`);
+  console.log(`\n[${new Date().toLocaleTimeString()}] 🚀 巨量引擎监控启动 (v5: 纯 HTTP API)`);
 
   // ====== 1. Chrome 9222 检查 ======
   // v4: HTTP API 是主方案，CDP仅作降级——但CDP仍需要Chrome运行（Cookie提取/自动登录）
@@ -3019,17 +3100,18 @@ async function main() {
       collectionMethod = 'http_api';
       console.log(`  ✅ HTTP API 采集成功 (${apiData.elapsed}s)`);
     } else {
-      console.log('  ⚠ HTTP API 返回空数据，降级到 CDP');
+      console.log('  ⚠ HTTP API 返回空数据，5分钟速报将兜底');
     }
   } catch (apiErr) {
-    console.log(`  ⚠ HTTP API 失败: ${apiErr.message?.slice(0, 80)}`);
+    console.log(`  ⚠ HTTP API 失败: ${apiErr.message?.slice(0, 80)} | 5分钟速报兜底`);
     if (apiErr.message?.includes('未找到巨量引擎标签页') || apiErr.message?.includes('AUTO_LOGIN_FAILED')) {
-      console.log('  ℹ 浏览器未登录，继续尝试 CDP 方案');
+      console.log('  ℹ 纯 HTTP API 模式，跳过重试');
     }
   }
 
-  // --- 降级方案：CDP ---
-  if (campaigns.length === 0) {
+  // --- 纯 HTTP API 模式：不降级到 CDP ---
+  // CDP 降级已禁用。若 HTTP API 失败则本次采集中断，由 5 分钟速报兜底。
+  if (campaigns.length === 0 && false) {  // CDP fallback disabled
     console.log('  🔄 降级到 CDP 方案...');
     collectionMethod = 'cdp_fallback';
 

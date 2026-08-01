@@ -10,7 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = path.join(__dirname, '..', 'monitor-data', 'oceanengine.db');
 const SCHEMA_PATH = path.join(__dirname, 'schema.sql');
 // 与 schema.sql 中 INSERT OR IGNORE 写入的 schema_version 保持一致；修改 schema.sql 时同步调整
-const SCHEMA_VERSION = '1.0';
+const SCHEMA_VERSION = '2.0';
 
 // 点分版本号比较（如 "1.0" vs "1.10"）
 function compareVersion(a, b) {
@@ -24,6 +24,33 @@ function compareVersion(a, b) {
   return 0;
 }
 
+// 按 SQL 语句拆分：处理 -- 行注释和 '...' 字符串内的分号，避免误分割
+function splitSqlStatements(sql) {
+  const stmts = [];
+  let cur = '', inStr = false, inComment = false;
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i], next = sql[i + 1];
+    if (inComment) {
+      if (ch === '\n') inComment = false;
+      continue;
+    }
+    if (inStr) {
+      cur += ch;
+      if (ch === "'") {
+        if (next === "'") { cur += next; i++; }   // '' 转义
+        else inStr = false;
+      }
+      continue;
+    }
+    if (ch === '-' && next === '-') { inComment = true; i++; continue; }
+    if (ch === "'") { inStr = true; cur += ch; continue; }
+    if (ch === ';') { stmts.push(cur.trim()); cur = ''; continue; }
+    cur += ch;
+  }
+  if (cur.trim()) stmts.push(cur.trim());
+  return stmts.filter(Boolean);
+}
+
 function init() {
   // 确保目录存在
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
@@ -35,23 +62,14 @@ function init() {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
 
-  // 检查已有 schema 版本，避免在较新版本上覆盖
+  // 检查已有 schema 版本：数据库比脚本新则终止；否则始终执行 schema.sql（幂等）+ 迁移系统（跳过已应用）
   try {
     const row = db.prepare("SELECT value FROM config WHERE key='schema_version'").get();
-    if (row) {
-      const current = row.value;
-      if (compareVersion(current, SCHEMA_VERSION) > 0) {
-        console.error(`[init] 数据库 schema_version=${current} 比当前脚本 (${SCHEMA_VERSION}) 新，终止执行`);
-        console.error('[init] 请使用匹配的 schema.sql 版本');
-        db.close();
-        process.exit(1);
-      }
-      if (current === SCHEMA_VERSION) {
-        console.log(`[init] schema_version=${current} 已是最新，跳过执行`);
-        db.close();
-        return;
-      }
-      console.log(`[init] schema_version=${current} → ${SCHEMA_VERSION}，执行迁移...`);
+    if (row && compareVersion(row.value, SCHEMA_VERSION) > 0) {
+      console.error(`[init] 数据库 schema_version=${row.value} 比当前脚本 (${SCHEMA_VERSION}) 新，终止执行`);
+      console.error('[init] 请使用匹配的 schema.sql 版本');
+      db.close();
+      process.exit(1);
     }
   } catch {
     // config 表不存在 → 首次初始化，继续
@@ -61,6 +79,55 @@ function init() {
   const sql = fs.readFileSync(SCHEMA_PATH, 'utf-8');
   db.exec(sql);
   console.log('[init] schema.sql 执行完成');
+
+  // ==== 迁移系统 ====
+  // 确保 schema_migrations 表存在
+  db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+    version TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL DEFAULT (datetime('now')),
+    description TEXT NOT NULL DEFAULT ''
+  )`);
+
+  // 读取已应用的迁移版本，跳过已执行的
+  const applied = new Set(
+    db.prepare("SELECT version FROM schema_migrations").all().map(r => r.version)
+  );
+  const migrationsDir = path.join(__dirname, 'migrations');
+  if (fs.existsSync(migrationsDir)) {
+    const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
+    for (const file of files) {
+      const v = file.replace(/\.sql$/, '');
+      if (applied.has(v)) {
+        console.log(`[init] 迁移 ${v} 已应用，跳过`);
+        continue;
+      }
+      console.log(`[init] 应用迁移: ${v}`);
+      const migrationSql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
+      // 逐语句执行：幂等类错误（列/索引已存在）跳过，其余失败计入 errs
+      let ok = 0, skipped = 0, errs = 0;
+      for (const stmt of splitSqlStatements(migrationSql)) {
+        try {
+          db.exec(stmt + ';');
+          ok++;
+        } catch (e) {
+          const msg = e.message || '';
+          if (msg.includes('duplicate column name') || msg.includes('already exists')) {
+            skipped++;
+            console.log(`[init]   ↪ [${v}] 幂等跳过: ${msg.slice(0, 80)}`);
+          } else {
+            errs++;
+            console.error(`[init]   ❌ [${v}] 语句失败: ${msg.slice(0, 120)}`);
+          }
+        }
+      }
+      if (errs > 0) {
+        console.error(`[init] ❌ 迁移 ${v} 存在 ${errs} 条失败语句，本次不记录版本，下次启动会重试`);
+      } else {
+        db.prepare("INSERT OR IGNORE INTO schema_migrations(version) VALUES (?)").run(v);
+        console.log(`[init]   ✅ ${v} 完成 (${ok} 成功, ${skipped} 幂等跳过)`);
+      }
+    }
+  }
 
   // 验证表已创建
   const tables = db.prepare(

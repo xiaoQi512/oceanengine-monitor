@@ -144,6 +144,84 @@
 
 ---
 
+## v1.4 - 仪表盘 v2 后端路由先行（2026-07-31）
+
+**本轮范围**：v2 仪表盘重做方案的 Step 1（后端路由），AI 学习数据部分留作下一轮。
+
+**新增路由**（feedback-server.mjs）：
+
+| 路由 | 方法 | 功能 | 数据源 |
+|------|------|------|--------|
+| `/api/snapshots/5m` | GET | 最新 + 最近12个5分钟快照 | monitor-data/5m-*.json |
+| `/api/snapshots/trend` | GET | 近1小时趋势（消耗/CPL/CPM/转化） | 5m 快照聚合 |
+| `/api/campaigns/grouped` | GET | 按投放形式分组（简单投/画面直投/短引直） | oceanengine-api-client |
+
+**新增辅助函数**：
+- `classifyDeliveryType(planName)` - 按计划名关键词分类投放形式；含"直投"简写兜底为画面直投（如 `SSS-4.21-真人直播留资-直投`）
+- `emptyGroupSummary(name)` / `summarizeGroup(plans, name)` - 分组汇总（spend/leads/cpl/active/paused/total）
+
+**关键决策**：
+- 复用现有 `get5mSnapshots(count)` 工具函数，避免重复文件读取逻辑
+- `summarizeGroup` 的"暂停"识别基于状态字符串 `includes('暂停')`，与 `/api/campaigns` 中 `stdStatus` 的中文归一化保持一致
+- `/api/campaigns/grouped` 字段归一化逻辑与 `/api/campaigns` 完全一致（未抽公共函数，避免回归风险）
+- trend 路由的 spend 字段是**累计值**语义（来自 accountSpend），前端画"5分钟增量"时需相邻差值
+
+**验证结果**（pm2 restart feedback-server 后 curl 测试）：
+- `/api/snapshots/5m` -> 12 条历史 + 最新快照（accountSpend=5164.73）
+- `/api/snapshots/trend` -> 12 个时间点，labels 从 06:35 到 07:55
+- `/api/campaigns/grouped` -> 简单投15条/画面直投23条/短引直11条/ungrouped 1条
+
+**下轮待办**：
+- Step 2: 前端 dashboard-v2.html/js/css 改造（Alpine.js + Chart.js）
+- Step 3: 替换 `/dashboard` 路由指向 v2
+- Step 4: AI 学习数据（ai-decision-record.json + 规则提取引擎）
+
+---
+
+## v1.5 - 仪表盘 v2 前端 + AI 学习数据（2026-07-31）
+
+**本轮范围**：v2 前端三件套 + API 对接 + AI 建议 Tab + 操作效果追踪。
+
+**前端三件套**（新建）：
+- `dashboard-v2.html` - 4 Tab 布局（全部计划/投放形式分组/AI建议/操作审计）
+- `dashboard-v2.css` - 暗色玻璃态主题，磨砂卡片（backdrop-filter）
+- `dashboard-v2.js` - Alpine.js 数据模型 + Chart.js 趋势图
+
+**API 对接**：
+- 4 个 API 并行调用（Promise.allSettled 容错）：/api/live-status + /api/snapshots/5m + /api/snapshots/trend + /api/campaigns/grouped
+- 字段映射：snapshots/5m.latest 覆盖 live-status 的默认 KPI（accountSpend/dailyBudget/totalConv）
+- _normalizePlan 兜底 null 值（API 返回 spend:null 等情况）
+
+**计划操作按钮**（新功能）：
+- 暂停/启用：直接 POST /api/actions {type:pause/resume, campaign_id, planName, source:'dashboard-v2'}
+- 调整预算：prompt 询问金额，POST {type:adjust_budget, value, ...}
+- 操作后 2 秒自动 loadData 刷新
+- 所有 alert 替换为 toast（回滚操作也改用 toast，通过 $root 访问外层）
+
+**AI 建议 Tab**（新功能）：
+- 新增 /api/ai/learning-data 路由：读审计 + 计算操作效果 + 提取规则 + 找异常计划
+- 操作效果追踪：findSnapshotAround 在操作时间 ±6 分钟找 5m 快照，对比 before/after 15 分钟的 accountSpend delta
+- 规则提取：按 (deliveryType, actionType) 分组，计算 successRate/confidence/avgDeltaSpend15min
+- 历史数据补全：老审计记录无 snapshotBefore 时运行时从快照文件动态补全（覆盖 7-16 之后的所有审计）
+- 前端展示：规则列表（含置信度/证据数/成功率/示例）+ 异常计划卡片 + 最近操作效果时间线
+
+**action-queue-worker.mjs 改动**：
+- writeAudit 新增 snapshotBefore 字段（操作前的 5m 快照 accountSpend/totalConv）
+- 新增 getSnapshotBefore() 辅助函数
+
+**细节体验优化**：
+- 异常计划高亮（消耗>500 且 CPL>150 或 0线索 -> 红色边框）
+- 延迟归因提示标签（spend=0 但 leads>0）
+- 自动滚动到当前直播班次（$watch shifts -> scrollIntoView）
+- 趋势图"累计/增量"切换按钮（delta 模式做相邻差分）
+
+**当前数据质量**：
+- 63 条审计，29 条已评估效果，1 条规则（画面直投+pause，3 条证据）
+- 规则 confidence=0 因 successRate=0（pause 后账户总消耗 830 元属 neutral 档）
+- effect 评估阈值已调整：pause 后 delta<200=high_positive，<600=positive，<1000=neutral，否则 negative
+
+---
+
 ## 版本能力矩阵
 
 | 能力 | v0.1 | v0.2 | v0.3 | v1.0 | v1.1 | v1.2 | v1.3 |

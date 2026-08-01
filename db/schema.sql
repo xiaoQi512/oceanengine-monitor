@@ -1,7 +1,8 @@
 -- ============================================================
 -- oceanengine.db - 巨量引擎监控数据库 Schema
--- 版本: v1.0  创建: 2026-06-29
+-- 版本: v2.0  创建: 2026-06-29  最后修改: 2026-07-31
 -- 说明: 6张基础表 + 索引；物化视图DDL见 schema-materialized.sql
+-- v2.0: snapshots 表新增 source_type / snapshot_cst 列 + idx_snapshots_source 索引
 -- ============================================================
 
 PRAGMA journal_mode = WAL;
@@ -43,6 +44,8 @@ CREATE TABLE IF NOT EXISTS snapshots (
   comments          INTEGER NOT NULL DEFAULT 0,
   page_summary_json TEXT,                        -- 页面汇总行原始JSON
   raw_json          TEXT,                        -- 整条campaign原始JSON
+  source_type       TEXT NOT NULL DEFAULT '15min', -- 数据来源: 5min/15min
+  snapshot_cst      TEXT NOT NULL DEFAULT '',      -- 快照对应北京时间(Y/M/D H:M:S)
   FOREIGN KEY (campaign_id) REFERENCES campaigns(campaign_id)
 );
 
@@ -101,6 +104,7 @@ CREATE TABLE IF NOT EXISTS config (
 -- ============================================================
 CREATE INDEX IF NOT EXISTS idx_snapshots_time       ON snapshots(snapshot_time);
 CREATE INDEX IF NOT EXISTS idx_snapshots_camp_time  ON snapshots(campaign_id, snapshot_time);
+CREATE INDEX IF NOT EXISTS idx_snapshots_source     ON snapshots(source_type);
 CREATE INDEX IF NOT EXISTS idx_alerts_time          ON alerts(alert_time);
 CREATE INDEX IF NOT EXISTS idx_alerts_unresolved    ON alerts(resolved) WHERE resolved = 0;
 CREATE INDEX IF NOT EXISTS idx_actions_time         ON actions(action_time);
@@ -110,6 +114,6 @@ CREATE INDEX IF NOT EXISTS idx_feedback_alert       ON feedback(alert_id);
 
 -- 初始化关键配置项
 INSERT OR IGNORE INTO config(key, value) VALUES
-  ('schema_version', '1.0'),
+  ('schema_version', '2.0'),
   ('last_materialized_refresh', '1970-01-01T00:00:00.000Z'),
   ('last_backfill', '1970-01-01T00:00:00.000Z');
