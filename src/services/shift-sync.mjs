@@ -12,6 +12,7 @@ import {
   SHIFT_SPREADSHEET_TOKEN as SPREADSHEET_TOKEN,
   SHIFT_SHEET_ID as SHEET_ID,
 } from '../utils/monitor-utils.mjs';
+import { normalizeShiftLabel } from '../domain/shift-schedule.mjs';
 
 export function getTomorrowDate({ getLocalDateFn = getLocalDate } = {}) {
   const d = new Date();
@@ -52,7 +53,7 @@ export function fetchShifts(dateStr, {
     const cols = lines[i].split(',');
     const timeCell = (cols[0] || '').trim();
     const anchorCell = (cols[1] || '').trim();
-    const match = timeCell.match(/(\d{2}):(\d{2})-(\d{2}):(\d{2})/);
+    const match = timeCell.match(/(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})/);
     if (match) {
       const startTime = match[1] + ':' + match[2];
       const endTime = match[3] + ':' + match[4];
@@ -63,7 +64,7 @@ export function fetchShifts(dateStr, {
         if (h === endH && endM === 0) continue;
         hours.push(h);
       }
-      shifts.push({ label: `${startTime}-${endTime}`, hours, row: startRow + i, anchorName: anchorCell || '' });
+      shifts.push({ label: normalizeShiftLabel(`${startTime}-${endTime}`), hours, row: startRow + i, anchorName: anchorCell || '' });
     }
   }
   if (shifts.length === 0) throw new Error('无法解析班次时间');

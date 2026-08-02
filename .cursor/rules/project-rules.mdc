@@ -1,0 +1,16 @@
+---
+description: 项目强制规则，必须读取根目录 AGENTS.md
+globs: **/*.mjs,**/*.md,**/*.cjs,**/*.json
+---
+
+# 项目规则
+
+所有强制规则以根目录 `AGENTS.md` 为准。
+
+开始修改前必须读取：
+
+- `AGENTS.md`
+- `docs/REFACTOR_STATUS.md`
+- `docs/更新日志_v2.0.1_20260802.md`
+
+修改后必须运行 `node scripts/ci-test.mjs`，并使用 `node scripts/log-change.mjs` 记录变更。

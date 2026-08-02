@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR, getShiftsPerDay } from '../utils/monitor-utils.mjs';
+import { normalizeShiftLabel } from '../domain/shift-schedule.mjs';
 
 export function log(...args) {
   console.log(`[daily-summary] ${new Date().toLocaleString()} |`, ...args);
@@ -24,8 +25,12 @@ export function getSessionsForDate(dateStr, { dataDir = DATA_DIR, fsImpl = fs, p
       const cached = JSON.parse(fsImpl.readFileSync(cacheFile, 'utf-8'));
       if (Array.isArray(cached.shifts) && cached.shifts.length > 0) {
         return cached.shifts.map(s => {
-          const m = s.label.match(/(\d{2}):(\d{2})-(\d{2}):(\d{2})/);
-          if (m) return { start: m[1] + ':' + m[2], end: m[3] + ':' + m[4], anchorName: s.anchorName || '' };
+          const m = normalizeShiftLabel(s.label).match(/(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})/);
+          if (m) return {
+            start: m[1].padStart(2, '0') + ':' + m[2],
+            end: m[3].padStart(2, '0') + ':' + m[4],
+            anchorName: s.anchorName || '',
+          };
           return null;
         }).filter(Boolean);
       }

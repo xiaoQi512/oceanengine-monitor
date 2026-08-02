@@ -1,7 +1,7 @@
 // src/services/daily-report-run-flow.mjs - 日报运行流程
 import { execSync } from 'child_process';
 import { writeFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import path, { join } from 'path';
 import {
   getLocalDate, findLarkCli, guardFeedbackServer, getTodayShiftWindow,
   DATA_DIR, PROJECT_ROOT, FEISHU_CHAT_ID,
@@ -28,7 +28,7 @@ export async function runDailyReport() {
   const log = createLogger('日报').info;
   const OEC_FORCE = process.env.OEC_FORCE === "1";
   const todayDateStr = getLocalDate();
-  const reportDoneMarker = getDailyReportMarkerPath(DATA_DIR, todayDateStr, join);
+  const reportDoneMarker = getDailyReportMarkerPath(DATA_DIR, todayDateStr, path);
   if (shouldSkipDailyReport({ markerPath: reportDoneMarker, force: OEC_FORCE, existsSyncFn: existsSync })) {
     log("日报今日已推送过，跳过");
     return;

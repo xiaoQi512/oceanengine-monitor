@@ -1033,14 +1033,15 @@ HTTP 路由拆分完成当前计划；下一步转向 cron 服务迁移、数据
 - `shift-pusher-shift.mjs` CLI/重试下沉到 `shift-pusher-lark`
 - `action-process.mjs` HTTP/CDP 重试下沉到 `action-process-steps`
 - 统一审查修复：清理 `http-server` 未使用的依赖参数
-- 整体进度：根入口 25 | services 98 | domain 59 | tests 136，CI 137/137 通过
+- 整体进度：根入口 25 | services 98 | domain 59 | tests 136，CI 138/138 通过
 
 ## 2026-08-02 29 个大文件拆完
 
 - 服务层 18 个大文件全部拆至 4KB 以下，含 `static`、`action-executor`、`alert-push`、`live-watcher`、`monitor-push`、`daily-summary`、`listener-state`、`api-live`、`five-min-collect`、`listener-ai`、`shift-pusher-run`、`handlers`、`shift`、`five-min-cycle`、`action-process`、`daily-report-run`、`api-actions`、`api-snapshots-trend`
 - 领域层 11 个大文件全部拆至 4KB 以下，含 `report-html`、`analyze`、`daily-report-html-template`、`five-min-context`、`multiday-alerts`、`report-html-parts`、`plan-alerts`、`card-builder`、`monitor-summary-lines`、`baseline-analysis`、`detailed-card`
 - 新增大量单一职责领域/服务模块，原入口保持兼容导出
-- 当前进度：根入口 25 | services 122 | domain 99 | tests 136，CI 137/137 通过
+- 当前进度：根入口 25 | services 122 | domain 99 | tests 136，CI 138/138 通过
+- 新增常见 agent 自动规则文件与 `check-agent-rules.mjs`，规则校验已纳入 CI
 - 全量 `src` 语法检查、分层 import、根入口与约束检查均通过
 
 ## 2026-08-01 第二十五批

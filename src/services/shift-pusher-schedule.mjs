@@ -13,6 +13,7 @@ import {
   SHIFT_SHEET_ID as SHEET_ID,
 } from '../utils/monitor-utils.mjs';
 import { log } from './shift-pusher-state.mjs';
+import { normalizeShiftLabel } from '../domain/shift-schedule.mjs';
 export { getShiftEndMinutes, isShiftEnded } from '../domain/shift-schedule.mjs';
 
 export function readTodayShifts({
@@ -34,7 +35,7 @@ export function readTodayShifts({
       const cached = JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
       if (cached.shifts && cached.shifts.length > 0) {
         logFn('📋 从缓存读取 ' + cached.shifts.length + ' 个班次');
-        return cached.shifts;
+        return cached.shifts.map(s => ({ ...s, label: normalizeShiftLabel(s.label) }));
       }
     }
   } catch (e) {
@@ -61,7 +62,7 @@ export function readTodayShifts({
 
   const shifts = [];
   for (let i = 0; i < lines.length; i++) {
-    const match = lines[i].match(/(\d{2}):(\d{2})-(\d{2}):(\d{2})/);
+    const match = lines[i].match(/(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})/);
     if (match) {
       const startTime = match[1] + ':' + match[2];
       const endTime = match[3] + ':' + match[4];
@@ -73,7 +74,7 @@ export function readTodayShifts({
         if (h === endH && endM === 0) continue;
         hours.push(h);
       }
-      shifts.push({ label: startTime + '-' + endTime, hours, row: startRow + i });
+      shifts.push({ label: normalizeShiftLabel(startTime + '-' + endTime), hours, row: startRow + i });
     }
   }
   if (shifts.length === 0) throw new Error('无法解析班次时间');

@@ -147,6 +147,7 @@ const CI_TESTS = [
   'tests/campaign-analysis.test.mjs',
   'tests/card-top-lines.test.mjs',
   'tests/api-actions-core.test.mjs',
+  'scripts/check-agent-rules.mjs',
 ];
 
 const TIMEOUT_MS = 15000;
