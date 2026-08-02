@@ -6,7 +6,7 @@
 
 - `AGENTS.md`
 - `docs/REFACTOR_STATUS.md`
-- `docs/更新日志_v2.0.1_20260802.md`
+- `docs/更新日志_v2.0.2_20260802.md`
 
 修改后请运行：
 
