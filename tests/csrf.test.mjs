@@ -24,7 +24,7 @@ import {
   CSRF_HEADER_NAME,
   SIG_PARAM,
   TS_PARAM,
-} from '../csrf-utils.mjs';
+} from '../src/utils/csrf-utils.mjs';
 
 const TEST_SECRET = 'test-csrf-secret-32bytes-minimum-length-required-xxx';
 

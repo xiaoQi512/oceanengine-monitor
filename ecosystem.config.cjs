@@ -11,7 +11,7 @@ module.exports = {
     // ====== 换班推送 常驻守护 ======
     {
       name: "shift-pusher",
-      script: "oceanengine-shift-pusher.mjs",
+      script: "src/services/shift-pusher-cli.mjs",
       cwd: MONITOR_DIR,
       interpreter: NODE,
       env: { NODE_ENV: "production" },
@@ -31,7 +31,7 @@ module.exports = {
     // ====== 飞书群消息监听 常驻 (轮询模式，每10s拉取群消息) ======
     {
       name: "feishu-listener",
-      script: "feishu-listener.mjs",
+      script: "src/services/feishu-listener-cli.mjs",
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
@@ -52,7 +52,7 @@ module.exports = {
     // ====== 直播状态监听 常驻 (每60s轮询，跟踪开播/下播，触发日汇总) ======
     {
       name: "live-watcher",
-      script: "live-watcher.mjs",
+      script: "src/services/live-watcher-cli.mjs",
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
@@ -72,7 +72,7 @@ module.exports = {
     // ====== feedback-server 常驻 HTTP 服务 (端口 8899, Dashboard 依赖) ======
     {
       name: "feedback-server",
-      script: "feedback-server.mjs",
+      script: "src/services/http-server-cli.mjs",
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
@@ -92,7 +92,7 @@ module.exports = {
     // ====== 5分钟速报（cron 触发，跑完即退）======
     {
       name: "pm2-5min",
-      script: "oceanengine-5min-check.mjs",
+      script: "src/services/monitor-5min-cli.mjs",
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
@@ -111,7 +111,7 @@ module.exports = {
     // ====== 15分钟监控（cron 触发，跑完即退）======
     {
       name: "pm2-15min",
-      script: "oceanengine-monitor-v3.mjs",
+      script: "src/services/monitor-15min-cli.mjs",
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
@@ -130,7 +130,7 @@ module.exports = {
     // ====== 日报 23:05（cron 触发，跑完即退）======
     {
       name: "pm2-daily-report",
-      script: "oceanengine-daily-report-scheduler.mjs",
+      script: "src/services/cron-daily-report-cli.mjs",
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
@@ -149,7 +149,7 @@ module.exports = {
     // ====== AI区域号汇总 21:30（cron 触发，跑完即退）======
     {
       name: "pm2-ai-regions",
-      script: "ai-regions-http.mjs",
+      script: "src/services/cron-ai-regions-cli.mjs",
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
@@ -168,7 +168,7 @@ module.exports = {
     // ====== action-queue-worker 常驻 (watch模式，每15s轮询操作队列) ======
     {
       name: "action-queue-worker",
-      script: "action-queue-worker.mjs",
+      script: "src/services/action-worker-cli.mjs",
       args: "--watch",
       cwd: MONITOR_DIR,
       exec_mode: "fork",
@@ -190,7 +190,7 @@ module.exports = {
     // ====== Chrome 9222 守护（常驻，每60s探活，崩溃自动拉起）======
     {
       name: "chrome-guard",
-      script: "chrome-guard.mjs",
+      script: "src/cdp/guard.mjs",
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
@@ -210,7 +210,7 @@ module.exports = {
     // ====== 次日排班同步 23:00（每日提前缓存次日主播排班）======
     {
       name: "pm2-sync-tomorrow",
-      script: "sync-tomorrow-shifts.mjs",
+      script: "src/services/cron-sync-shifts-cli.mjs",
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
@@ -229,7 +229,7 @@ module.exports = {
     // ====== 日汇总 23:35（全天数据核对后推送）======
     {
       name: "pm2-daily-summary",
-      script: "oceanengine-daily-summary.mjs",
+      script: "src/services/cron-daily-summary-cli.mjs",
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
