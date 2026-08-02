@@ -7,6 +7,9 @@
 //   OEC_SILENT=1   静默模式
 //   OEC_DRY_RUN=1  只采集不推送
 
+import fs from "node:fs";
+import path from "node:path";
+import { DATA_DIR, getLocalDate } from "../utils/monitor-utils.mjs";
 import { runMonitorCli } from "./monitor-cli.mjs";
 import {
   log,
@@ -20,11 +23,19 @@ import {
   buildDailySummaryMessage,
 } from "./daily-summary-core.mjs";
 const OEC_DRY_RUN = process.env.OEC_DRY_RUN === "1";
+const IS_EOD = process.env.DAILY_SUMMARY_EOD === "1";
+const IS_SCHEDULED_FALLBACK = process.env.DAILY_SUMMARY_FALLBACK === "1";
 
 
 // ====== 主流程 ======
 async function main() {
   log("🚀 日汇报推送启动");
+
+  const eodMarker = path.join(DATA_DIR, `daily-summary-eod-done-${getLocalDate()}.json`);
+  if (IS_SCHEDULED_FALLBACK && !OEC_DRY_RUN && fs.existsSync(eodMarker)) {
+    log("⏭ 已由直播结束后 EOD 推送，23:35 兜底跳过");
+    return;
+  }
 
   const live = await fetchLiveAllDay();
   const video = await fetchVideoAllDay();
@@ -42,6 +53,9 @@ async function main() {
 
   pushToLark(msgText);
   log("🏁 日汇报完成");
+  if (IS_EOD) {
+    try { fs.writeFileSync(eodMarker, JSON.stringify({ doneAt: new Date().toISOString() })); } catch {}
+  }
 }
 
 export function runCli() {

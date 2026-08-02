@@ -233,7 +233,7 @@ module.exports = {
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { OEC_SILENT: "1", NODE_ENV: "production" },
+      env: { OEC_SILENT: "1", NODE_ENV: "production", DAILY_SUMMARY_FALLBACK: "1" },
       instances: 1,
       autorestart: false,
       max_restarts: 0,

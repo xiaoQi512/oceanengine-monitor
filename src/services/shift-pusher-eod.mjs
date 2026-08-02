@@ -33,7 +33,12 @@ export async function triggerEndOfDayTasks({
   const tasks = [
     { name: 'sync-tomorrow', script: 'src/services/cron-sync-shifts-cli.mjs', delay: 0 },
     { name: 'daily-report', script: 'src/services/cron-daily-report-cli.mjs', delay: DATA_DELAY },
-    { name: 'daily-summary', script: 'src/services/cron-daily-summary-cli.mjs', delay: DATA_DELAY + 30_000 },
+    {
+      name: 'daily-summary',
+      script: 'src/services/cron-daily-summary-cli.mjs',
+      delay: DATA_DELAY + 30_000,
+      envExtra: { DAILY_SUMMARY_EOD: '1' },
+    },
     { name: 'ai-regions', script: 'src/services/cron-ai-regions-cli.mjs', delay: DATA_DELAY + 60_000 },
   ];
 
@@ -44,7 +49,7 @@ export async function triggerEndOfDayTasks({
         cwd,
         stdio: 'ignore',
         detached: true,
-        env: { ...env, OEC_SILENT: '1' },
+        env: { ...env, OEC_SILENT: '1', ...(task.envExtra || {}) },
       });
       child.unref();
     }, task.delay);
