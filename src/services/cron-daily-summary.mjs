@@ -1,17 +1,12 @@
 ﻿// oceanengine-daily-summary.mjs — 大号日汇报（管理层版）
-// PM2 cron 每天 23:35 定时触发：HTTP API 拉直播全天 + 短视频全天 → 合并 → 推飞书群
+// PM2 cron 每天 23:35 定时触发，也由 shift-pusher EOD 在最后一场直播结束后约4分钟触发
+// 不做“今日已推送”标记，确保直播结束后仍能推送当日完整数据
 // 推送目标: 上架群
 //
 // 环境变量：
 //   OEC_SILENT=1   静默模式
-//   OEC_FORCE=1    强制执行（测试用）
 //   OEC_DRY_RUN=1  只采集不推送
 
-import fs from "node:fs";
-import path from "node:path";
-import {
-  DATA_DIR, getLocalDate,
-} from "../utils/monitor-utils.mjs";
 import { runMonitorCli } from "./monitor-cli.mjs";
 import {
   log,
@@ -24,19 +19,12 @@ import {
   pushToLark,
   buildDailySummaryMessage,
 } from "./daily-summary-core.mjs";
-const OEC_FORCE = process.env.OEC_FORCE === "1";
 const OEC_DRY_RUN = process.env.OEC_DRY_RUN === "1";
 
 
 // ====== 主流程 ======
 async function main() {
   log("🚀 日汇报推送启动");
-
-  const todayMarker = path.join(DATA_DIR, `daily-summary-done-${getLocalDate()}.json`);
-  if (!OEC_FORCE && !OEC_DRY_RUN && fs.existsSync(todayMarker)) {
-    log("⚠️ 日汇报今日已推送过，跳过");
-    return;
-  }
 
   const live = await fetchLiveAllDay();
   const video = await fetchVideoAllDay();
@@ -54,7 +42,6 @@ async function main() {
 
   pushToLark(msgText);
   log("🏁 日汇报完成");
-  try { fs.writeFileSync(todayMarker, JSON.stringify({ doneAt: new Date().toISOString() })); } catch {}
 }
 
 export function runCli() {
