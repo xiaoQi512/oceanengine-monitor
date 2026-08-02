@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { getTomorrowDate, fetchShifts, saveCache } from '../src/services/shift-sync.mjs';
+import { parseShiftRowsByDate } from '../src/services/shift-sheet-reader.mjs';
 
 const d = new Date(2026, 7, 2, 10, 0, 0);
 assert.strictEqual(
@@ -15,18 +16,21 @@ assert.strictEqual(
 );
 
 const data = fetchShifts('2026-08-03', {
-  findLarkCliFn: () => 'lark.exe',
-  getShiftRowForDateFn: () => 200,
-  getShiftsPerDayFn: () => 2,
-  execFileSyncFn: () => JSON.stringify({
-    data: {
-      annotated_csv: '09:00-12:00,主播A\n14:00-18:00,主播B',
-    },
-  }),
+  fetchShiftRowsByDateFn: () => [
+    { label: '09:00-12:00', hours: [9, 10, 11], row: 200, anchorName: '主播A' },
+    { label: '14:00-18:00', hours: [14, 15, 16, 17], row: 201, anchorName: '主播B' },
+  ],
 });
 assert.strictEqual(data.shifts.length, 2);
 assert.strictEqual(data.shifts[0].anchorName, '主播A');
 assert.strictEqual(data.startTime, '09:00');
+
+const parsedByDate = parseShiftRowsByDate(
+  '[row=500] 8月2日,05:30-07:30,张萌\n[row=507] 8月2日,19:30-21:30,李咪',
+  '2026-08-02'
+);
+assert.strictEqual(parsedByDate.length, 2);
+assert.strictEqual(parsedByDate.find(s => s.row === 507).anchorName, '李咪');
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shift-sync-'));
 try {

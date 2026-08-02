@@ -7,12 +7,10 @@ import {
   DATA_DIR,
   PROJECT_ROOT,
   getLocalDate,
-  getShiftsPerDay,
-  getShiftRowForDate,
   SHIFT_SPREADSHEET_TOKEN as SPREADSHEET_TOKEN,
   SHIFT_SHEET_ID as SHEET_ID,
 } from '../utils/monitor-utils.mjs';
-import { normalizeShiftLabel } from '../domain/shift-schedule.mjs';
+import { fetchShiftRowsByDate } from './shift-sheet-reader.mjs';
 
 export function getTomorrowDate({ getLocalDateFn = getLocalDate } = {}) {
   const d = new Date();
@@ -21,53 +19,20 @@ export function getTomorrowDate({ getLocalDateFn = getLocalDate } = {}) {
 }
 
 export function fetchShifts(dateStr, {
+  fetchShiftRowsByDateFn = fetchShiftRowsByDate,
   findLarkCliFn = findLarkCli,
-  getShiftRowForDateFn = getShiftRowForDate,
-  getShiftsPerDayFn = getShiftsPerDay,
   execFileSyncFn = execFileSync,
   projectRoot = PROJECT_ROOT,
   spreadsheetToken = SPREADSHEET_TOKEN,
   sheetId = SHEET_ID,
 } = {}) {
-  const larkCli = findLarkCliFn();
-  if (!larkCli) throw new Error('lark-cli not found');
-  const startRow = getShiftRowForDateFn(dateStr);
-  const count = getShiftsPerDayFn(dateStr);
-  const endRow = startRow + count - 1;
-  const isExe = larkCli.endsWith('.exe');
-  const range = `B${startRow}:C${endRow}`;
-  const out = execFileSyncFn(
-    isExe ? larkCli : 'cmd.exe',
-    isExe
-      ? ['sheets', '+csv-get', '--spreadsheet-token', spreadsheetToken, '--sheet-id', sheetId, '--range', range]
-      : ['/c', larkCli, 'sheets', '+csv-get', '--spreadsheet-token', spreadsheetToken, '--sheet-id', sheetId, '--range', range],
-    { encoding: 'utf-8', timeout: 20000, windowsHide: true, cwd: projectRoot }
-  );
-  const parsed = JSON.parse(out);
-  const csv = parsed?.data?.annotated_csv || '';
-  const lines = csv.split('\n').filter(l => l.trim());
-  if (lines.length === 0) throw new Error('排班表为空');
-
-  const shifts = [];
-  for (let i = 0; i < lines.length; i++) {
-    const cols = lines[i].split(',');
-    const timeCell = (cols[0] || '').trim();
-    const anchorCell = (cols[1] || '').trim();
-    const match = timeCell.match(/(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})/);
-    if (match) {
-      const startTime = match[1] + ':' + match[2];
-      const endTime = match[3] + ':' + match[4];
-      const [startH, startM] = [parseInt(match[1]), parseInt(match[2])];
-      const [endH, endM] = [parseInt(match[3]), parseInt(match[4])];
-      const hours = [];
-      for (let h = startH; h <= endH; h++) {
-        if (h === endH && endM === 0) continue;
-        hours.push(h);
-      }
-      shifts.push({ label: normalizeShiftLabel(`${startTime}-${endTime}`), hours, row: startRow + i, anchorName: anchorCell || '' });
-    }
-  }
-  if (shifts.length === 0) throw new Error('无法解析班次时间');
+  const shifts = fetchShiftRowsByDateFn(dateStr, {
+    findLarkCliFn,
+    execFileSyncFn,
+    projectRoot,
+    spreadsheetToken,
+    sheetId,
+  });
 
   let minStartH = 24;
   let minStartM = 0;

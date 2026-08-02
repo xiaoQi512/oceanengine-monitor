@@ -51,10 +51,11 @@ assert.strictEqual(video.totalConsume, 20);
 
 const anchors = readAnchorNames({
   findLarkCliFn: () => 'lark.exe',
-  getTodayStartRowFn: () => 200,
-  getShiftsPerDayFn: () => 2,
   getLocalDateFn: () => '2026-08-02',
-  execFileSyncFn: () => JSON.stringify({ data: { annotated_csv: 'a,b,主播A\nc,d,主播A' } }),
+  fetchShiftRowsByDateFn: () => [
+    { label: '09:00-12:00', hours: [9, 10, 11], row: 200, anchorName: '主播A' },
+    { label: '12:00-15:00', hours: [12, 13, 14], row: 201, anchorName: '主播A' },
+  ],
   logFn: () => {},
 });
 assert.deepStrictEqual(anchors, ['主播A']);
