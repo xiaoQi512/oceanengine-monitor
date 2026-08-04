@@ -11,7 +11,7 @@ assert.strictEqual(
   getTomorrowDate({ getLocalDateFn: date => {
     date.setDate(date.getDate());
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-  } }),
+  }, now: new Date(2026, 7, 2, 10, 0, 0) }),
   '2026-08-03',
 );
 

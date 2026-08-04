@@ -9,7 +9,7 @@ import Database from 'better-sqlite3';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const DB_PATH = path.join(PROJECT_ROOT, 'monitor-data', 'oceanengine.db');
-const SCHEMA_PATH = path.join(PROJECT_ROOT, 'db', 'schema.sql');
+const SCHEMA_PATH = path.join(PROJECT_ROOT, 'src', 'db', 'schema.sql');
 
 // 关键表名（schema.sql 中定义的 6 张基础表）
 const KEY_TABLES = ['campaigns', 'snapshots', 'alerts', 'actions', 'feedback', 'config'];

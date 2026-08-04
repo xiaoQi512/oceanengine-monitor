@@ -1,8 +1,12 @@
 // tests/shift-pusher-run.test.mjs - shift-pusher 轮询与主入口测试
 import assert from 'node:assert';
-import { ensureTodayShifts, pollOnce, runShiftPusherMain } from '../src/services/shift-pusher-run.mjs';
+import { createShiftCache } from '../src/services/shift-pusher-cache.mjs';
+import { pollOnce, runShiftPusherMain } from '../src/services/shift-pusher-run.mjs';
 
-ensureTodayShifts({
+const shiftCache = createShiftCache();
+
+shiftCache.ensureTodayShifts({
+  dataDir: '',
   getLocalDateFn: () => '2026-08-02',
   readTodayShiftsFn: () => [{ label: '09:00-12:00', hours: [9, 10, 11], row: 200 }],
   logFn: () => {},
@@ -13,9 +17,13 @@ await pollOnce({
   runShift: async shift => shifted.push(shift.label),
   force: true,
   now: new Date(2026, 7, 2, 12, 10),
+  dataDir: '',
+  getLocalDateFn: () => '2026-08-02',
+  readTodayShiftsFn: () => [{ label: '09:00-12:00', hours: [9, 10, 11], row: 200 }],
   isShiftEndedFn: () => true,
   isAlreadyPushedFn: () => false,
   logErrorFn: () => {},
+  shiftCache,
 });
 assert.deepStrictEqual(shifted, ['09:00-12:00']);
 
@@ -25,8 +33,11 @@ await runShiftPusherMain({
   force: true,
   shiftLabel: '09:00-12:00',
   dataDir: '',
+  getLocalDateFn: () => '2026-08-02',
+  readTodayShiftsFn: () => [{ label: '09:00-12:00', hours: [9, 10, 11], row: 200 }],
   mkdirSync: () => {},
   logFn: () => {},
+  shiftCache,
 });
 assert.deepStrictEqual(forced, ['09:00-12:00']);
 

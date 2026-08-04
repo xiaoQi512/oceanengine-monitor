@@ -30,7 +30,8 @@ export function loadRecentLogs(days = 7, { dataDir = DATA_DIR, fsImpl = fs, path
 }
 
 export function getSlotKey(entry) {
-  const h = new Date(entry.time).getHours();
+  // 时段按北京时间计算，避免 CI runner 时区影响日报分桶。
+  const h = (new Date(entry.time).getUTCHours() + 8) % 24;
   if (h < 9) return '🌅 冷启动';
   if (h < 11) return '☀️ 早高峰';
   if (h < 14) return '🔥 午高峰';

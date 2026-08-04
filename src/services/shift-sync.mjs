@@ -12,8 +12,8 @@ import {
 } from '../utils/monitor-utils.mjs';
 import { fetchShiftRowsByDate } from './shift-sheet-reader.mjs';
 
-export function getTomorrowDate({ getLocalDateFn = getLocalDate } = {}) {
-  const d = new Date();
+export function getTomorrowDate({ getLocalDateFn = getLocalDate, now = new Date() } = {}) {
+  const d = new Date(now);
   d.setDate(d.getDate() + 1);
   return getLocalDateFn(d);
 }

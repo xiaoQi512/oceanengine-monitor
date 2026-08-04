@@ -10,6 +10,10 @@ const PROJECT_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const config = require('../ecosystem.config.cjs');
 const apps = config.apps || [];
 
+function isWindowsAbsolutePath(value) {
+  return /^[A-Za-z]:[\\/]/.test(String(value || ''));
+}
+
 assert.ok(apps.length > 0, 'ecosystem.config.cjs 应包含 PM2 应用');
 const seen = new Set();
 for (const app of apps) {
@@ -41,8 +45,10 @@ for (const app of apps) {
     assert.ok(fs.existsSync(logDir), `${app.name} 错误日志目录不存在: ${logDir}`);
   }
   if (app.interpreter) {
-    const interpreter = path.resolve(cwd, app.interpreter);
-    assert.ok(fs.existsSync(interpreter), `${app.name} Node 解释器不存在: ${interpreter}`);
+    if (!(process.platform !== 'win32' && isWindowsAbsolutePath(app.interpreter))) {
+      const interpreter = path.resolve(cwd, app.interpreter);
+      assert.ok(fs.existsSync(interpreter), `${app.name} Node 解释器不存在: ${interpreter}`);
+    }
   }
 }
 
