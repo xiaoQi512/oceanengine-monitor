@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>巨量引擎监控 v2 · 直播管理统筹</title>
+<meta name="theme-color" content="#0f172a">
+<link rel="manifest" href="/manifest.json">
+<link rel="stylesheet" href="/dashboard-v2.css?v=3">
+</head>
+<body x-data="dashV2()" x-cloak x-init="init()">
+<div class="app">
+
+<!-- ============ HEADER ============ -->
+<header>
+  <div class="hdr-left">
+    <h1>巨量引擎监控 <span style="font-size:10px;color:var(--purple);font-weight:500;margin-left:6px">v2</span></h1>
+    <span style="font-size:11px;color:var(--muted)">直播管理统筹</span>
+  </div>
+  <div class="hdr-right">
+    <span class="live-dot" :class="isLive ? '' : 'off'"></span>
+    <span style="font-size:12px" x-text="isLive ? '直播中' : '已下播'"></span>
+    <span style="font-size:11px" x-text="'更新于 ' + (lastUpdate || '加载中...')"></span>
+    <button class="btn btn-ghost btn-sm" @click="loadData()" :disabled="loading">
+      <span x-text="loading ? '⏳' : '↻ 刷新'"></span>
+    </button>
+  </div>
+</header>
+
+<main>
+
+<!-- ============ Date & Status Bar ============ -->
+<div class="date-bar">
+  <span class="today" x-text="todayLabel"></span>
+  <span x-text="weekdayLabel"></span>
+  <span style="color:var(--muted)">|</span>
+  <span x-text="'排班: ' + shiftCount + ' 场'"></span>
+  <span style="color:var(--muted)">|</span>
+  <span x-text="currentAnchor ? '主播: ' + currentAnchor : ''" style="color:var(--text);font-weight:600"></span>
+  <span class="status-text" :class="isLive ? 'live' : 'offline'" x-text="isLive ? '● 直播中' : '○ 未开播'" style="margin-left:auto"></span>
+</div>
+
+<!-- ============ 首页概览速览（2列：直播状态 + 消耗速度） ============ -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+  <div class="card" style="padding:14px 16px">
+    <div style="display:flex;align-items:center;gap:16px">
+      <div style="width:40px;height:40px;border-radius:50%;background:rgba(34,197,94,0.15);display:flex;align-items:center;justify-content:center" :class="isLive ? '' : 'off'">
+        <span class="live-dot" :class="isLive ? '' : 'off'"></span>
+      </div>
+      <div style="flex:1">
+        <div style="font-size:10px;color:var(--muted)" x-text="isLive ? '正在直播' : '未开播'"></div>
+        <div style="font-size:20px;font-weight:700;color:var(--text)" x-text="currentAnchor || '-'"></div>
+        <div style="font-size:11px;color:var(--muted)">
+          <span x-show="currentAnchor" x-text="currentShiftLabel?.split('·')[1] || ''"></span>
+          <span x-show="currentAnchor" style="margin-left:6px" x-text="'已播 ' + fmtLiveElapsed()"></span>
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:10px;color:var(--muted)">班次</div>
+        <div style="font-size:16px;font-weight:600" x-text="shiftCount + ' 场'"></div>
+      </div>
+    </div>
+  </div>
+  <div class="card" style="padding:14px 16px">
+    <div style="display:flex;align-items:center;gap:16px">
+      <div style="flex:1">
+        <div style="font-size:10px;color:var(--muted)">消耗速度</div>
+        <div style="font-size:20px;font-weight:700;color:var(--red)">
+          <span x-text="'¥' + fmtNum(speedPer5min)"></span><span style="font-size:11px;color:var(--muted);font-weight:400">/5min</span>
+        </div>
+        <div style="font-size:11px;color:var(--muted)" x-text="'≈ ¥' + fmtNum(speedPerHour) + '/小时'"></div>
+      </div>
+      <div style="flex:1">
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:4px">
+          <span>预算使用率</span>
+          <span x-text="budgetPct + '%'"></span>
+        </div>
+        <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden">
+          <div :style="'height:100%;width:' + Math.min(budgetPct, 100) + '%;background:' + (budgetPct > 80 ? 'var(--red)' : budgetPct > 50 ? 'var(--amber)' : 'linear-gradient(90deg,var(--blue),var(--purple))') + ';transition:width .5s'"></div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px" x-text="'¥' + fmtNum(kpi.totalSpend) + ' / ¥' + fmtNum(kpi.dailyBudget)"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ KPI Row (4列核心指标) ============ -->
+<section class="kpi-grid">
+  <div class="kpi kpi-spend">
+    <div class="klabel">今日消耗</div>
+    <div class="kvalue" x-text="fmtMoney(kpi.totalSpend)"></div>
+    <div class="ksub" x-text="'5min增量 ¥' + fmtNum(speedPer5min)"></div>
+  </div>
+  <div class="kpi kpi-leads">
+    <div class="klabel">线索数</div>
+    <div class="kvalue" x-text="kpi.totalLeads || 0"></div>
+    <div class="ksub" x-text="'CPL ' + fmtMoney(kpi.avgCpl)"></div>
+  </div>
+  <div class="kpi kpi-cpl">
+    <div class="klabel">投放计划</div>
+    <div class="kvalue" x-text="deliveringPlanCount + ' / ' + trendData.totalPlanCount"></div>
+    <div class="ksub"><span style="color:var(--green)" x-text="'投放中 ' + deliveringPlanCount"></span></div>
+  </div>
+  <div class="kpi kpi-retain">
+    <div class="klabel">开口留资率</div>
+    <div class="kvalue" x-text="msgRetainRate"></div>
+    <div class="ksub" x-text="'开口成本 ¥' + fmtNum(msgCost)"></div>
+  </div>
+</section>
+
+<!-- ============ TAB BAR (顶部固定) ============ -->
+<nav class="tab-bar">
+  <button class="tab-btn" :class="activeTab==='all' ? 'active' : ''" @click="switchTab('all')">
+    📊 概览
+  </button>
+  <button class="tab-btn" :class="activeTab==='grouped' ? 'active' : ''" @click="switchTab('grouped')">
+    📋 投放形式分组
+  </button>
+  <button class="tab-btn" :class="activeTab==='ai' ? 'active' : ''" @click="switchTab('ai')">
+    🤖 AI建议 <span class="tab-badge" x-text="aiData.summary.rulesCount || 0"></span>
+  </button>
+  <button class="tab-btn" :class="activeTab==='ops' ? 'active' : ''" @click="switchTab('ops')">
+    📝 操作审计
+  </button>
+</nav>
+
+<!-- ============ TAB: 概览（趋势图 + 班次明细） ============ -->
+<div x-show="activeTab==='all'" style="display:flex;flex-direction:column;gap:14px">
+
+  <!-- 趋势图 -->
+  <div class="card">
+    <div class="card-hd">
+      <span class="title">近1小时趋势</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;color:var(--muted)" x-text="trendMode === 'cumulative' ? '累计值' : '5分钟增量'"></span>
+        <button class="btn btn-ghost btn-sm" @click="toggleTrendMode()" x-text="trendMode === 'cumulative' ? '切换为增量' : '切换为累计'"></button>
+      </div>
+    </div>
+    <div class="chart-legend">
+      <span class="legend-item"><span class="legend-dot" style="background:#ef4444"></span><span x-text="trendMode === 'delta' ? '5min消耗' : '消耗'"></span></span>
+      <span class="legend-item"><span class="legend-dot" style="background:#3b82f6"></span>CPL</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#8b5cf6"></span><span x-text="trendMode === 'delta' ? '5min CPM' : 'CPM'"></span></span>
+      <span class="legend-item"><span class="legend-dot" style="background:#22c55e"></span><span x-text="trendMode === 'delta' ? '5min转化' : '转化'"></span></span>
+      <span class="legend-item"><span class="legend-dot" style="background:#94a3b8"></span>在投计划</span>
+    </div>
+    <div class="chart-wrap" style="height:340px">
+      <canvas x-ref="trendCanvas"></canvas>
+    </div>
+  </div>
+
+  <!-- 班次数据明细 -->
+  <div class="card" x-show="shiftData.length > 0">
+    <div class="card-hd">
+      <span class="title">班次数据明细</span>
+      <span style="font-size:11px;color:var(--muted)" x-text="shiftData.length + ' 场'"></span>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>时段</th><th>进度</th><th>主播</th><th>车型</th><th>消耗</th><th>线索</th><th>CPL</th><th>CPM</th><th>CTR</th><th>开口</th><th>推送</th><th>操作</th>
+        </tr></thead>
+        <tbody>
+          <template x-for="(d, i) in shiftData" :key="i">
+            <tr>
+              <td x-text="d.start + '-' + d.end"></td>
+              <td>
+                <div style="display:flex;align-items:center;gap:4px">
+                  <div style="flex:1;min-width:40px;height:4px;background:var(--bg);border-radius:2px;overflow:hidden">
+                    <div :style="'width:' + d.progress + '%;height:100%;background:' + (d.progress===100?'var(--green)':'var(--blue)') + ';border-radius:2px'"></div>
+                  </div>
+                  <span style="font-size:10px;color:var(--muted);min-width:28px" x-text="d.progress + '%'"></span>
+                </div>
+              </td>
+              <td style="font-weight:600" x-text="d.anchor"></td>
+              <td x-text="d.carModel || '-'"></td>
+              <td x-text="fmtMoney(d.spend)"></td>
+              <td x-text="d.leads || 0"></td>
+              <td x-text="fmtMoney(d.cpl)"></td>
+              <td x-text="d.cpm > 0 ? '¥' + d.cpm.toFixed(0) : '-'"></td>
+              <td x-text="d.ctr > 0 ? d.ctr.toFixed(2) + '%' : '-'"></td>
+              <td x-text="d.conversions || 0"></td>
+              <td><span class="badge" :class="d.pushed ? 'badge-live' : 'badge-upcoming'" x-text="d.pushed ? '已推送' : '待推送'"></span></td>
+              <td>
+                <button class="btn btn-ghost btn-sm" @click="repushShift(d)" style="font-size:10px;padding:2px 8px" x-text="d.pushed ? '补推' : '—'" :disabled="!d.pushed"></button>
+              </td>
+            </tr>
+          </template>
+          <tr x-show="!shiftData.length"><td colspan="12" class="empty-state">暂无班次数据</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ============ TAB: 投放形式分组 ============ -->
+<div x-show="activeTab==='grouped'" style="display:flex;flex-direction:column;gap:14px">
+
+  <!-- 全账户汇总(仅今天有消耗) -->
+  <div class="card">
+    <div class="card-hd">
+      <span class="title">今日全账户汇总</span>
+      <span style="font-size:11px;color:var(--muted)" x-text="totalSummary.total + ' 个计划有消耗'"></span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;font-size:12px">
+      <div><div style="color:var(--muted);font-size:10px">消耗</div><div style="font-size:16px;font-weight:700" x-text="fmtMoney(totalSummary.spend)"></div></div>
+      <div><div style="color:var(--muted);font-size:10px">线索</div><div style="font-size:16px;font-weight:700" x-text="totalSummary.leads"></div></div>
+      <div><div style="color:var(--muted);font-size:10px">CPL/CPM</div><div style="font-size:16px;font-weight:700">¥<span x-text="totalSummary.cpl||0"></span>/<span x-text="totalSummary.cpm||0"></span></div></div>
+      <div><div style="color:var(--muted);font-size:10px">投放中</div><div style="font-size:16px;font-weight:700;color:var(--green)" x-text="totalSummary.active"></div></div>
+      <div><div style="color:var(--muted);font-size:10px">已暂停</div><div style="font-size:16px;font-weight:700;color:var(--amber)" x-text="totalSummary.paused"></div></div>
+      <div><div style="color:var(--muted);font-size:10px">合计</div><div style="font-size:16px;font-weight:700" x-text="totalSummary.total"></div></div>
+    </div>
+  </div>
+
+  <!-- ========== 今日有消耗计划 ========== -->
+  <div class="card" style="border-left:3px solid var(--red)">
+    <div class="card-hd"><span class="title">今日有消耗计划</span></div>
+    <div class="group-section">
+      <template x-for="(g, gname) in spendingGroups" :key="'s_'+gname">
+        <div class="group-block" :class="expandedGroups[gname] ? 'expanded' : ''">
+          <div class="group-header" @click="toggleGroup(gname)">
+            <span class="group-toggle">▶</span>
+            <span class="gname" x-text="gname"></span>
+            <span class="gsummary">
+              <span class="gstat"><span>消耗</span><span class="v" x-text="fmtMoney(g.summary.spend)"></span></span>
+              <span class="gstat"><span>线索</span><span class="v" x-text="g.summary.leads"></span></span>
+              <span class="gstat"><span>CPL</span><span class="v" x-text="fmtNum(g.summary.cpl)"></span></span>
+              <span class="gstat"><span>CPM</span><span class="v" x-text="fmtNum(g.summary.cpm)"></span></span>
+              <span class="gstat"><span>投放中</span><span class="v" style="color:var(--green)" x-text="g.summary.active"></span></span>
+              <span class="gstat"><span>暂停</span><span class="v" style="color:var(--amber)" x-text="g.summary.paused"></span></span>
+              <span class="gstat"><span>合计</span><span class="v" x-text="g.summary.total"></span></span>
+            </span>
+          </div>
+          <div class="group-plans">
+            <div class="plan-grid">
+              <template x-for="p in g.plans" :key="p.id">
+                <div class="plan-card" :class="isAnomaly(p) ? 'anomaly' : ''">
+                  <div class="pname" :title="p.name" x-text="p.name"></div>
+                  <div class="pmeta">
+                    <span class="k">状态</span><span class="v"><span class="tag" :class="statusTagClass(p.status)" x-text="p.status"></span></span>
+                    <span class="k">消耗</span><span class="v" x-text="fmtMoney(p.spend)"></span>
+                    <span class="k">线索</span><span class="v"><span x-text="p.leads"></span><span x-show="hasDelayedAttribution(p)" class="delay-hint">延迟归因</span></span>
+                    <span class="k">CPA</span><span class="v" x-text="fmtMoney(p.cpa)"></span>
+                    <span class="k">CPM</span><span class="v" x-text="fmtNum(p.cpm)"></span>
+                    <span class="k">CTR</span><span class="v" x-text="(p.ctr || 0).toFixed(2) + '%'"></span>
+                    <span class="k">预算</span><span class="v" x-text="fmtNum(p.budget)"></span>
+                  </div>
+                  <div class="pactions">
+                    <button class="btn btn-ghost btn-sm" x-show="p.status.includes('投放中')" @click="planAction(p, 'pause')">暂停</button>
+                    <button class="btn btn-ghost btn-sm" x-show="!p.status.includes('投放中')" @click="planAction(p, 'resume')">启用</button>
+                    <button class="btn btn-ghost btn-sm" @click="planAction(p, 'adjust_budget')">调整预算</button>
+                  </div>
+                </div>
+              </template>
+              <div x-show="g.plans.length === 0" class="empty-state">该组暂无计划</div>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- ========== 本期直播未启动计划 ========== -->
+  <div class="card" style="border-left:3px solid var(--muted)">
+    <div class="card-hd">
+      <span class="title">本期未启动计划</span>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="font-size:10px;color:var(--muted)">数据:</span>
+        <button class="btn btn-ghost btn-sm" :class="inactivePeriod===1?'active':''" @click="toggleInactivePeriod(1)" style="font-size:10px;padding:2px 6px">昨日</button>
+        <button class="btn btn-ghost btn-sm" :class="inactivePeriod===3?'active':''" @click="toggleInactivePeriod(3)" style="font-size:10px;padding:2px 6px">近3日</button>
+        <button class="btn btn-ghost btn-sm" :class="inactivePeriod===7?'active':''" @click="toggleInactivePeriod(7)" style="font-size:10px;padding:2px 6px">近7日</button>
+      </div>
+    </div>
+    <div class="group-section">
+      <template x-for="(g, gname) in inactiveGroups" :key="'i_'+gname">
+        <div class="group-block" :class="inactiveExpanded[gname] ? 'expanded' : ''">
+          <div class="group-header" @click="toggleInactiveGroup(gname)">
+            <span class="group-toggle">▶</span>
+            <span class="gname" x-text="gname"></span>
+            <span class="gsummary">
+              <span class="gstat"><span>计划数</span><span class="v" x-text="g.plans.length"></span></span>
+            </span>
+          </div>
+          <div class="group-plans">
+            <div class="plan-grid">
+              <template x-for="p in g.plans" :key="'i_'+p.id">
+                <div class="plan-card" style="opacity:0.85">
+                  <div class="pname" :title="p.name" x-text="p.name"></div>
+                  <div class="pmeta">
+                    <span class="k">状态</span><span class="v"><span class="tag tag-over" x-text="p.status"></span></span>
+                    <span class="k" x-text="inactivePeriod===0?'今日消耗':(inactivePeriod===1?'昨日消耗':(inactivePeriod===3?'3日消耗':'7日消耗'))"></span>
+                    <span class="v" x-text="fmtMoney(p._histSpend || 0)"></span>
+                    <span class="k">线索</span><span class="v" x-text="p._histLeads || 0"></span>
+                    <span class="k">CPL</span><span class="v" x-text="fmtMoney(p._histCpl || 0)"></span>
+                    <span class="k">CPM</span><span class="v" x-text="p._histCpm > 0 ? fmtNum(p._histCpm) : '-'"></span>
+                    <span class="k">CTR</span><span class="v" x-text="p._histCtr > 0 ? p._histCtr.toFixed(2) + '%' : '-'"></span>
+                  </div>
+                  <div class="pactions">
+                    <button class="btn btn-ghost btn-sm" style="background:rgba(34,197,94,0.12);color:var(--green)" @click="startInactivePlan(p)">启动</button>
+                  </div>
+                </div>
+              </template>
+              <div x-show="g.plans.length === 0" class="empty-state">该组无未启动计划</div>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+</div>
+
+<!-- ============ TAB: AI建议 ============ -->
+<div x-show="activeTab==='ai'" style="display:flex;flex-direction:column;gap:14px">
+
+  <!-- AI 数据概览 -->
+  <div class="card">
+    <div class="card-hd">
+      <span class="title">AI 学习数据概览</span>
+      <button class="btn btn-ghost btn-sm" @click="loadAiData(true)" :disabled="aiLoading">
+        <span x-text="aiLoading ? '⏳ 加载中' : '↻ 刷新'"></span>
+      </button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;font-size:12px">
+      <div>
+        <div style="color:var(--muted);font-size:10px">总审计记录</div>
+        <div style="font-size:20px;font-weight:700" x-text="aiData.summary.totalAudits || 0"></div>
+      </div>
+      <div>
+        <div style="color:var(--muted);font-size:10px">已评估效果</div>
+        <div style="font-size:20px;font-weight:700;color:var(--green)" x-text="aiData.summary.evaluatedActions || 0"></div>
+      </div>
+      <div>
+        <div style="color:var(--muted);font-size:10px">提取规则数</div>
+        <div style="font-size:20px;font-weight:700;color:var(--purple)" x-text="aiData.summary.rulesCount || 0"></div>
+      </div>
+      <div>
+        <div style="color:var(--muted);font-size:10px">当前异常计划</div>
+        <div style="font-size:20px;font-weight:700;color:var(--red)" x-text="aiData.anomalies.length"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 提取的规则 -->
+  <div class="card">
+    <div class="card-hd">
+      <span class="title">提取的决策规则</span>
+      <span style="font-size:11px;color:var(--muted)">从历史操作效果中自动归纳</span>
+    </div>
+    <div x-show="!aiData.rules.length" class="empty-state">
+      暂无足够数据提取规则<br>
+      需要至少 2 条同类型操作记录才能归纳规则
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <template x-for="r in aiData.rules" :key="r.id">
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+            <span style="font-weight:700;color:var(--purple)" x-text="r.id"></span>
+            <span style="font-size:13px;font-weight:600" x-text="r.deliveryType + ' · ' + ({pause:'暂停',stop:'关停',resume:'恢复',adjust_budget:'调整预算',adjust_bid:'调整出价'}[r.action] || r.action)"></span>
+            <span style="margin-left:auto;font-size:11px" :style="'color:' + (r.successRate >= 0.5 ? 'var(--green)' : r.successRate > 0 ? 'var(--amber)' : 'var(--red)')" x-text="'成功率 ' + (r.successRate * 100).toFixed(0) + '%'"></span>
+          </div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:11px;color:var(--muted);margin-bottom:6px">
+              <div>置信度: <span style="color:var(--text);font-weight:600" x-text="(r.confidence * 100).toFixed(0) + '%'"></span></div>
+              <div>证据数: <span style="color:var(--text);font-weight:600" x-text="r.evidence"></span></div>
+              <div>15min 消耗变化: <span style="color:var(--text);font-weight:600" x-text="'¥' + (r.avgDeltaCost15min ?? r.avgDeltaSpend15min ?? 0)"></span></div>
+              <div>评估精度: <span style="color:var(--text);font-weight:600" x-text="r.evalLevel === 'plan' ? '计划级 🎯' : '账户级'"></span></div>
+            </div>
+          <div x-show="r.examples && r.examples.length" style="font-size:11px;color:var(--muted);border-top:1px solid var(--border);padding-top:6px;margin-top:6px">
+            <span>示例:</span>
+            <template x-for="(ex, i) in r.examples" :key="i">
+              <span style="margin-left:8px" x-text="ex.planName.slice(0, 20) + ' (' + ex.effect + ')'"></span>
+            </template>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- 当前异常计划 -->
+  <div class="card">
+    <div class="card-hd">
+      <span class="title">当前异常计划</span>
+      <span style="font-size:11px;color:var(--muted)">消耗 > ¥500 且 (CPL > ¥150 或 0 线索)</span>
+    </div>
+    <div x-show="!aiData.anomalies.length" class="empty-state">暂无异常计划</div>
+    <div class="plan-grid">
+      <template x-for="a in aiData.anomalies" :key="a.id">
+        <div class="plan-card" style="border-color:var(--red);background:rgba(239,68,68,0.05)">
+          <div class="pname" :title="a.name" x-text="a.name"></div>
+          <div class="pmeta">
+            <span class="k">类型</span><span class="v" x-text="a.deliveryType"></span>
+            <span class="k">消耗</span><span class="v" x-text="fmtMoney(a.spend)"></span>
+            <span class="k">线索</span><span class="v" x-text="a.leads"></span>
+            <span class="k">CPA</span><span class="v" style="color:var(--red);font-weight:700" x-text="fmtMoney(a.cpa)"></span>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- 最近操作效果时间线 -->
+  <div class="card">
+    <div class="card-hd">
+      <span class="title">最近操作效果追踪</span>
+      <span style="font-size:11px;color:var(--muted)" x-text="(aiData.recentActions || []).length + ' 条'"></span>
+    </div>
+    <div class="tbl-wrap" style="max-height:400px;overflow-y:auto">
+      <table>
+        <thead><tr>
+          <th>时间</th><th>计划</th><th>操作</th><th>来源</th><th>效果</th><th>15min 消耗变化</th><th>评估</th>
+        </tr></thead>
+        <tbody>
+          <template x-for="a in aiData.recentActions" :key="a.time + a.planName">
+            <tr>
+              <td style="font-size:11px" x-text="(a.time || '').slice(11, 19)"></td>
+              <td style="font-weight:600;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="a.planName" x-text="a.planName"></td>
+              <td x-text="({pause:'暂停',stop:'关停',resume:'恢复',adjust_budget:'调整预算',adjust_bid:'调整出价'}[a.actionType] || a.actionType || '-')"></td>
+              <td style="font-size:11px" x-text="a.source"></td>
+              <td>
+                <span class="tag" :class="a.effect?.status === 'evaluated' ? (a.effect?.level === 'plan' ? 'tag-live' : 'tag-muted') : 'tag-paused'" x-text="a.effect?.status === 'evaluated' ? (a.effect?.level === 'plan' ? '计划级' : '账户级') : '待评估'"></span>
+              </td>
+              <td x-text="(a.effect?.deltaCost15min ?? a.effect?.deltaSpend15min) !== undefined ? '¥' + (a.effect?.deltaCost15min ?? a.effect?.deltaSpend15min) : '-'"></td>
+              <td>
+                <span x-show="a.effect?.impactRating" class="tag" :class="{
+                  'tag-live': a.effect?.impactRating?.includes('positive'),
+                  'tag-paused': a.effect?.impactRating === 'neutral',
+                  'tag-over': a.effect?.impactRating === 'negative' || a.effect?.impactRating === 'high_negative'
+                }" x-text="({high_positive:'高度正向',positive:'正向',neutral:'中性',negative:'负向',high_negative:'高度负向'}[a.effect?.impactRating] || a.effect?.impactRating || '-')"></span>
+              </td>
+            </tr>
+          </template>
+          <tr x-show="!aiData.recentActions.length"><td colspan="7" class="empty-state">暂无操作记录</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ============ TAB: 操作审计（复用 v1 操作面板） ============ -->
+<div x-show="activeTab==='ops'">
+  <div class="card" x-data="{
+    opsTab: 'queue', opsQueue: [], opsPending: [], opsAudit: [], opsLoading: false, rollbackLoading: null,
+    async loadOps() {
+      this.opsLoading = true;
+      try {
+        const [qRes, pRes, aRes] = await Promise.all([
+          fetch('/api/actions', {cache:'no-store'}).then(r=>r.json()),
+          fetch('/api/pending', {cache:'no-store'}).then(r=>r.json()),
+          fetch('/api/audit/recent?limit=50', {cache:'no-store'}).then(r=>r.json()),
+        ]);
+        this.opsQueue = qRes?.actions || [];
+        this.opsPending = pRes?.data || [];
+        this.opsAudit = aRes?.data || [];
+      } catch(e) { console.error('ops', e); }
+      this.opsLoading = false;
+    },
+    async rollbackAction(r) {
+      if (!confirm('确认回滚: ' + r.actionType + '「' + r.planName + '」？')) return;
+      this.rollbackLoading = r.time;
+      const toast = (msg, type) => this.$root.toastShow(msg, type);
+      try {
+        const resp = await fetch('/api/actions/rollback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ traceRef: r.traceRef, time: r.time, planName: r.planName, by: 'dashboard-v2' })
+        }).then(res => res.json());
+        if (resp.ok) {
+          toast('✓ 回滚已入队: ' + resp.rollbackAction + '「' + resp.planName + '」', 'success');
+          await this.loadOps();
+        } else {
+          toast('回滚失败: ' + (resp.error || '未知错误'), 'error');
+        }
+      } catch(e) {
+        toast('回滚请求失败: ' + e.message, 'error');
+      }
+      this.rollbackLoading = null;
+    },
+    tabStyle(name) {
+      const active = this.opsTab === name;
+      return 'padding:8px 16px;border:none;background:' + (active ? 'var(--blue)' : 'transparent') +
+             ';color:' + (active ? '#fff' : 'var(--muted)') +
+             ';cursor:pointer;font-size:14px;font-weight:600;border-radius:6px 6px 0 0;transition:all .2s';
+    }
+  }" x-init="loadOps()">
+    <div class="card-hd">
+      <span class="title">操作面板</span>
+      <button class="btn btn-ghost btn-sm" @click="loadOps()" :disabled="opsLoading">
+        <span x-text="opsLoading ? '⏳' : '↻ 刷新'"></span>
+      </button>
+    </div>
+    <div style="display:flex;gap:8px;margin:0 0 12px;border-bottom:2px solid var(--border)">
+      <button @click="opsTab='queue'" :style="tabStyle('queue')" x-text="'当前队列 (' + opsQueue.filter(a=>!a.failed).length + ')'"></button>
+      <button @click="opsTab='pending'" :style="tabStyle('pending')" x-text="'待确认 (' + opsPending.length + ')'"></button>
+      <button @click="opsTab='audit'" :style="tabStyle('audit')" x-text="'最近审计 (' + opsAudit.length + ')'"></button>
+    </div>
+
+    <!-- Queue tab -->
+    <div x-show="opsTab==='queue'" class="tbl-wrap" style="max-height:400px;overflow-y:auto">
+      <table>
+        <thead><tr><th>状态</th><th>计划</th><th>操作</th><th>来源</th><th>时间</th></tr></thead>
+        <tbody>
+          <template x-for="a in opsQueue" :key="a.time">
+            <tr>
+              <td><span class="badge" :class="a.failed ? 'badge-upcoming' : 'badge-live'" x-text="a.failed ? '失败' : '待处理'"></span></td>
+              <td style="font-weight:600;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="a.planName"></td>
+              <td x-text="a.type + (a.amount ? ' ¥' + a.amount : '')"></td>
+              <td x-text="a.source || a.by"></td>
+              <td style="font-size:11px" x-text="(a.time || '').slice(11, 19)"></td>
+            </tr>
+          </template>
+          <tr x-show="!opsQueue.length"><td colspan="5" class="empty-state">队列为空</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pending tab -->
+    <div x-show="opsTab==='pending'" class="tbl-wrap" style="max-height:400px;overflow-y:auto">
+      <table>
+        <thead><tr><th>计划</th><th>操作</th><th>创建时间</th><th>过期时间</th><th>状态</th></tr></thead>
+        <tbody>
+          <template x-for="p in opsPending" :key="p.tempId">
+            <tr>
+              <td style="font-weight:600" x-text="p.action?.planName"></td>
+              <td x-text="p.action?.type + (p.action?.amount ? ' ¥' + p.action.amount : '')"></td>
+              <td style="font-size:11px" x-text="(p.createdAt || '').slice(11, 19)"></td>
+              <td style="font-size:11px" x-text="(p.expiresAt || '').slice(11, 19)"></td>
+              <td><span class="badge badge-live" x-text="new Date(p.expiresAt) < new Date() ? '超时' : '等待确认'"></span></td>
+            </tr>
+          </template>
+          <tr x-show="!opsPending.length"><td colspan="5" class="empty-state">无待确认操作</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Audit tab -->
+    <div x-show="opsTab==='audit'" class="tbl-wrap" style="max-height:400px;overflow-y:auto">
+      <table>
+        <thead><tr><th>时间</th><th>计划</th><th>操作</th><th>结果</th><th>来源</th><th>方式</th><th>回滚</th></tr></thead>
+        <tbody>
+          <template x-for="r in opsAudit" :key="r.time + r.planName">
+            <tr>
+              <td style="font-size:11px" x-text="(r.time || '').slice(11, 19)"></td>
+              <td style="font-weight:600;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="r.planName"></td>
+              <td x-text="r.actionType"></td>
+              <td><span class="badge" :class="r.result?.ok ? 'badge-live' : 'badge-upcoming'" x-text="r.result?.ok ? '成功' : '失败'"></span></td>
+              <td x-text="r.source"></td>
+              <td x-text="r.result?.method || '-'"></td>
+              <td>
+                <button x-show="r.result?.ok && (
+                    ['pause','stop','resume'].includes(r.actionType) ||
+                    (r.beforeValue && ['adjust_budget','adjust_bid'].includes(r.actionType))
+                  )"
+                  style="padding:2px 8px;font-size:11px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;border-radius:3px"
+                  @click="rollbackAction(r)"
+                  x-text="rollbackLoading === r.time ? '⏳' : '↩ 回滚'">
+                </button>
+              </td>
+            </tr>
+          </template>
+          <tr x-show="!opsAudit.length"><td colspan="7" class="empty-state">无审计记录</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+</main>
+</div>
+
+<!-- Toast -->
+<div x-show="toast.show" x-cloak class="toast" @click="toast.show=false" :style="'background:' + (toast.type==='success' ? 'var(--green)' : toast.type==='error' ? 'var(--red)' : 'var(--blue)')" x-text="toast.msg"></div>
+
+<!-- Chart.js CDN (带本地 fallback) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.x/dist/chart.umd.min.js"></script>
+<script src="/dashboard-v2.js?v=3"></script>
+<!-- Alpine.js 同步加载(不用 defer): dashboard-v2.js 必须先执行，注册 dashV2 后再让 Alpine 初始化 -->
+<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</body></html>

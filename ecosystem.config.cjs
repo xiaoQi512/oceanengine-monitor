@@ -89,6 +89,26 @@ module.exports = {
       time: true,
     },
 
+    // ====== dashboard-tunnel 常驻：仪表盘密码认证代理 + cloudflared 快速隧道 ======
+    {
+      name: "dashboard-tunnel",
+      script: "src/services/dashboard-tunnel.mjs",
+      cwd: MONITOR_DIR,
+      exec_mode: "fork",
+      interpreter: NODE,
+      env: { NODE_ENV: "production" },
+      instances: 1,
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 5000,
+      kill_timeout: 10000,
+      max_memory_restart: "128M",
+      out_file: `${LOG_DIR}\\pm2-dashboard-tunnel-out.log`,
+      error_file: `${LOG_DIR}\\pm2-dashboard-tunnel-err.log`,
+      merge_logs: true,
+      time: true,
+    },
+
     // ====== 5分钟速报（cron 触发，跑完即退）======
     {
       name: "pm2-5min",

@@ -52,3 +52,6 @@ archive/
 _q*
 *.bak-*
 ls/
+
+# 仪表盘 v4 封版文件
+!dashboard-v4.html

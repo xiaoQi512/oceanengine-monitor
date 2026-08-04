@@ -4,10 +4,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import Database from 'better-sqlite3';
 import { serveStatic } from '../src/services/http-routes/static.mjs';
 import { serveSnapshots } from '../src/services/http-routes/api-snapshots.mjs';
 import { serveSnapshotTrend } from '../src/services/http-routes/api-snapshots-trend.mjs';
-import { serveCampaigns } from '../src/services/http-routes/api-campaigns.mjs';
+import {
+  applySessionSpend,
+  getSessionSpendRows,
+  resolveSessionWindow,
+  serveCampaigns,
+} from '../src/services/http-routes/api-campaigns.mjs';
 import { serveAlerts } from '../src/services/http-routes/api-alerts.mjs';
 import { serveLiveStatus } from '../src/services/http-routes/api-live.mjs';
 import { serveAccounts } from '../src/services/http-routes/api-accounts.mjs';
@@ -45,6 +51,16 @@ async function testStatic() {
   assert.strictEqual(res.status, 200);
   assert.ok(res.body.includes('dashboard-v2'), '应返回 dashboard-v2 HTML');
 
+  const v4 = mockRes();
+  assert.strictEqual(serveStatic(new URL('http://x/dashboard-v4'), null, v4, { PROJECT_ROOT }), true);
+  assert.strictEqual(v4.status, 200);
+  assert.ok(v4.body.includes('实时仪表盘'), '应返回 dashboard-v4 HTML');
+
+  const prod = mockRes();
+  assert.strictEqual(serveStatic(new URL('http://x/dashboard'), null, prod, { PROJECT_ROOT }), true);
+  assert.strictEqual(prod.status, 200);
+  assert.ok(prod.body.includes('实时仪表盘'), '应返回生产版 dashboard-v4 HTML');
+
   const redirect = mockRes();
   assert.strictEqual(serveStatic(new URL('http://x/'), null, redirect, { PROJECT_ROOT }), true);
   assert.strictEqual(redirect.status, 302);
@@ -67,6 +83,23 @@ async function testSnapshots() {
   assert.strictEqual(serveSnapshots(new URL('http://x/api/snapshots/5m?history=2'), null, history, ctx), true);
   assert.strictEqual(history.status, 200);
   assert.strictEqual(JSON.parse(history.body).history.length, 2);
+
+  const compare = mockRes();
+  assert.strictEqual(serveSnapshots(new URL('http://x/api/snapshots/cpm-compare'), null, compare, {
+    get5mSnapshots: () => [{ _recentCPM: 50 }],
+    DB_PATH: path.join(os.tmpdir(), 'oec-no-such-cpm.db'),
+  }), true);
+  assert.strictEqual(compare.status, 200);
+  assert.strictEqual(JSON.parse(compare.body).currentCpm, 50);
+  assert.strictEqual(JSON.parse(compare.body).yesterdayAvgCpm, 0);
+
+  const kpiCompare = mockRes();
+  assert.strictEqual(serveSnapshots(new URL('http://x/api/kpi/compare'), null, kpiCompare, {
+    get5mSnapshots: () => [{ _recentCPM: 50, _rolling: { last5min: 10 }, accountBudget: 1000 }],
+    DB_PATH: path.join(os.tmpdir(), 'oec-no-such-kpi.db'),
+  }), true);
+  assert.strictEqual(kpiCompare.status, 200);
+  assert.strictEqual(JSON.parse(kpiCompare.body).compare.spend.hasCompare, false);
   console.log('✅ snapshot routes');
 }
 
@@ -87,7 +120,7 @@ async function testSnapshotTrend() {
 async function testCampaigns() {
   const ctx = {
     classifyDeliveryType: (name) => name.includes('简单投') ? '简单投' : null,
-    emptyGroupSummary: (name) => ({ name, spend: 0, leads: 0, cpl: 0, active: 0, paused: 0, total: 0 }),
+    emptyGroupSummary: (name) => ({ name, spend: 0, leads: 0, cpl: 0, cpm: 0, active: 0, paused: 0, total: 0 }),
     summarizeGroup: (plans, name) => ({ name, spend: 100, leads: 1, cpl: 100, active: 1, paused: 0, total: plans.length }),
     getApiClient: async () => ({
       createClient: async () => ({}),
@@ -114,8 +147,72 @@ async function testCampaigns() {
   const grouped = mockRes();
   assert.strictEqual(await serveCampaigns(new URL('http://x/api/campaigns/grouped'), null, grouped, ctx), true);
   assert.strictEqual(grouped.status, 200);
-  assert.strictEqual(JSON.parse(grouped.body).groups['简单投'].plans.length, 1);
+  const groupedBody = JSON.parse(grouped.body);
+  assert.strictEqual(groupedBody.spending.groups['简单投'].plans.length, 1);
+  assert.strictEqual(groupedBody.inactive.groups['简单投'].plans.length, 0);
+  assert.strictEqual(groupedBody.session.groups['简单投'].plans.length, 1);
+  assert.strictEqual(groupedBody.session.totalSummary.name, '本场');
   console.log('✅ campaign routes');
+}
+
+async function testSessionWindow() {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oec-session-'));
+  try {
+    const dataDir = path.join(tmpDir, 'monitor-data');
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.writeFileSync(path.join(dataDir, 'shifts-2026-08-04.json'), JSON.stringify({
+      shifts: [{ label: '22:30-01:30' }],
+    }));
+
+    const dbPath = path.join(tmpDir, 'oceanengine.db');
+    const db = new Database(dbPath);
+    db.exec(`CREATE TABLE snapshots (
+      snapshot_time TEXT,
+      campaign_id TEXT,
+      cost REAL,
+      leads INTEGER,
+      conversions INTEGER
+    )`);
+    const insert = db.prepare('INSERT INTO snapshots (snapshot_time, campaign_id, cost, leads, conversions) VALUES (?, ?, ?, ?, ?)');
+    insert.run('2026-08-04T14:35:01', 'c1', 100, 1, 1);
+    insert.run('2026-08-04T14:55:01', 'c1', 200, 2, 2);
+    insert.run('2026-08-04T16:00:01', 'c1', 100, 1, 1);
+    insert.run('2026-08-04T16:30:01', 'c1', 200, 2, 2);
+    insert.run('2026-08-04T14:35:01', 'c2', 50, 1, 1);
+    insert.run('2026-08-04T14:55:01', 'c2', 50, 2, 2);
+    insert.run('2026-08-04T16:00:01', 'c2', 50, 1, 1);
+    insert.run('2026-08-04T16:30:01', 'c2', 50, 2, 2);
+    db.close();
+
+    const now = new Date(2026, 7, 4, 23, 30);
+    const win = resolveSessionWindow({
+      dataDir,
+      getLocalDate: () => '2026-08-04',
+      now,
+    });
+    assert.strictEqual(win.date, '2026-08-04');
+    assert.strictEqual(win.startTime, '22:30');
+    assert.strictEqual(win.endTime, '01:30');
+    assert.strictEqual(win.startCst, '2026-08-04 22:30:00');
+    assert.strictEqual(win.endCst, '2026-08-05 01:30:00');
+
+    const rows = getSessionSpendRows(dbPath, win.startCst, win.endCst);
+    assert.strictEqual(rows.length, 1);
+    assert.strictEqual(rows[0].campaign_id, 'c1');
+    assert.strictEqual(rows[0].spend, 200);
+
+    const plans = applySessionSpend([
+      { id: 'c1', name: '跨天计划', status: '投放中', spend: 0, leads: 0, conversions: 0, cpa: 0 },
+      { id: 'c2', name: '无消耗计划', status: '暂停', spend: 0, leads: 0, conversions: 0, cpa: 0 },
+    ], rows);
+    assert.strictEqual(plans.length, 1);
+    assert.strictEqual(plans[0].spend, 200);
+    assert.strictEqual(plans[0].leads, 2);
+    assert.strictEqual(plans[0].cpa, 100);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+  console.log('✅ session campaign window');
 }
 
 async function testAlerts() {
@@ -316,6 +413,7 @@ async function run() {
   await testSnapshots();
   await testSnapshotTrend();
   await testCampaigns();
+  await testSessionWindow();
   await testAlerts();
   await testLiveStatus();
   await testAccounts();

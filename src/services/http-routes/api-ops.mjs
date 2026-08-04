@@ -24,15 +24,18 @@ export function serveOps(url, req, res, ctx) {
       req.on('data', c => body += c);
       req.on('end', () => {
         try {
-          const { type } = JSON.parse(body || '{}');
+          const { type, shiftLabel, date } = JSON.parse(body || '{}');
           const signalFile = path.join(DATA_DIR, 'repush-signal.json');
-          fs.writeFileSync(signalFile, JSON.stringify({
-            type: type || 'unknown',
+          const signal = {
+            type: type || (shiftLabel ? 'shift-report' : 'unknown'),
             timestamp: new Date().toISOString(),
             source: 'dashboard-repush',
-          }));
+          };
+          if (shiftLabel) signal.shiftLabel = shiftLabel;
+          if (date) signal.date = date;
+          fs.writeFileSync(signalFile, JSON.stringify(signal));
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: true, message: '补推信号已入队', type: type || 'unknown' }));
+          res.end(JSON.stringify({ ok: true, message: '补推信号已入队', shiftLabel: shiftLabel || null, date: date || null }));
         } catch {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: false, error: '无效请求' }));

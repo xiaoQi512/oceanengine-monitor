@@ -1,13 +1,15 @@
 // src/services/http-routes/snapshot-trend-agg.mjs - 趋势单点聚合
 
 export function queryAggPoint(db, st) {
+  // activeCount 仅统计 cost > 0 的计划（与 5min 真实采集口径一致：投放且有消耗）
+  // status='投放中' 且 cost=0 的不算"在投活跃"
   const agg = db.prepare(`
     SELECT COALESCE(SUM(cost), 0) as totalCost,
       COALESCE(SUM(leads), 0) as totalLeads,
       COALESCE(SUM(conversions), 0) as totalConv,
       COUNT(DISTINCT campaign_id) as campaignCount,
       COUNT(DISTINCT CASE WHEN cost > 0 THEN campaign_id END) as spendingCount,
-      COUNT(DISTINCT CASE WHEN status IN ('投放中','启用中','启用') THEN campaign_id END) as deliveringCount,
+      COUNT(DISTINCT CASE WHEN cost > 0 AND status IN ('投放中','启用中','启用') THEN campaign_id END) as deliveringCount,
       COALESCE(SUM(msg_lead), 0) as msgLead,
       COALESCE(SUM(form_submit), 0) as formSubmit
     FROM snapshots WHERE snapshot_time = ? AND source_type = '5min'

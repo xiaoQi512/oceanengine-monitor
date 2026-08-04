@@ -57,9 +57,9 @@ export function createHttpServerHandler(deps) {
       return;
     }
     if (serveStatic(url, req, res, { PROJECT_ROOT })) return;
-    if (serveSnapshots(url, req, res, { getLatestSnapshot, get5mSnapshots })) return;
+    if (serveSnapshots(url, req, res, { getLatestSnapshot, get5mSnapshots, DB_PATH, DATA_DIR, getLocalDate })) return;
     if (serveSnapshotTrend(url, req, res, { DB_PATH, parseSnapshotTime })) return;
-    if (await serveCampaigns(url, req, res, { classifyDeliveryType, emptyGroupSummary, summarizeGroup, getApiClient })) return;
+    if (await serveCampaigns(url, req, res, { classifyDeliveryType, emptyGroupSummary, summarizeGroup, getApiClient, DB_PATH, DATA_DIR, getLocalDate })) return;
     if (await serveAi(url, req, res, {
       ACTION_AUDIT_FILE,
       computeActionEffect,
@@ -77,7 +77,7 @@ export function createHttpServerHandler(deps) {
       ACTION_PENDING_FILE,
       ACTION_AUDIT_FILE,
     })) return;
-    if (serveLiveStatus(url, req, res, { getLocalDate, DATA_DIR, getLatestSnapshot })) return;
+    if (serveLiveStatus(url, req, res, { getLocalDate, DATA_DIR, DB_PATH, getLatestSnapshot })) return;
     if (serveOps(url, req, res, { DATA_DIR })) return;
     if (await serveAccounts(url, req, res, { getLatestSnapshot, ACCOUNT_ID, ACCOUNT_NAME, getApiClient })) return;
     if (serveReport(url, req, res, {

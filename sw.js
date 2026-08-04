@@ -1,15 +1,14 @@
 // sw.js — Service Worker (运行时缓存策略)
-// 静态资源 dashboard.html/js/css + Alpine.js + ECharts 缓存优先
+// 静态资源 dashboard-v4 + Chart.js 缓存优先
 // API 请求网络优先
 
 const CACHE_VERSION = 'oec-dash-v4';
-const NETWORK_FIRST = ['/dashboard', '/dashboard.js']; // 开发期网络优先，避免缓存卡旧版
+const NETWORK_FIRST = ['/dashboard', '/dashboard-v4'];
 const STATIC_ASSETS = [
   '/dashboard',
-  '/dashboard.js',
+  '/dashboard-v4',
+  '/vendor/chart.umd.min.js',
   '/manifest.json',
-  'https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js',
-  'https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js',
 ];
 
 // ====== 安装：预缓存静态资源 ======
@@ -52,11 +51,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 同源静态资源 & CDN 脚本
-  // - dashboard.html/js: 网络优先 (开发期迭代频繁)
-  // - 其他 (CDN/manifest): 缓存优先 + 后台更新
+  // 同源静态资源 & 本地 vendor
+  // - dashboard-v4: 网络优先
+  // - manifest: 缓存优先 + 后台更新
   const isNetworkFirst = NETWORK_FIRST.includes(url.pathname);
-  const isCdnCache = url.hostname.includes('jsdelivr') || url.pathname === '/manifest.json';
+  const isStaticCache = url.pathname === '/manifest.json';
 
   if (isNetworkFirst) {
     event.respondWith(
@@ -70,7 +69,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (isCdnCache) {
+  if (isStaticCache) {
     event.respondWith(
       caches.match(req).then((cached) => {
         if (cached) {

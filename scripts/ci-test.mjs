@@ -81,6 +81,7 @@ const CI_TESTS = [
   'tests/daily-report-core.test.mjs',
   'tests/alert-cards.test.mjs',
   'tests/http-feedback-store.test.mjs',
+  'tests/dashboard-tunnel-auth.test.mjs',
   'tests/five-min-detailed-context.test.mjs',
   'tests/daily-report-run.test.mjs',
   'tests/feishu-listener-handlers.test.mjs',

@@ -14,7 +14,7 @@ export function serveSnapshotTrend(url, req, res, ctx) {
     res.end(JSON.stringify(data));
   } catch (e) {
     res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: e.message, labels: [], timestamps: [], spend: [], cpl: [], cpm: [], conversions: [], impressions: [], activeCount: [], planSpend: [], spendingCount: [], deliveringCount: [], totalPlanCount: 0, pausedPlanCount: 0, convBreakdown: [], top5PerPoint: [] }));
+    res.end(JSON.stringify({ error: e.message, baseSpend: 0, baseConversions: 0, baseImpressions: 0, labels: [], timestamps: [], spend: [], cpl: [], cpm: [], conversions: [], impressions: [], activeCount: [], planSpend: [], spendingCount: [], deliveringCount: [], totalPlanCount: 0, pausedPlanCount: 0, convBreakdown: [], top5PerPoint: [] }));
   }
   return true;
 }

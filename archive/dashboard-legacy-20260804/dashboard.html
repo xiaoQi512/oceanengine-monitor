@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>巨量引擎监控 · 直播管理统筹</title>
+<meta name="theme-color" content="#0f172a">
+<link rel="manifest" href="/manifest.json">
+<link rel="stylesheet" href="/dashboard.css">
+</head>
+<body x-data="dash()" x-cloak x-init="init()">
+<div class="app">
+<header>
+  <div class="hdr-left">
+    <h1>巨量引擎监控</h1>
+    <span style="font-size:11px;color:var(--muted)">直播管理统筹</span>
+  </div>
+  <div class="hdr-right">
+    <span class="live-dot" :class="isLive? '' : 'off'"></span>
+    <span style="font-size:12px" x-text="isLive? '直播中' : '已下播'"></span>
+    <span style="font-size:11px" x-text="'更新于 '+ (lastUpdate||'加载中...')"></span>
+    <button class="btn btn-ghost btn-sm" @click="loadData()" :disabled="loading">
+      <span x-text="loading?'⏳':'↻ 刷新'"></span>
+    </button>
+  </div>
+</header>
+
+<main>
+<!-- Date & Status Bar -->
+<div class="date-bar">
+  <span class="today" x-text="todayLabel"></span>
+  <span x-text="weekdayLabel"></span>
+  <span style="color:var(--muted)">|</span>
+  <span x-text="'排班: '+shiftCount+' 场'"></span>
+  <div class="live-status">
+    <span x-text="currentAnchor? '当前主播: '+currentAnchor : ''" style="color:var(--text);font-weight:600"></span>
+    <span class="status-text" :class="isLive?'live':'offline'" x-text="isLive?'● 直播中':'○ 未开播'"></span>
+  </div>
+</div>
+
+<!-- KPI Row -->
+<section class="kpi-grid">
+  <div class="kpi kpi-spend">
+    <div class="klabel">今日消耗</div>
+    <div class="kvalue" x-text="fmtMoney(kpi.totalSpend)"></div>
+    <div class="ksub"><span x-text="'直播 '+fmtMoney(kpi.liveSpend)"></span> · <span x-text="'短视频 '+fmtMoney(kpi.videoSpend)"></span></div>
+  </div>
+  <div class="kpi kpi-leads">
+    <div class="klabel">线索数</div>
+    <div class="kvalue" x-text="kpi.totalLeads||0"></div>
+    <div class="ksub" x-text="'开口 '+ (kpi.totalConversions||0)"></div>
+  </div>
+  <div class="kpi kpi-cpl">
+    <div class="klabel">线索成本 CPL</div>
+    <div class="kvalue" x-text="fmtMoney(kpi.avgCpl)"></div>
+    <div class="ksub" x-text="'直播CPL '+fmtMoney(kpi.liveCpl)+' / 短视频 '+fmtMoney(kpi.videoCpl)"></div>
+  </div>
+  <div class="kpi kpi-msg">
+    <div class="klabel">私信人数</div>
+    <div class="kvalue" x-text="kpi.privateMsg||0"></div>
+    <div class="ksub">懂车帝直播大屏</div>
+  </div>
+  <div class="kpi kpi-budget">
+    <div class="klabel">日预算使用率</div>
+    <div class="kvalue" x-text="budgetPct+'%'"></div>
+    <div class="ksub" x-text="'预算 ¥'+fmtNum(kpi.dailyBudget)+' / 已用 '+fmtMoney(kpi.totalSpend)"></div>
+  </div>
+  <div class="kpi kpi-roi">
+    <div class="klabel">5 AI区域消耗</div>
+    <div class="kvalue" x-text="fmtMoney(kpi.aiRegionsSpend)"></div>
+    <div class="ksub" x-text="aiRegionsSummary"></div>
+  </div>
+</section>
+
+<!-- Mid Grid: Timeline + Accounts -->
+<div class="mid-grid">
+  <!-- Shift Timeline -->
+  <div class="card">
+    <div class="card-hd">
+      <span class="title">今日主播排班时间线</span>
+      <span style="font-size:11px" x-text="currentShiftLabel"></span>
+    </div>
+    <div class="timeline">
+      <template x-for="(s,i) in shifts" :key="i">
+        <div class="tl-row" :class="s.status">
+          <div class="tl-time" x-text="s.start+' - '+s.end"></div>
+          <div class="tl-bar-wrap">
+            <div class="tl-bar" :class="s.status" :style="'width:'+barWidth(s)+'%'" x-text="s.anchor + (s.spend?' · ¥'+fmtNum(s.spend):'')"></div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- Account Overview + Push Log -->
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <div class="card">
+      <div class="card-hd"><span class="title">账号总览</span></div>
+      <div class="acct-grid">
+        <template x-for="a in accountCards" :key="a.id">
+          <div class="acct-card">
+            <div class="aname" x-text="a.name"></div>
+            <div class="ameta">
+              <span class="k">消耗</span><span class="v" x-text="fmtMoney(a.spend)"></span>
+              <span class="k">线索</span><span class="v" x-text="a.leads||0"></span>
+              <span class="k">CPL</span><span class="v" x-text="fmtMoney(a.cpl)"></span>
+              <span class="k">计划</span><span class="v" x-text="a.activeCount||0"></span>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hd"><span class="title">飞书推送记录</span><button class="btn btn-ghost btn-sm" @click="manualPush()">手动补推</button></div>
+      <div class="push-log">
+        <template x-for="p in pushLog" :key="p.id">
+          <div class="push-item">
+            <span class="p-time" x-text="p.time"></span>
+            <span class="p-anchor" x-text="p.anchor"></span>
+            <span class="p-status" :class="p.status" x-text="p.status==='ok'?'成功':p.status==='fail'?'失败':'等待'"></span>
+            <span class="p-detail" x-text="p.detail"></span>
+          </div>
+        </template>
+        <div x-show="pushLog.length===0" style="text-align:center;color:var(--muted);padding:20px;font-size:12px">暂无推送记录</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Shift Performance Table -->
+<section class="card">
+  <div class="card-hd">
+    <span class="title">班次数据明细</span>
+    <span style="font-size:11px;color:var(--muted)" x-text="shiftData.length+' 场'"></span>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>时段</th><th>主播</th><th>车型</th><th>消耗</th><th>线索</th><th>CPL</th><th>开口</th><th>私信</th><th>推送</th>
+      </tr></thead>
+      <tbody>
+        <template x-for="(d,i) in shiftData" :key="i">
+          <tr>
+            <td x-text="d.start+'-'+d.end"></td>
+            <td style="font-weight:600" x-text="d.anchor"></td>
+            <td x-text="d.carModel||'贝塔T1'"></td>
+            <td x-text="fmtMoney(d.spend)"></td>
+            <td x-text="d.leads||0"></td>
+            <td x-text="fmtMoney(d.cpl)"></td>
+            <td x-text="d.conversions||0"></td>
+            <td x-text="d.privateMsg||'-'"></td>
+            <td><span class="badge" :class="d.pushed?'badge-live':'badge-upcoming'" x-text="d.pushed?'已推送':'待推送'"></span></td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- [v1.1 D5] Operations Panel: Queue / Pending / Audit -->
+<section class="card" x-data="{
+  opsTab: 'queue', opsQueue: [], opsPending: [], opsAudit: [], opsLoading: false, rollbackLoading: null,
+  async loadOps() {
+    this.opsLoading = true;
+    try {
+      const [qRes, pRes, aRes] = await Promise.all([
+        fetch('/api/actions', {cache:'no-store'}).then(r=>r.json()),
+        fetch('/api/pending', {cache:'no-store'}).then(r=>r.json()),
+        fetch('/api/audit/recent?limit=50', {cache:'no-store'}).then(r=>r.json()),
+      ]);
+      this.opsQueue = qRes?.actions || [];
+      this.opsPending = pRes?.data || [];
+      this.opsAudit = aRes?.data || [];
+    } catch(e) { console.error('ops', e); }
+    this.opsLoading = false;
+  },
+  async rollbackAction(r) {
+    if (!confirm('确认回滚: ' + r.actionType + '「' + r.planName + '」？')) return;
+    this.rollbackLoading = r.time;
+    try {
+      const resp = await fetch('/api/actions/rollback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ traceRef: r.traceRef, time: r.time, planName: r.planName, by: 'dashboard' })
+      }).then(res => res.json());
+      if (resp.ok) {
+        alert('回滚已入队: ' + resp.rollbackAction + '「' + resp.planName + '」');
+        await this.loadOps();
+      } else {
+        alert('回滚失败: ' + (resp.error || '未知错误'));
+      }
+    } catch(e) {
+      alert('回滚请求失败: ' + e.message);
+    }
+    this.rollbackLoading = null;
+  },
+  tabStyle(name) {
+    const active = this.opsTab === name;
+    return 'padding:8px 16px;border:none;background:' + (active ? 'var(--primary)' : 'transparent') +
+           ';color:' + (active ? '#fff' : 'var(--muted)') +
+           ';cursor:pointer;font-size:14px;font-weight:600;border-radius:6px 6px 0 0;transition:all .2s';
+  }
+}" x-init="loadOps()">
+  <div class="card-hd">
+    <span class="title">操作面板</span>
+    <button class="btn btn-ghost btn-sm" @click="loadOps()" :disabled="opsLoading">
+      <span x-text="opsLoading?'⏳':'↻ 刷新'"></span>
+    </button>
+  </div>
+  <div style="display:flex;gap:8px;margin:0 0 12px;border-bottom:2px solid var(--border)">
+    <button @click="opsTab='queue'" :style="tabStyle('queue')"
+      x-text="'当前队列 ('+opsQueue.filter(a=>!a.failed).length+')'"></button>
+    <button @click="opsTab='pending'" :style="tabStyle('pending')"
+      x-text="'待确认 ('+opsPending.length+')'"></button>
+    <button @click="opsTab='audit'" :style="tabStyle('audit')"
+      x-text="'最近审计 ('+opsAudit.length+')'"></button>
+  </div>
+
+  <!-- Queue tab -->
+  <div x-show="opsTab==='queue'" class="tbl-wrap" style="max-height:400px;overflow-y:auto">
+    <table>
+      <thead><tr><th>状态</th><th>计划</th><th>操作</th><th>来源</th><th>时间</th></tr></thead>
+      <tbody>
+        <template x-for="a in opsQueue" :key="a.time">
+          <tr>
+            <td><span class="badge" :class="a.failed?'badge-upcoming':'badge-live'" x-text="a.failed?'失败':'待处理'"></span></td>
+            <td style="font-weight:600;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="a.planName"></td>
+            <td x-text="a.type + (a.amount ? ' ¥'+a.amount : '')"></td>
+            <td x-text="a.source||a.by"></td>
+            <td style="font-size:11px" x-text="(a.time||'').slice(11,19)"></td>
+          </tr>
+        </template>
+        <tr x-show="!opsQueue.length"><td colspan="5" style="color:var(--muted);text-align:center">队列为空</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pending tab -->
+  <div x-show="opsTab==='pending'" class="tbl-wrap" style="max-height:400px;overflow-y:auto">
+    <table>
+      <thead><tr><th>计划</th><th>操作</th><th>创建时间</th><th>过期时间</th><th>状态</th></tr></thead>
+      <tbody>
+        <template x-for="p in opsPending" :key="p.tempId">
+          <tr>
+            <td style="font-weight:600" x-text="p.action?.planName"></td>
+            <td x-text="p.action?.type + (p.action?.amount ? ' ¥'+p.action.amount : '')"></td>
+            <td style="font-size:11px" x-text="(p.createdAt||'').slice(11,19)"></td>
+            <td style="font-size:11px" x-text="(p.expiresAt||'').slice(11,19)"></td>
+            <td><span class="badge badge-live" x-text="new Date(p.expiresAt)<new Date()?'超时':'等待确认'"></span></td>
+          </tr>
+        </template>
+        <tr x-show="!opsPending.length"><td colspan="5" style="color:var(--muted);text-align:center">无待确认操作</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Audit tab -->
+  <div x-show="opsTab==='audit'" class="tbl-wrap" style="max-height:400px;overflow-y:auto">
+    <table>
+      <thead><tr><th>时间</th><th>计划</th><th>操作</th><th>结果</th><th>来源</th><th>方式</th><th>回滚</th></tr></thead>
+      <tbody>
+        <template x-for="r in opsAudit" :key="r.time+r.planName">
+          <tr>
+            <td style="font-size:11px" x-text="(r.time||'').slice(11,19)"></td>
+            <td style="font-weight:600;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="r.planName"></td>
+            <td x-text="r.actionType"></td>
+            <td><span class="badge" :class="r.result?.ok?'badge-live':'badge-upcoming'" x-text="r.result?.ok?'成功':'失败'"></span></td>
+            <td x-text="r.source"></td>
+            <td x-text="r.result?.method||'-'"></td>
+            <td>
+              <button x-show="r.result?.ok && (
+                  ['pause','stop','resume'].includes(r.actionType) ||
+                  (r.beforeValue && ['adjust_budget','adjust_bid'].includes(r.actionType))
+                )"
+                style="padding:2px 8px;font-size:11px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;border-radius:3px"
+                @click="rollbackAction(r)"
+                x-text="rollbackLoading === r.time ? '⏳' : '↩ 回滚'">
+              </button>
+            </td>
+          </tr>
+        </template>
+        <tr x-show="!opsAudit.length"><td colspan="7" style="color:var(--muted);text-align:center">无审计记录</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</main>
+</div>
+
+<!-- Toast -->
+<div x-show="toast.show" x-cloak class="toast" @click="toast.show=false" :style="'background:'+(toast.type==='success'?'var(--green)':toast.type==='error'?'var(--red)':'var(--blue)')" x-text="toast.msg"></div>
+
+<script>
+(function(){window.addEventListener('error',function(e){if(e.target&&e.target.src&&e.target.src.indexOf('alpinejs')>-1){var s=document.createElement('script');s.src='/vendor/alpine.min.js';document.head.appendChild(s)}},true)})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script src="/dashboard.js"></script>
+</body></html>
