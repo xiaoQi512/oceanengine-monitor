@@ -1,30 +1,67 @@
-﻿# 巨量引擎监控 — 开机自启动脚本
-# 2026-07-15 自动生成
-# 职责：启动 PM2 全家桶 + 启用 Windows 计划任务（仅5分钟/15分钟保活，日终任务由 shift-pusher 动态触发）
+# Oceanengine monitor startup fallback script.
+# 2026-08-06: run PM2 hidden with timeout instead of blocking on pm2.cmd.
+# PM2 registry startup is the primary boot path; this script is a manual fallback.
 
-$logFile = "E:\炼丹炉\WorkBuddy\巨量引擎监控\monitor-data\startup.log"
-$time = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-"[$time] 巨量引擎监控自启动开始..." | Out-File -FilePath $logFile -Encoding UTF8 -Append
+$logDir = Join-Path $PSScriptRoot 'monitor-data'
+$logFile = Join-Path $logDir 'startup.log'
+$nodeExe = 'C:\Users\HTF2026\.workbuddy\binaries\node\versions\22.22.2\node.exe'
+$pm2Cli = 'C:\Users\HTF2026\.workbuddy\binaries\node\versions\22.22.2\node_modules\pm2\bin\pm2'
+$ecosystem = Join-Path $PSScriptRoot 'ecosystem.config.cjs'
+$pm2TimeoutMs = 120000
+
+function Write-StartupLog($message) {
+    $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    "[$ts] $message" | Out-File -FilePath $logFile -Encoding UTF8 -Append
+}
+
+function Invoke-Pm2Hidden {
+    param(
+        [string[]]$Arguments,
+        [string]$Action
+    )
+
+    $stdout = Join-Path $logDir "startup-pm2-$Action.out.log"
+    $stderr = Join-Path $logDir "startup-pm2-$Action.err.log"
+    $pm2Args = @($pm2Cli)
+    $pm2Args += $Arguments
+    $argText = ($pm2Args | ForEach-Object { '"' + $_ + '"' }) -join ' '
+
+    try {
+        $process = Start-Process -FilePath $nodeExe -ArgumentList $argText -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+        if (-not $process.WaitForExit($pm2TimeoutMs)) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            Write-StartupLog "PM2 $Action timeout (${pm2TimeoutMs}ms), hidden CLI cleaned"
+            return $false
+        }
+
+        if ($process.ExitCode -ne 0) {
+            Write-StartupLog "PM2 $Action exit code: $($process.ExitCode)"
+            return $false
+        }
+
+        $summary = ''
+        if (Test-Path $stdout) {
+            $summary = (Get-Content -LiteralPath $stdout -Raw).Trim()
+        }
+        if ($summary.Length -gt 2000) {
+            $summary = $summary.Substring(0, 2000) + '...'
+        }
+        Write-StartupLog "PM2 $Action OK: $summary"
+        return $true
+    } catch {
+        Write-StartupLog "PM2 $Action failed: $_"
+        return $false
+    }
+}
 
 try {
-    # 启动 PM2 全家桶
-    $pm2 = "C:\Users\HTF2026\.workbuddy\binaries\node\versions\22.22.2\pm2.cmd"
-    $ecosystem = "E:\炼丹炉\WorkBuddy\巨量引擎监控\ecosystem.config.cjs"
-    
-    $result = & $pm2 start $ecosystem 2>&1
-    "[$time] PM2 start: $result" | Out-File -FilePath $logFile -Encoding UTF8 -Append
-    
-    if ($LASTEXITCODE -ne 0) {
-        $result2 = & $pm2 resurrect 2>&1
-        "[$time] PM2 resurrect: $result2" | Out-File -FilePath $logFile -Encoding UTF8 -Append
+    Write-StartupLog 'Oceanengine monitor startup begin...'
+    $ok = Invoke-Pm2Hidden -Arguments @('start', $ecosystem) -Action 'start'
+    if (-not $ok) {
+        Write-StartupLog 'PM2 start failed, trying resurrect'
+        $null = Invoke-Pm2Hidden -Arguments @('resurrect') -Action 'resurrect'
     }
-
-    # 启用 Windows 计划任务（仅保活用，日终任务由 shift-pusher 动态触发）
-    schtasks /change /tn "巨量引擎5分钟速报" /enable 2>&1 | Out-File -FilePath $logFile -Encoding UTF8 -Append
-    schtasks /change /tn "巨量引擎监控-15min" /enable 2>&1 | Out-File -FilePath $logFile -Encoding UTF8 -Append
-
-    $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    "[$time] 巨量引擎监控自启动完成" | Out-File -FilePath $logFile -Encoding UTF8 -Append
+    Write-StartupLog 'Oceanengine monitor startup done'
 } catch {
-    "[$time] 错误: $_" | Out-File -FilePath $logFile -Encoding UTF8 -Append
+    Write-StartupLog "Error: $_"
 }
