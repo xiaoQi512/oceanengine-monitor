@@ -57,8 +57,10 @@ export async function processHead(d) {
         actionType: auditAction,
         planName,
         projectId: projectId || beforeValue?.projectId || '',
+        reason: head.reason || '',
         beforeValue,
         afterValue: null,
+        validation: { passed: false, detail: 'HTTP_API_FAILED + CHROME_UNREACHABLE' },
         result: { ok: false, method: 'none', attempts, error: 'HTTP_API_FAILED + CHROME_UNREACHABLE' },
         source: head.source || 'feishu',
       });

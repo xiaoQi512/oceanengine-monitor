@@ -786,7 +786,7 @@ tbody tr.budget-warn:hover { background: linear-gradient(90deg, rgba(251, 191, 3
           <section class="panel">
             <div class="panel-head">
               <h2>投放形式</h2>
-              <span class="muted">本场消耗</span>
+              <span class="muted">整场消耗</span>
             </div>
             <div class="panel-body delivery-list" id="deliveryList"></div>
           </section>
@@ -802,7 +802,7 @@ tbody tr.budget-warn:hover { background: linear-gradient(90deg, rgba(251, 191, 3
           <button class="btn primary" onclick="toast('批量操作已入队：3 个计划')">批量操作</button>
         </div>
         <div class="plan-tabs">
-          <button class="plan-tab active" id="planTabAll" onclick="switchPlanTab('all')">本场计划</button>
+          <button class="plan-tab active" id="planTabAll" onclick="switchPlanTab('all')">整场计划</button>
           <button class="plan-tab" id="planTabInactive" onclick="switchPlanTab('inactive')">未投放计划</button>
         </div>
         <div id="planAllView">
@@ -832,8 +832,9 @@ tbody tr.budget-warn:hover { background: linear-gradient(90deg, rgba(251, 191, 3
                   <th class="sortable" data-sort="name" onclick="sortPlans('name')">计划名称</th>
                   <th class="sortable" data-sort="type" onclick="sortPlans('type')">投放形式</th>
                   <th>状态</th>
-                  <th class="sortable" data-sort="spend" onclick="sortPlans('spend')">本场消耗</th>
+                  <th class="sortable" data-sort="spend" onclick="sortPlans('spend')">整场消耗</th>
                   <th class="sortable" data-sort="leads" onclick="sortPlans('leads')">线索</th>
+                  <th class="sortable" data-sort="msgOpen" onclick="sortPlans('msgOpen')">私信开口</th>
                   <th class="sortable" data-sort="cpa" onclick="sortPlans('cpa')">CPA</th>
                   <th class="sortable" data-sort="cpm" onclick="sortPlans('cpm')">CPM</th>
                   <th class="sortable" data-sort="ctr" onclick="sortPlans('ctr')">CTR</th>
@@ -849,7 +850,14 @@ tbody tr.budget-warn:hover { background: linear-gradient(90deg, rgba(251, 191, 3
         </div>
         <div id="planInactiveView" style="display:none">
           <div class="filter-bar">
-            <span class="muted" style="font-weight:700">查看历史数据</span>
+            <input class="filter-input" id="inactiveSearch" placeholder="搜索计划名称" oninput="renderInactivePlans()">
+            <select class="filter-select" id="inactiveType" onchange="renderInactivePlans()">
+              <option value="">全部形式</option>
+              <option value="简单投">简单投</option>
+              <option value="画面直投">画面直投</option>
+              <option value="短引直">短引直</option>
+            </select>
+            <span class="muted" style="font-weight:700">查看历史</span>
             <button class="chip active" id="inactivePeriod1" onclick="setInactivePeriod(1, this)">昨日</button>
             <button class="chip" id="inactivePeriod3" onclick="setInactivePeriod(3, this)">近3天</button>
             <button class="chip" id="inactivePeriod7" onclick="setInactivePeriod(7, this)">近7天</button>
@@ -1059,6 +1067,8 @@ const trendMode = "delta";
 let showCpl = false;
 let showCpm = false;
 const processedPlanIds = new Set(loadProcessedPlanIds());
+// 用户"暂不处理"的计划集合(按天持久化,当天隐藏提醒)
+const ignoredPlanIds = new Set(loadIgnoredPlanIds());
 let trendChart = null;
 let trendTimestamps = [];
 let trendTop5Data = [];
@@ -1071,6 +1081,7 @@ let inactiveHistoryLoaded = false;
 let sortKey = "spend";
 let sortDir = -1;
 let toastTimer = null;
+let _loading = false;
 
 function fmtMoney(v) {
   return "¥" + Number(v || 0).toLocaleString("zh-CN", { maximumFractionDigits: 2 });
@@ -1086,6 +1097,17 @@ function statusClass(status) {
 function isPlanActive(status) {
   const s = String(status || "");
   return s === "投放中" || s === "启用中" || s === "启用" || s.includes("投放中");
+}
+
+/**
+ * 判断计划开关是否开启(决定按钮:开启→显示"暂停",关闭→显示"启用")
+ * 优先用逆向字段 optStatus(0=启用、1=暂停),缺失时回退状态字符串判断
+ */
+function isPlanOptOn(p) {
+  const os = p?.optStatus;
+  if (os === 0 || os === "0") return true;
+  if (os === 1 || os === "1") return false;
+  return isPlanActive(p?.status);
 }
 
 function switchView(id) {
@@ -1137,6 +1159,58 @@ function saveProcessedPlanIds() {
   } catch {}
 }
 
+// —— 暂不处理(当天隐藏 + 反馈给 AI) ——
+function loadIgnoredPlanIds() {
+  try {
+    const raw = JSON.parse(localStorage.getItem("dashboard.ignoredPlans") || "{}");
+    return raw.date === todayKey() && Array.isArray(raw.ids) ? raw.ids : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveIgnoredPlanIds() {
+  try {
+    localStorage.setItem("dashboard.ignoredPlans", JSON.stringify({
+      date: todayKey(),
+      ids: Array.from(ignoredPlanIds)
+    }));
+  } catch {}
+}
+
+function markPlanIgnored(plan) {
+  ignoredPlanIds.add(planKey(plan));
+  saveIgnoredPlanIds();
+}
+
+/**
+ * 点击"暂不处理":弹框填原因 → 提交反馈给 AI → 当天隐藏该计划提醒
+ */
+async function ignorePlan(plan) {
+  const planName = plan?.name || plan?.planName || "";
+  if (!planName) return;
+  const reason = prompt("暂不处理原因(将反馈给 AI 学习):", "预算充足，无需调整");
+  if (reason === null) return; // 用户取消
+  // 提交反馈
+  try {
+    await fetch("/api/feedback/ignore", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        planName,
+        campaignId: plan?.id || plan?.campaignId || "",
+        reason: reason || "暂不处理",
+        source: "dashboard",
+      }),
+    });
+  } catch (e) {
+    console.error("反馈提交失败:", e);
+  }
+  markPlanIgnored(plan);
+  renderAll();
+  toast("已标记暂不处理:" + planName);
+}
+
 function markPlanProcessed(plan) {
   processedPlanIds.add(planKey(plan));
   saveProcessedPlanIds();
@@ -1144,6 +1218,31 @@ function markPlanProcessed(plan) {
 
 function timeOnly(v) {
   return v ? String(v).slice(11, 19) : "-";
+}
+
+function fmtAuditTime(v) {
+  if (!v) return "-";
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return String(v);
+  return d.toLocaleString("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
+
+function cleanPlanName(name, id) {
+  const text = String(name || "").replace(/[\uFFFD\u0000-\u001F]/g, "").trim();
+  if (!text) return id ? "未命名计划 (" + id + ")" : "未命名计划";
+  if (/[\uFFFD]/.test(String(name || ""))) {
+    return id ? "计划名编码损坏 (" + id + ")" : "计划名编码损坏";
+  }
+  return text;
 }
 
 function isAnomaly(plan) {
@@ -1161,6 +1260,7 @@ function normalizePlan(p, type) {
     status: p.status || p.rawStatus || "未投放",
     spend: num(p.spend),
     leads,
+    msgOpen: num(p.privateMsgOpen ?? p.msgOpen),
     cpa: num(p.cpa),
     cpm: num(p.cpm),
     ctr: num(p.ctr),
@@ -1263,6 +1363,7 @@ function normalizeShifts(liveData) {
       cpm: num(s.cpm),
       ctr: num(s.ctr),
       conversions: num(s.conversions),
+      open: num(s.open ?? s.conversions),
       progress: num(s.progress),
       pushed: !!s.pushed,
       status: s.status === "live" || s.status === "直播中" ? "live" : s.status === "past" || s.status === "已完成" || num(s.progress) >= 100 ? "done" : "upcoming"
@@ -1289,27 +1390,36 @@ function normalizeDelivery(grouped) {
 
 function normalizeOps(actionData, pendingData, auditData) {
   return {
-    queue: (actionData?.actions || []).map(a => ({
-      time: timeOnly(a.time),
-      plan: a.planName || "-",
+    queue: [...(actionData?.actions || [])].sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0)).map(a => ({
+      time: fmtAuditTime(a.time),
+      plan: cleanPlanName(a.planName || a.plan, a.campaignId),
       type: a.type || a.actionType || "-",
       source: a.source || a.by || "-",
+      reason: a.reason || "",
       status: a.failed ? "失败" : "待处理"
     })),
-    pending: (pendingData?.data || []).map(p => ({
-      plan: p.action?.planName || "-",
+    pending: [...(pendingData?.data || [])].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)).map(p => ({
+      plan: cleanPlanName(p.action?.planName || p.action?.plan, p.action?.campaign_id),
       type: p.action?.type || "-",
-      created: timeOnly(p.createdAt),
-      expires: timeOnly(p.expiresAt),
+      reason: p.action?.reason || "",
+      created: fmtAuditTime(p.createdAt),
+      expires: fmtAuditTime(p.expiresAt),
       status: new Date(p.expiresAt) < new Date() ? "已过期" : "等待确认"
     })),
-    audit: (auditData?.data || []).map(r => ({
-      time: timeOnly(r.time),
-      plan: r.planName || r.plan || "-",
+    audit: [...(auditData?.data || [])].sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0)).map(r => ({
+      time: fmtAuditTime(r.time),
+      plan: cleanPlanName(r.planName || r.plan, r.projectId || r.beforeValue?.projectId || r.afterValue?.projectId),
       type: r.actionType || r.action || "-",
       result: r.result?.ok ? "成功" : r.result ? "失败" : r.result === "failed" ? "失败" : "待评估",
+      reason: r.reason || "",
       source: r.source || "-",
       method: r.result?.method || r.execResult?.method || "-",
+      attempts: r.result?.attempts || r.attempts || 0,
+      error: r.result?.error || r.error || "",
+      validation: r.validation || null,
+      effect: r.effect || null,
+      beforeValue: r.beforeValue || null,
+      afterValue: r.afterValue || null,
       rollback: !!r.result?.ok && ["pause", "stop", "resume", "adjust_budget", "adjust_bid"].includes(r.actionType),
       traceRef: r.traceRef || "",
       timeRaw: r.time || ""
@@ -1353,7 +1463,7 @@ function renderKpiCompare(elementId, metric, costMetric = false) {
   }
   const deltaPct = num(item.deltaPct);
   const signed = deltaPct > 0 ? "+" + deltaPct.toFixed(1) + "%" : deltaPct.toFixed(1) + "%";
-  el.textContent = "较昨日 " + signed;
+  el.textContent = "较昨日同时段 " + signed;
   const risingIsGood = !costMetric;
   el.className = "delta " + (deltaPct > 0
     ? (risingIsGood ? "up" : "down")
@@ -1392,27 +1502,31 @@ function renderKpis() {
 }
 
 function renderAttention() {
-  const anomalies = DATA.plans.filter(isAnomaly).filter(p => !processedPlanIds.has(planKey(p))).slice(0, 3);
+  const notIgnored = p => !ignoredPlanIds.has(planKey(p));
+  const anomalies = DATA.plans.filter(isAnomaly).filter(p => !processedPlanIds.has(planKey(p))).filter(notIgnored).slice(0, 3);
   const pending = (DATA.pending || []).slice(0, 2);
   const items = [];
   const budgetWarnings = DATA.plans
     .map(p => ({ ...p, usage: num(p.usage ?? (p.budget > 0 ? (p.spend / p.budget) * 100 : 0)) }))
     .filter(p => p.budget > 0 && p.usage >= 80)
     .filter(p => !processedPlanIds.has(planKey(p)))
+    .filter(notIgnored)
     .sort((a, b) => b.usage - a.usage)
     .slice(0, 2);
   anomalies.forEach(p => {
     const key = String(p.id || p.name).replace(/'/g, "");
     const isLive = isPlanActive(p.status);
+    const optOn = isPlanOptOn(p);
     items.push({
       cls: "alert",
       label: isLive ? "异常计划" : "待恢复计划",
       title: p.name,
-      meta: p.status + " · 本场消耗 " + fmtMoney(p.spend) + " · 线索 " + p.leads + " · CPA " + fmtMoney(p.cpa),
+      meta: p.status + " · 整场消耗 " + fmtMoney(p.spend) + " · 线索 " + p.leads + " · CPA " + fmtMoney(p.cpa),
       view: "plans",
       actions: [
-        { label: isLive ? "暂停" : "启用", cls: isLive ? "danger" : "success", handler: "planAction('" + key + "','" + (isLive ? "暂停" : "启用") + "')" },
-        { label: "调预算", cls: "", handler: "planAction('" + key + "','调预算')" }
+        { label: optOn ? "暂停" : "启用", cls: optOn ? "danger" : "success", handler: "planAction('" + key + "','" + (optOn ? "暂停" : "启用") + "')" },
+        { label: "调预算", cls: "", handler: "planAction('" + key + "','调预算')" },
+        { label: "暂不处理", cls: "", handler: "ignorePlan(DATA.plans.find(x => String(x.id || x.name).replace(/'/g,'') === '" + key + "'))" }
       ]
     });
   });
@@ -1424,7 +1538,10 @@ function renderAttention() {
       title: p.name,
       meta: "预算使用率 " + p.usage.toFixed(1) + "% · " + fmtMoney(p.spend) + " / " + fmtMoney(p.budget),
       view: "plans",
-      actions: [{ label: "调预算", cls: "", handler: "planAction('" + key + "','调预算')" }]
+      actions: [
+        { label: "调预算", cls: "", handler: "planAction('" + key + "','调预算')" },
+        { label: "暂不处理", cls: "", handler: "ignorePlan(DATA.plans.find(x => String(x.id || x.name).replace(/'/g,'') === '" + key + "'))" }
+      ]
     });
   });
   pending.forEach(p => items.push({
@@ -1465,8 +1582,11 @@ function renderAll() {
   renderAttention();
 }
 
-async function loadData() {
-  const requests = [
+async function loadData(showToast = true) {
+  if (_loading) return;
+  _loading = true;
+  try {
+    const requests = [
     fetchJson("/api/live-status"),
     fetchJson("/api/snapshots/5m"),
     fetchJson("/api/snapshots/trend"),
@@ -1521,7 +1641,10 @@ async function loadData() {
   const days = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
   document.getElementById("pageDate").textContent = now.getFullYear() + "年" + (now.getMonth() + 1) + "月" + now.getDate() + "日 " + days[now.getDay()] + " · " + now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
   document.getElementById("updatedAt").textContent = now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  toast("实时数据已更新");
+  if (showToast) toast("实时数据已更新");
+  } finally {
+    _loading = false;
+  }
 }
 
 function renderSparklines() {
@@ -1586,17 +1709,17 @@ function renderTrendChart() {
         : (isVoid(v) || isVoid(rawSpend[i - 1]) ? NaN : Math.max(0, v - rawSpend[i - 1])));
     displayConv = rawConv.map((v, i) =>
       i === 0
-        ? (isVoid(v) ? NaN : v - baseConv)
-        : (isVoid(v) || isVoid(rawConv[i - 1]) ? NaN : v - rawConv[i - 1]));
+        ? (isVoid(v) ? NaN : Math.max(0, v - baseConv))
+        : (isVoid(v) || isVoid(rawConv[i - 1]) ? NaN : Math.max(0, v - rawConv[i - 1])));
     displayCpl = displaySpend.map((v, i) => {
       if (isNaN(v) || isNaN(displayConv[i])) return NaN;
-      return displayConv[i] <= 0 ? v : v / displayConv[i];
+      return displayConv[i] <= 0 ? v : Math.max(0, v / displayConv[i]);
     });
     displayCpm = displaySpend.map((v, i) => {
       const deltaImpr = i === 0
         ? (isVoid(rawImpr[0]) ? NaN : rawImpr[0] - baseImpr)
         : (isVoid(rawImpr[i]) || isVoid(rawImpr[i - 1]) ? NaN : rawImpr[i] - rawImpr[i - 1]);
-      return isNaN(deltaImpr) || isNaN(v) || deltaImpr <= 0 || v <= 0 ? NaN : (v / deltaImpr) * 1000;
+      return isNaN(deltaImpr) || isNaN(v) || deltaImpr <= 0 || v <= 0 ? NaN : Math.max(0, (v / deltaImpr) * 1000);
     });
     displayDelivering = (t.deliveringCount || []).map(v => v ?? null);
   } else {
@@ -1803,7 +1926,7 @@ function renderShifts() {
       '<td class="num">' + fmtMoney(s.cpl) + "</td>" +
       '<td class="num">' + (s.cpm > 0 ? "¥" + s.cpm.toFixed(0) : "-") + "</td>" +
       '<td class="num">' + (s.ctr > 0 ? s.ctr.toFixed(2) + "%" : "-") + "</td>" +
-      '<td class="num">' + s.conversions + "</td>" +
+      '<td class="num">' + s.open + "</td>" +
       "<td><button class=\"mini-btn\" " + (s.pushed ? "" : "disabled ") + "onclick=\"repushShift(" + i + ")\">" + (s.pushed ? "补推" : "—") + "</button></td>" +
       "</tr>"
       );
@@ -1866,7 +1989,7 @@ function renderPlans() {
   document.getElementById("planCount").textContent = rows.length + " / " + DATA.plans.length + " 个计划";
   const body = document.getElementById("plansTableBody");
   if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="11" class="empty-cell">没有匹配的计划，调整筛选条件后再试</td></tr>';
+    body.innerHTML = '<tr><td colspan="12" class="empty-cell">没有匹配的计划，调整筛选条件后再试</td></tr>';
     return;
   }
   body.innerHTML = rows.map(p => {
@@ -1879,7 +2002,7 @@ function renderPlans() {
         ? '<span class="status paused">接近上限</span>'
         : "";
     const rowClass = p.anomaly ? "anomaly" : usage >= 80 ? "budget-warn" : "";
-    const action = isPlanActive(p.status)
+    const action = isPlanOptOn(p)
       ? '<button class="mini-btn danger" onclick="planAction(\'' + p.name + '\', \'暂停\')">暂停</button>'
       : '<button class="mini-btn success" onclick="planAction(\'' + p.name + '\', \'启用\')">启用</button>';
     return '<tr class="' + rowClass + '">' +
@@ -1888,6 +2011,7 @@ function renderPlans() {
       '<td><span class="status ' + statusClass(p.status) + '">' + p.status + "</span></td>" +
       '<td class="num strong-num">' + fmtMoney(p.spend) + "</td>" +
       '<td class="num">' + p.leads + "</td>" +
+      '<td class="num">' + num(p.msgOpen) + "</td>" +
       '<td class="num">' + (p.cpa ? fmtMoney(p.cpa) : "-") + "</td>" +
       '<td class="num">' + (p.cpm ? "¥" + p.cpm.toFixed(2) : "-") + "</td>" +
       '<td class="num">' + (p.ctr ? p.ctr.toFixed(2) + "%" : "-") + "</td>" +
@@ -1943,6 +2067,8 @@ async function loadInactiveHistory(period) {
 }
 
 function renderInactivePlans() {
+  const search = (document.getElementById("inactiveSearch")?.value || "").trim().toLowerCase();
+  const typeFilter = document.getElementById("inactiveType")?.value || "";
   const rows = inactivePlans.map(p => {
     const h = inactiveHistoryMap[p.id] || {};
     return {
@@ -1953,7 +2079,10 @@ function renderInactivePlans() {
       histCpm: num(h.cpm),
       histCtr: num(h.ctr)
     };
-  }).filter(p => p.histSpend > 0).sort((a, b) => b.histSpend - a.histSpend);
+  }).filter(p => p.histSpend > 0)
+    .filter(p => !search || String(p.name || "").toLowerCase().includes(search))
+    .filter(p => !typeFilter || p.type === typeFilter)
+    .sort((a, b) => b.histSpend - a.histSpend);
   const periodLabel = inactivePeriod === 1 ? "昨日" : inactivePeriod === 3 ? "近3天" : "近7天";
   const countEl = document.getElementById("inactivePlanCount");
   if (countEl) countEl.textContent = rows.length + " 个计划有" + periodLabel + "数据";
@@ -2003,7 +2132,7 @@ async function startInactivePlan(key) {
     const res = await fetch("/api/actions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "resume", campaign_id: plan.id, planName: plan.name, source: "dashboard-v4" })
+      body: JSON.stringify({ type: "resume", campaign_id: plan.id, planName: plan.name, source: "dashboard-v4", reason: "启动未投放计划" })
     });
     const data = await res.json();
     if (data.ok || data.queued || res.status === 200) {
@@ -2022,6 +2151,7 @@ async function startInactivePlan(key) {
         plan: plan.name,
         type: "启动",
         source: "dashboard-v4",
+        reason: "启动未投放计划",
         status: "待处理"
       });
       renderAll();
@@ -2057,7 +2187,8 @@ async function planAction(name, action) {
     type,
     campaign_id: plan.id,
     planName: plan.name,
-    source: "dashboard-v4"
+    source: "dashboard-v4",
+    reason: action
   };
   if (type === "adjust_budget") {
     const value = Number(prompt("调整预算 · " + plan.name + "\n当前预算: ¥" + fmtInt(plan.budget), plan.budget));
@@ -2090,6 +2221,7 @@ async function planAction(name, action) {
         plan: plan.name,
         type: actionLabel,
         source: "dashboard-v4",
+        reason: action,
         status: "待处理"
       });
       renderAll();
@@ -2108,27 +2240,44 @@ function renderOps() {
   document.getElementById("opsPendingCount").textContent = DATA.pending.length;
   document.getElementById("opsPendingSub").textContent = DATA.pending.filter(p => p.status === "已过期").length + " 个即将过期";
   document.getElementById("opsAuditCount").textContent = DATA.audit.length;
-  document.getElementById("opsAuditSub").textContent = DATA.audit.filter(a => a.result === "成功").length + " 个成功 · " + DATA.audit.filter(a => a.result === "待评估").length + " 个待评估";
+  document.getElementById("opsAuditSub").textContent = DATA.audit.filter(a => a.result === "成功").length + " 个成功 · " + DATA.audit.filter(a => a.validation && !a.validation.passed).length + " 个校验未通过";
   const tabSpans = document.querySelectorAll(".ops-tab .mono");
   if (tabSpans[0]) tabSpans[0].textContent = DATA.queue.length;
   if (tabSpans[1]) tabSpans[1].textContent = DATA.pending.length;
   if (tabSpans[2]) tabSpans[2].textContent = DATA.audit.length;
   document.getElementById("opsQueue").innerHTML =
-    '<div class="table-wrap"><table><thead><tr><th>时间</th><th>计划</th><th>操作</th><th>来源</th><th>状态</th></tr></thead><tbody>' +
-    (DATA.queue.length ? DATA.queue.map(q => "<tr><td class=\"num\">" + q.time + '</td><td><div class="cell-main">' + q.plan + "</div></td><td>" + q.type + "</td><td>" + q.source + '</td><td><span class="status live">' + q.status + "</span></td></tr>").join("") : '<tr><td colspan="5" class="empty-cell">暂无任务</td></tr>') +
+    '<div class="table-wrap"><table><thead><tr><th>时间</th><th>计划</th><th>操作</th><th>原因</th><th>来源</th><th>状态</th></tr></thead><tbody>' +
+    (DATA.queue.length ? DATA.queue.map(q => "<tr><td class=\"num\">" + q.time + '</td><td><div class="cell-main">' + q.plan + "</div></td><td>" + q.type + "</td><td>" + (q.reason || "-") + "</td><td>" + q.source + '</td><td><span class="status live">' + q.status + "</span></td></tr>").join("") : '<tr><td colspan="6" class="empty-cell">暂无任务</td></tr>') +
     "</tbody></table></div>";
   document.getElementById("opsPending").innerHTML =
-    '<div class="table-wrap"><table><thead><tr><th>计划</th><th>操作</th><th>创建时间</th><th>过期时间</th><th>状态</th></tr></thead><tbody>' +
-    (DATA.pending.length ? DATA.pending.map(p => "<tr><td class=\"cell-main\">" + p.plan + "</td><td>" + p.type + '</td><td class="num">' + p.created + '</td><td class="num">' + p.expires + '</td><td><span class="status ' + (p.status === "等待确认" ? "paused" : "live") + '">' + p.status + "</span></td></tr>").join("") : '<tr><td colspan="5" class="empty-cell">暂无待确认操作</td></tr>') +
+    '<div class="table-wrap"><table><thead><tr><th>计划</th><th>操作</th><th>原因</th><th>创建时间</th><th>过期时间</th><th>状态</th></tr></thead><tbody>' +
+    (DATA.pending.length ? DATA.pending.map(p => "<tr><td class=\"cell-main\">" + p.plan + "</td><td>" + p.type + "</td><td>" + (p.reason || "-") + '</td><td class="num">' + p.created + '</td><td class="num">' + p.expires + '</td><td><span class="status ' + (p.status === "等待确认" ? "paused" : "live") + '">' + p.status + "</span></td></tr>").join("") : '<tr><td colspan="6" class="empty-cell">暂无待确认操作</td></tr>') +
     "</tbody></table></div>";
   document.getElementById("opsAudit").innerHTML =
-    '<div class="table-wrap"><table><thead><tr><th>时间</th><th>计划</th><th>操作</th><th>结果</th><th>来源</th><th>方式</th><th>回滚</th></tr></thead><tbody>' +
+    '<div class="table-wrap"><table><thead><tr><th>时间</th><th>计划</th><th>操作</th><th>原因</th><th>结果 / 校验</th><th>执行方式</th><th>前后状态</th><th>15min 效果</th><th>回滚</th></tr></thead><tbody>' +
     (DATA.audit.length ? DATA.audit.map(a => {
       const resultClass = a.result === "成功" ? "live" : a.result === "失败" ? "over" : "muted";
+      const validationText = a.validation
+        ? (a.validation.passed ? "通过" : "未通过") + " · " + (a.validation.detail || "")
+        : "未校验";
+      const validationClass = !a.validation ? "muted" : a.validation.passed ? "live" : "over";
+      const effectText = a.effect
+        ? (a.effect.status === "pending" ? "等待快照 · " + (a.effect.reason || "") : buildEffectSummary(a.effect))
+        : "暂无快照";
+      const beforeStatus = a.beforeValue?.status || "-";
+      const afterStatus = a.afterValue?.status || "-";
       const rollbackTime = a.timeRaw || a.time;
-      return "<tr><td class=\"num\">" + a.time + '</td><td><div class="cell-main">' + a.plan + "</div></td><td>" + a.type + '</td><td><span class="status ' + resultClass + '">' + a.result + "</span></td><td>" + a.source + "</td><td>" + a.method + '</td><td>' + (a.rollback ? '<button class="mini-btn" onclick="rollbackAction(' + "'" + a.plan.replace(/'/g, "") + "'" + ',' + "'" + rollbackTime + "'" + ')">回滚</button>' : "-") + "</td></tr>";
-    }).join("") : '<tr><td colspan="7" class="empty-cell">暂无审计记录</td></tr>') +
+      return "<tr><td class=\"num\">" + a.time + '</td><td><div class="cell-main">' + a.plan + "</div></td><td>" + a.type + "</td><td>" + (a.reason || a.source || "-") + '</td><td><span class="status ' + resultClass + '">' + a.result + '</span><div class="cell-sub"><span class="status ' + validationClass + '">' + validationText + "</span></div></td><td>" + a.method + (a.attempts ? " · " + a.attempts + "次" : "") + (a.error ? '<div class="cell-sub">' + a.error + "</div>" : "") + "</td><td>" + beforeStatus + " -> " + afterStatus + "</td><td>" + effectText + '</td><td>' + (a.rollback ? '<button class="mini-btn" onclick="rollbackAction(' + "'" + a.plan.replace(/'/g, "") + "'" + ',' + "'" + rollbackTime + "'" + ')">回滚</button>' : "-") + "</td></tr>";
+    }).join("") : '<tr><td colspan="9" class="empty-cell">暂无审计记录</td></tr>') +
     "</tbody></table></div>";
+}
+
+function buildEffectSummary(effect) {
+  const impactMap = { high_positive: "高正向", positive: "正向", neutral: "中性", negative: "负向", high_negative: "高负向" };
+  const impact = impactMap[effect.impactRating] || effect.impactRating || "-";
+  const delta = effect.deltaSpend15min != null ? effect.deltaSpend15min : effect.deltaCost15min;
+  const leads = effect.deltaLeads15min != null ? effect.deltaLeads15min : effect.deltaConv15min;
+  return "15min " + (delta != null ? fmtMoney(delta) : "-") + " · 线索 " + (leads != null ? leads : "-") + " · " + impact;
 }
 
 async function rollbackAction(planName, time) {
@@ -2198,8 +2347,20 @@ function refreshData() {
   loadData();
 }
 
+function scheduleDashboardRefresh() {
+  const now = new Date();
+  // 到下一个 5 分钟整点 + 3 秒触发:
+  // 5min 采集在整点后 ~1s 才写入快照,若整点立即刷新会领先采集,导致趋势图看不到最新格点。
+  const delayMs = ((5 - (now.getMinutes() % 5)) * 60 - now.getSeconds()) * 1000 - now.getMilliseconds() + 3000;
+  setTimeout(() => {
+    loadData(false);
+    scheduleDashboardRefresh();
+  }, Math.max(0, delayMs));
+}
+
 renderAll();
 loadData();
+scheduleDashboardRefresh();
 </script>
 </body>
 </html>

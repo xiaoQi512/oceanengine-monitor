@@ -26,6 +26,9 @@ function collectCampaigns(data) {
   ].filter(c => {
     if (!c.id || seen.has(String(c.id))) return false;
     seen.add(String(c.id));
+    // 仅写 cost > 0 或 leads > 0 的计划：让 5min/15min snapshots 与 trend 口径一致
+    // 0 消耗的"待启动"计划在 trend 上没意义，反而会拉高 activeCount 误导 K3 行
+    if (Number(c.spend || 0) <= 0 && Number(c.leads || 0) <= 0) return false;
     return true;
   });
 }

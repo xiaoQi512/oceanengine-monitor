@@ -140,38 +140,48 @@ export function serveSnapshots(url, req, res, ctx) {
       let today = { spend: 0, leads: 0 };
       let yesterday = { spend: 0, leads: 0 };
       let yesterdayCpm = 0;
+      let todayWindows = 0;
       let yesterdayWindows = 0;
       if (DB_PATH) {
         try {
           const db = new Database(DB_PATH, { readonly: true, fileMustExist: true });
-          const dayAggSql = (dayExpr) => `
+          // 同时段对比口径:今日累计到当前时刻 vs 昨日同时刻累计到同一时刻
+          // snapshot_time 为 UTC,统一 +8 转北京时间再比较
+          // 保持原 campaign 级聚合(MAX-MIN 为当日增量),仅追加时刻过滤
+          const samePeriodSql = (dayExpr) => `
             SELECT COALESCE(SUM(max_cost - min_cost), 0) AS spend,
-                   COALESCE(SUM(max_leads - min_leads), 0) AS leads
+                   COALESCE(SUM(max_leads - min_leads), 0) AS leads,
+                   (SELECT COUNT(DISTINCT snapshot_time)
+                    FROM snapshots
+                    WHERE date(datetime(snapshot_time, '+8 hours')) = ${dayExpr}
+                      AND time(datetime(snapshot_time, '+8 hours')) <= time(datetime('now', '+8 hours'))
+                      AND source_type = '5min') AS windows
             FROM (
               SELECT campaign_id,
                      MAX(cost) AS max_cost, MIN(cost) AS min_cost,
                      MAX(leads) AS max_leads, MIN(leads) AS min_leads
               FROM snapshots
               WHERE date(datetime(snapshot_time, '+8 hours')) = ${dayExpr}
+                AND time(datetime(snapshot_time, '+8 hours')) <= time(datetime('now', '+8 hours'))
                 AND source_type = '5min'
               GROUP BY campaign_id
             )
           `;
-          today = db.prepare(dayAggSql("date('now', '+8 hours')")).get() || today;
-          yesterday = db.prepare(dayAggSql("date('now', '+8 hours', '-1 day')")).get() || yesterday;
+          const todayRow = db.prepare(samePeriodSql("date('now', '+8 hours')")).get() || {};
+          const yesterdayRow = db.prepare(samePeriodSql("date('now', '+8 hours', '-1 day')")).get() || {};
+          today = { spend: Number(todayRow.spend || 0), leads: Number(todayRow.leads || 0) };
+          yesterday = { spend: Number(yesterdayRow.spend || 0), leads: Number(yesterdayRow.leads || 0) };
+          todayWindows = Number(todayRow.windows || 0);
+          yesterdayWindows = Number(yesterdayRow.windows || 0);
+          // 昨日同时段窗口的平均 CPM(仅统计到当前时刻为止的昨日快照)
           yesterdayCpm = Number(db.prepare(`
             SELECT AVG(cpm) AS avgCpm
             FROM snapshots
             WHERE date(datetime(snapshot_time, '+8 hours')) = date('now', '+8 hours', '-1 day')
+              AND time(datetime(snapshot_time, '+8 hours')) <= time(datetime('now', '+8 hours'))
               AND source_type = '5min'
               AND cpm > 0
           `).get()?.avgCpm || 0);
-          yesterdayWindows = Number(db.prepare(`
-            SELECT COUNT(DISTINCT snapshot_time) AS n
-            FROM snapshots
-            WHERE date(datetime(snapshot_time, '+8 hours')) = date('now', '+8 hours', '-1 day')
-              AND source_type = '5min'
-          `).get()?.n || 0);
           db.close();
         } catch (_) {
           // DB 不可用时返回 0，不阻塞仪表盘对比显示

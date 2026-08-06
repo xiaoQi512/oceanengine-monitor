@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { getSnapshotAt, cstToUtc } from '../../db/snapshot-db.mjs';
 
 /**
  * 构造今日各班次数据明细
@@ -77,6 +78,8 @@ export function buildShiftData(dateStr, DATA_DIR, DB_PATH) {
           MIN(cost) as min_cost,
           MAX(leads) as max_leads,
           MIN(leads) as min_leads,
+          MAX(msg_open) as max_msg_open,
+          MIN(msg_open) as min_msg_open,
           (SELECT cpm FROM snapshots s2
            WHERE s2.campaign_id = s.campaign_id
              AND datetime(s2.snapshot_time, '+8 hours') >= @startCst
@@ -103,12 +106,14 @@ export function buildShiftData(dateStr, DATA_DIR, DB_PATH) {
         const startCst = `${dateStr} ${start}:00`;
         const endCst = `${dateStr} ${end}:00`;
         const planRows = planAggStmt.all({ startCst, endCst });
-        let spend = 0, leads = 0, wCpmNum = 0, wCpmDen = 0, wCtrNum = 0, wCtrDen = 0;
+        let spend = 0, leads = 0, openCount = 0, wCpmNum = 0, wCpmDen = 0, wCtrNum = 0, wCtrDen = 0;
         for (const p of planRows) {
           const dCost = Math.max(0, (p.max_cost || 0) - (p.min_cost || 0));
           const dLeads = Math.max(0, (p.max_leads || 0) - (p.min_leads || 0));
+          const dOpen = Math.max(0, (p.max_msg_open || 0) - (p.min_msg_open || 0));
           spend += dCost;
           leads += dLeads;
+          openCount += dOpen;
           if (dCost > 0) {
             if (p.latest_cpm != null && p.latest_cpm > 0) {
               wCpmNum += dCost * p.latest_cpm;
@@ -144,7 +149,8 @@ export function buildShiftData(dateStr, DATA_DIR, DB_PATH) {
           cpm: avgCpm,
           ctr: avgCtr,
           progress,
-          conversions: Math.round(leads),
+          conversions: Math.round(openCount),
+          open: Math.round(openCount),
           pushed: pushedLabels.has(lbl),
         });
       }
@@ -160,7 +166,7 @@ export function buildShiftData(dateStr, DATA_DIR, DB_PATH) {
         label: lbl,
         anchor: s.anchorName || '待定',
         carModel: carModelMap.get(lbl) || '贝塔S3',
-        spend: 0, leads: 0, cpl: 0, cpm: 0, ctr: 0, progress: 0, conversions: 0,
+        spend: 0, leads: 0, cpl: 0, cpm: 0, ctr: 0, progress: 0, conversions: 0, open: 0,
         pushed: pushedLabels.has(lbl),
       });
     }
@@ -202,7 +208,7 @@ export function buildAnchors(dateStr, DATA_DIR) {
   return [];
 }
 
-export function buildLivePayload({ sessions, anchors, snap, shiftData: shiftDataParam, DATA_DIR, nowIso = new Date().toISOString() }) {
+export function buildLivePayload({ sessions, anchors, snap, shiftData: shiftDataParam, DATA_DIR, nowIso = new Date().toISOString(), sessionAccount = null }) {
   const hm = new Date(nowIso).getHours() * 60 + new Date(nowIso).getMinutes();
   let shifts = [];
   let isLive = false;
@@ -229,13 +235,23 @@ export function buildLivePayload({ sessions, anchors, snap, shiftData: shiftData
   if (snap && snap.accounts) {
     for (const a of snap.accounts) accounts.push({ id: a.id || a.name, name: a.name, spend: a.spend || 0, leads: a.leads || 0, cpl: a.cpl || (a.leads > 0 ? a.spend / a.leads : 0), activeCount: a.activeCount || 0 });
   }
+  // 整场口径:若传入 sessionAccount(整场窗口账户聚合),则覆盖 KPI 消耗/线索/转化
+  const sa = sessionAccount || {};
+  const saSpend = Number(sa.spend || 0);
+  const saLeads = Number(sa.leads || 0);
+  const saConv = Number(sa.conversions || 0);
+  const baseSpend = snap?.totalSpend ?? snap?.accountSpend ?? snap?.summarySpend ?? 0;
+  const baseLeads = snap?.totalLeads ?? snap?.totalConv ?? 0;
+  const baseConv = snap?.totalConversions ?? snap?.totalConv ?? 0;
   const kpi = snap ? {
-    totalSpend: snap.totalSpend ?? snap.accountSpend ?? snap.summarySpend ?? 0,
+    totalSpend: saSpend > 0 ? saSpend : baseSpend,
     liveSpend: snap.liveSpend ?? 0,
     videoSpend: snap.videoSpend ?? 0,
-    totalLeads: snap.totalLeads ?? snap.totalConv ?? 0,
-    totalConversions: snap.totalConversions ?? snap.totalConv ?? 0,
-    avgCpl: snap.avgCpl ?? ((snap.totalConv > 0) ? snap.accountSpend / snap.totalConv : 0),
+    totalLeads: saLeads > 0 ? saLeads : baseLeads,
+    totalConversions: saConv > 0 ? saConv : baseConv,
+    avgCpl: snap.avgCpl ?? ((saSpend > 0 ? saSpend : baseSpend) > 0 && (saConv > 0 ? saConv : baseConv) > 0
+      ? (saSpend > 0 ? saSpend : baseSpend) / (saConv > 0 ? saConv : baseConv)
+      : 0),
     liveCpl: snap.liveCpl ?? 0,
     videoCpl: snap.videoCpl ?? 0,
     privateMsg: snap.privateMsg ?? 0,

@@ -11,6 +11,7 @@ import { serveReport } from './http-routes/api-report.mjs';
 import { serveFeedback } from './http-routes/api-feedback.mjs';
 import { serveActions } from './http-routes/api-actions.mjs';
 import { serveAi } from './http-routes/api-ai.mjs';
+import { serveFeedbackIgnore } from './http-routes/api-feedback-ignore-route.mjs';
 
 export function createHttpServerHandler(deps) {
   const {
@@ -76,7 +77,9 @@ export function createHttpServerHandler(deps) {
       ACTION_QUEUE_FILE,
       ACTION_PENDING_FILE,
       ACTION_AUDIT_FILE,
+      computeActionEffect,
     })) return;
+    if (serveFeedbackIgnore(url, req, res, { ACTION_AUDIT_FILE })) return;
     if (serveLiveStatus(url, req, res, { getLocalDate, DATA_DIR, DB_PATH, getLatestSnapshot })) return;
     if (serveOps(url, req, res, { DATA_DIR })) return;
     if (await serveAccounts(url, req, res, { getLatestSnapshot, ACCOUNT_ID, ACCOUNT_NAME, getApiClient })) return;

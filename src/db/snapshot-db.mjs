@@ -210,6 +210,11 @@ function readSnapshotSummary(filePath) {
       totalLeads: s.totalLeads || 0,
       totalConversions: s.totalConversions || 0,
       totalActive: s.totalActive || 0,
+      totalPrivateMsgOpen: s.totalPrivateMsgOpen || 0,
+      totalPrivateMsgRetain: s.totalPrivateMsgRetain || 0,
+      totalFormSubmit: s.totalFormSubmit || 0,
+      avgCTR: s.avgCTR || 0,
+      avgCPM: s.avgCPM || 0,
     };
   } catch (e) {
     return null;
@@ -226,12 +231,21 @@ function read5mSnapshotSummary(filePath) {
   try {
     const raw = fs.readFileSync(filePath, 'utf-8');
     const data = JSON.parse(raw);
+    const campaigns = data.allSpending || data.campaigns || [];
+    const totalPrivateMsgOpen = campaigns.reduce((sum, p) => sum + Number(p.privateMsgOpen || 0), 0);
+    const totalPrivateMsgRetain = campaigns.reduce((sum, p) => sum + Number(p.privateMsgRetain || 0), 0);
+    const totalFormSubmit = campaigns.reduce((sum, p) => sum + Number(p.formSubmit || 0), 0);
     return {
       time: data.time || '',
       totalSpend: data.accountSpend || 0,
       totalLeads: data.totalConv || 0,
       totalConversions: data.totalConv || 0,
       totalActive: data.activeCount || 0,
+      totalPrivateMsgOpen,
+      totalPrivateMsgRetain,
+      totalFormSubmit,
+      avgCTR: data.summary?.avgCTR || 0,
+      avgCPM: data._recentCPM || data.summary?.avgCPM || 0,
       _source: '5m',
     };
   } catch (e) {

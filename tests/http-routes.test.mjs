@@ -174,13 +174,14 @@ async function testSessionWindow() {
       conversions INTEGER
     )`);
     const insert = db.prepare('INSERT INTO snapshots (snapshot_time, campaign_id, cost, leads, conversions) VALUES (?, ?, ?, ?, ?)');
+    insert.run('2026-08-04T14:30:00', 'c1', 100, 1, 1);
     insert.run('2026-08-04T14:35:01', 'c1', 100, 1, 1);
     insert.run('2026-08-04T14:55:01', 'c1', 200, 2, 2);
-    insert.run('2026-08-04T16:00:01', 'c1', 100, 1, 1);
+    insert.run('2026-08-04T16:00:00', 'c1', 100, 1, 1);
     insert.run('2026-08-04T16:30:01', 'c1', 200, 2, 2);
     insert.run('2026-08-04T14:35:01', 'c2', 50, 1, 1);
     insert.run('2026-08-04T14:55:01', 'c2', 50, 2, 2);
-    insert.run('2026-08-04T16:00:01', 'c2', 50, 1, 1);
+    insert.run('2026-08-04T16:00:00', 'c2', 50, 1, 1);
     insert.run('2026-08-04T16:30:01', 'c2', 50, 2, 2);
     db.close();
 
@@ -211,6 +212,91 @@ async function testSessionWindow() {
     assert.strictEqual(plans[0].cpa, 100);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+
+  // 无起点快照时，窗口首条消耗应计入整场，而不是作为基线减掉
+  const tmpNoBase = fs.mkdtempSync(path.join(os.tmpdir(), 'oec-session-nobase-'));
+  try {
+    const dataDir3 = path.join(tmpNoBase, 'monitor-data');
+    fs.mkdirSync(dataDir3, { recursive: true });
+    fs.writeFileSync(path.join(dataDir3, 'shifts-2026-08-04.json'), JSON.stringify({
+      shifts: [{ label: '22:30-23:30' }],
+    }));
+    const dbPath3 = path.join(tmpNoBase, 'oceanengine.db');
+    const db3 = new Database(dbPath3);
+    db3.exec(`CREATE TABLE snapshots (
+      snapshot_time TEXT,
+      campaign_id TEXT,
+      cost REAL,
+      leads INTEGER,
+      conversions INTEGER
+    )`);
+    const insert3 = db3.prepare('INSERT INTO snapshots (snapshot_time, campaign_id, cost, leads, conversions) VALUES (?, ?, ?, ?, ?)');
+    insert3.run('2026-08-04T14:45:01', 'c1', 100, 1, 1);
+    insert3.run('2026-08-04T15:05:01', 'c1', 150, 2, 2);
+    db3.close();
+    const win3 = resolveSessionWindow({
+      dataDir: dataDir3,
+      getLocalDate: () => '2026-08-04',
+      now: new Date(2026, 7, 4, 23, 20),
+    });
+    const rows3 = getSessionSpendRows(dbPath3, win3.startCst, win3.endCst);
+    assert.strictEqual(rows3.length, 1);
+    assert.strictEqual(rows3[0].campaign_id, 'c1');
+    assert.strictEqual(rows3[0].spend, 150);
+    assert.strictEqual(rows3[0].leads, 2);
+  } finally {
+    fs.rmSync(tmpNoBase, { recursive: true, force: true });
+  }
+
+  // 多日跨天合并:昨日末班 24:00 接今日 0 点首班 → 整场起点回溯到昨日
+  const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'oec-whole-'));
+  try {
+    const dataDir2 = path.join(tmp2, 'monitor-data');
+    fs.mkdirSync(dataDir2, { recursive: true });
+    fs.writeFileSync(path.join(dataDir2, 'shifts-2026-08-03.json'), JSON.stringify({
+      shifts: [{ label: '20:00-22:00' }, { label: '22:00-24:00' }],
+    }));
+    fs.writeFileSync(path.join(dataDir2, 'shifts-2026-08-04.json'), JSON.stringify({
+      shifts: [{ label: '00:00-02:00' }, { label: '02:00-04:00' }],
+    }));
+    const win2 = resolveSessionWindow({
+      dataDir: dataDir2,
+      getLocalDate: () => '2026-08-04',
+      now: new Date(2026, 7, 4, 3, 0),
+    });
+    assert.strictEqual(win2.startDate, '2026-08-03');
+    assert.strictEqual(win2.startTime, '20:00');
+    assert.strictEqual(win2.endDate, '2026-08-04');
+    assert.strictEqual(win2.endTime, '04:00');
+    assert.strictEqual(win2.dayCount, 2);
+  } finally {
+    fs.rmSync(tmp2, { recursive: true, force: true });
+  }
+
+  // 单班跨天排班 23:00-01:00:昨日末班 21:00-23:00 接今日 23:00-01:00 → 连续并跨天
+  const tmp3 = fs.mkdtempSync(path.join(os.tmpdir(), 'oec-midnight-'));
+  try {
+    const dataDir3 = path.join(tmp3, 'monitor-data');
+    fs.mkdirSync(dataDir3, { recursive: true });
+    fs.writeFileSync(path.join(dataDir3, 'shifts-2026-08-03.json'), JSON.stringify({
+      shifts: [{ label: '21:00-23:00' }],
+    }));
+    fs.writeFileSync(path.join(dataDir3, 'shifts-2026-08-04.json'), JSON.stringify({
+      shifts: [{ label: '23:00-01:00' }],
+    }));
+    const win3 = resolveSessionWindow({
+      dataDir: dataDir3,
+      getLocalDate: () => '2026-08-04',
+      now: new Date(2026, 7, 4, 23, 30),
+    });
+    assert.strictEqual(win3.startDate, '2026-08-03');
+    assert.strictEqual(win3.startTime, '21:00');
+    assert.strictEqual(win3.endDate, '2026-08-05');
+    assert.strictEqual(win3.endTime, '01:00');
+    assert.strictEqual(win3.dayCount, 2);
+  } finally {
+    fs.rmSync(tmp3, { recursive: true, force: true });
   }
   console.log('✅ session campaign window');
 }

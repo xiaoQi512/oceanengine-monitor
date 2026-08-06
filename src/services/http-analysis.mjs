@@ -10,7 +10,7 @@ export * from './http-effect.mjs';
 export function getLatestSnapshot({ dataDir = DATA_DIR, fsImpl = fs, pathImpl = path } = {}) {
   try {
     const files = fsImpl.readdirSync(dataDir)
-      .filter(f => /^\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}\\.json$/.test(f))
+      .filter(f => /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.json$/.test(f))
       .sort();
     if (files.length === 0) return null;
     return JSON.parse(fsImpl.readFileSync(pathImpl.join(dataDir, files[files.length - 1]), 'utf-8'));

@@ -48,6 +48,15 @@ export function computePlanEffect(audit) {
 }
 
 export function computeActionEffect(audit) {
+  // "暂不处理"反馈:非执行操作,不计算效果评级
+  if (audit.actionType === 'ignore') {
+    return {
+      status: 'ignored',
+      level: 'plan',
+      reason: audit.reason || '',
+      impactRating: 'neutral',
+    };
+  }
   const planResult = computePlanEffect(audit);
   if (planResult) return planResult;
 

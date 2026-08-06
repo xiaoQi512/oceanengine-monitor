@@ -5,7 +5,7 @@ import { pickAfterValue, buildActionAudit } from '../src/domain/action-result.mj
 assert.deepStrictEqual(pickAfterValue({ ok: true, newBudget: 10 }), { budget: 10 });
 assert.strictEqual(pickAfterValue({ ok: false }), null);
 const audit = buildActionAudit({
-  head: { planName: 'A', type: 'pause' },
+  head: { planName: 'A', type: 'pause', reason: '预算异常' },
   beforeValue: { projectId: 'p1' },
   afterValue: null,
   result: { ok: false, err: 'boom' },
@@ -15,5 +15,7 @@ const audit = buildActionAudit({
 });
 assert.strictEqual(audit.projectId, 'p1');
 assert.strictEqual(audit.result.error, 'boom');
+assert.strictEqual(audit.reason, '预算异常');
+assert.strictEqual(audit.validation.passed, false);
 
 console.log('\n全部测试通过');

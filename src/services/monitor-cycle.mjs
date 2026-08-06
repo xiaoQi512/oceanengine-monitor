@@ -12,6 +12,7 @@ import { createFeishuCardBuilder } from './monitor-card.mjs';
 import { createHtmlReportBuilder } from './monitor-report.mjs';
 import { analyzeMonitorData } from './analysis-context.mjs';
 import { sendFeishuPush, createPushDeps } from './monitor-push.mjs';
+import { synthesizeLatestQuarter } from './synthetic-5min.mjs';
 
 const defaultDeps = {
   getLocalDate,
@@ -92,6 +93,14 @@ export async function runMonitorCycle({
     getLocalDate: d.getLocalDate,
     atomicWriteJSON: d.atomicWriteJSON,
   });
+
+  // 补写合成 5min 快照（整刻钟格点），消除趋势图断点
+  try {
+    const synth = synthesizeLatestQuarter();
+    if (synth.rows > 0) console.log(`  📊 合成5min: ${synth.rows} 条`);
+  } catch (e) {
+    console.warn(`  ⚠ 合成5min失败: ${e.message}`);
+  }
 
   let htmlFile = '';
   if (config.enableHtmlReport) {

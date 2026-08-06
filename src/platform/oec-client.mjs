@@ -100,10 +100,15 @@ async function apiRequest(url, options = {}) {
   // 清理 Cookie 中的非ASCII字符（HTTP头仅允许ASCII）
   if (headers['Cookie']) {
     headers['Cookie'] = headers['Cookie'].replace(/[^\x20-\x7E]/g, '');
-  // 从Cookie提取csrftoken作为X-CSRFToken请求头（Django双重提交Cookie反CSRF）
-  const csrfMatch = (headers['Cookie'] || '').match(/csrftoken=([^;]+)/);
-  if (csrfMatch) headers['X-CSRFToken'] = csrfMatch[1];
-
+    // 部分接口要求 csrftoken；巨量当前 Cookie 只带 passport_csrf_token，需要自动补全
+    const cookie = headers['Cookie'] || '';
+    const csrfMatch = cookie.match(/csrftoken=([^;]+)/);
+    const passportCsrfMatch = cookie.match(/passport_csrf_token=([^;]+)/);
+    const csrfToken = csrfMatch?.[1] || passportCsrfMatch?.[1];
+    if (csrfToken) {
+      if (!csrfMatch) headers['Cookie'] += '; csrftoken=' + csrfToken;
+      headers['X-CSRFToken'] = csrfToken;
+    }
   }
 
   return new Promise((resolve, reject) => {

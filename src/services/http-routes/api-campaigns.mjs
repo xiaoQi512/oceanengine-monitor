@@ -8,6 +8,12 @@ function numOf(v) {
   return isFinite(n) ? n : 0;
 }
 
+function parseCtrPct(v) {
+  const n = parseFloat(String(v ?? '').replace(/%/g, ''));
+  if (!Number.isFinite(n)) return 0;
+  return n > 0 && n < 1 ? n * 100 : n;
+}
+
 async function fetchCampaigns(getApiClient) {
   const api = await getApiClient();
   const client = await api.createClient({ useCache: true });
@@ -35,123 +41,29 @@ export function normalizeCampaign(p, mode = 'default') {
     name: p.project_name || p.name || p.project_name || '',
     status: stdStatus,
     rawStatus: statusName,
-    optStatus: p.opt_status,
+    // 项目开关状态(逆向字段):0=启用(按钮显示"暂停")、1=暂停(按钮显示"启用")、undefined=未知
+    optStatus: p.campaign_opt_status ?? p.opt_status,
     spend,
     conversions,
     leads,
     cpa: spend > 0 && conversions > 0 ? Number((spend / conversions).toFixed(2)) : 0,
     budget: grouped ? Number(p.campaign_budget || p.budget || 0) : numOf(p.campaign_budget ?? p.budget),
     bid: p.project_deep_cpa_bid || p.bid || '',
-    ctr: grouped ? Number(m.ctr || 0) : numOf(m.ctr),
+    ctr: parseCtrPct(m.ctr ?? p.ctr),
     cpm: grouped ? Number(m.cpm_platform || 0) : numOf(m.cpm_platform),
     cvr: grouped ? Number(m.conversion_rate || 0) : numOf(m.conversion_rate),
+    privateMsgOpen: numOf(m.message_action ?? p.privateMsgOpen),
   };
 }
 
-function pad2(n) {
-  return String(n).padStart(2, '0');
+// 整场直播窗口:从本场直播开播时刻起累计,跨天合并(超长直播>48h 也完整)
+import { resolveWholeSessionWindow, getSessionSpendRows } from '../session-window.mjs';
+
+export function resolveSessionWindow(opts) {
+  return resolveWholeSessionWindow(opts);
 }
 
-function localDateString(d = new Date()) {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-
-function addDays(dateStr, days) {
-  const d = new Date(`${dateStr}T00:00:00+08:00`);
-  d.setDate(d.getDate() + days);
-  return localDateString(d);
-}
-
-function loadShiftWindow(dataDir, dateStr) {
-  if (!dataDir || !dateStr) return null;
-  try {
-    const file = path.join(dataDir, `shifts-${dateStr}.json`);
-    if (!fs.existsSync(file)) return null;
-    const cached = JSON.parse(fs.readFileSync(file, 'utf-8'));
-    const shifts = Array.isArray(cached.shifts) ? cached.shifts : [];
-    const times = [];
-    for (const s of shifts) {
-      const m = String(s.label || '').match(/(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})/);
-      if (!m) continue;
-      times.push({
-        start: `${pad2(Number(m[1]))}:${m[2]}`,
-        end: `${pad2(Number(m[3]))}:${m[4]}`,
-      });
-    }
-    if (times.length === 0) return null;
-    return {
-      date: dateStr,
-      startTime: times[0].start,
-      endTime: times[times.length - 1].end,
-      shifts: times,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function toCstRange(win) {
-  const crossesDay = win.endTime <= win.startTime;
-  const endDate = crossesDay ? addDays(win.date, 1) : win.date;
-  return {
-    startCst: `${win.date} ${win.startTime}:00`,
-    endCst: `${endDate} ${win.endTime}:00`,
-  };
-}
-
-function localNowCst(getLocalDate, now = new Date()) {
-  const d = now;
-  const date = typeof getLocalDate === 'function' ? getLocalDate(d) : localDateString(d);
-  return `${date} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
-}
-
-export function resolveSessionWindow({ dataDir, getLocalDate, now = new Date() } = {}) {
-  const today = typeof getLocalDate === 'function' ? getLocalDate(now) : localDateString(now);
-  const candidates = [addDays(today, -1), today, addDays(today, 1)];
-  const nowCst = localNowCst(getLocalDate, now);
-  let fallback = null;
-  for (const date of candidates) {
-    const win = loadShiftWindow(dataDir, date);
-    if (!win) continue;
-    const range = toCstRange(win);
-    const session = { ...win, ...range };
-    if (!fallback) fallback = session;
-    if (nowCst >= range.startCst && nowCst < range.endCst) return session;
-  }
-  return fallback;
-}
-
-export function getSessionSpendRows(DB_PATH, startCst, endCst) {
-  if (!DB_PATH || !fs.existsSync(DB_PATH)) return null;
-  try {
-    const db = new Database(DB_PATH, { readonly: true });
-    try {
-      return db.prepare(`
-        SELECT campaign_id,
-          SUM(day_cost) AS spend,
-          SUM(day_leads) AS leads,
-          SUM(day_conversions) AS conversions
-        FROM (
-          SELECT campaign_id,
-            date(datetime(snapshot_time, '+8 hours')) AS day,
-            MAX(cost) - MIN(cost) AS day_cost,
-            MAX(leads) - MIN(leads) AS day_leads,
-            MAX(conversions) - MIN(conversions) AS day_conversions
-          FROM snapshots
-          WHERE datetime(snapshot_time, '+8 hours') >= ?
-            AND datetime(snapshot_time, '+8 hours') < ?
-          GROUP BY campaign_id, day
-        )
-        GROUP BY campaign_id
-        HAVING SUM(day_cost) > 0
-      `).all(startCst, endCst);
-    } finally {
-      db.close();
-    }
-  } catch {
-    return null;
-  }
-}
+export { getSessionSpendRows };
 
 export function applySessionSpend(list, sessionRows) {
   const byId = new Map(sessionRows.map(r => [r.campaign_id, r]));
@@ -243,7 +155,16 @@ export async function serveCampaigns(url, req, res, ctx) {
           ...sessionGrouped,
           totalSummary,
           window: sessionWindow
-            ? { date: sessionWindow.date, startTime: sessionWindow.startTime, endTime: sessionWindow.endTime }
+            ? {
+                date: sessionWindow.date,
+                startTime: sessionWindow.startTime,
+                endTime: sessionWindow.endTime,
+                startDate: sessionWindow.startDate,
+                endDate: sessionWindow.endDate,
+                wholeStartDate: sessionWindow.wholeStartDate,
+                wholeStartTime: sessionWindow.wholeStartTime,
+                dayCount: sessionWindow.dayCount,
+              }
             : null,
         },
         totalSummary,
