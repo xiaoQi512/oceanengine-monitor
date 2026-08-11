@@ -107,13 +107,23 @@ function pad2(n) {
 }
 
 export function localDateString(d = new Date()) {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d);
 }
 
 function addDays(dateStr, days) {
-  const d = new Date(`${dateStr}T00:00:00+08:00`);
-  d.setDate(d.getDate() + days);
-  return localDateString(d);
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const d = new Date(Date.UTC(year, month - 1, day + days));
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d);
 }
 
 /** 解析 "HH:MM-HH:MM" label,返回开始/结束分钟数(结束可>1440 表示跨天) */

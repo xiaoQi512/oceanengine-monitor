@@ -7,7 +7,11 @@ import { loadRecentLogs, getSlotKey, buildDailyReportCard } from '../src/service
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'daily-report-'));
 try {
-  fs.writeFileSync(path.join(dir, 'daily-2026-08-01.json'), JSON.stringify([
+  const now = new Date();
+  const recent = new Date(now);
+  recent.setDate(recent.getDate() - 1);
+  const recentDate = `${recent.getFullYear()}-${String(recent.getMonth() + 1).padStart(2, '0')}-${String(recent.getDate()).padStart(2, '0')}`;
+  fs.writeFileSync(path.join(dir, `daily-${recentDate}.json`), JSON.stringify([
     { type: 'data_gap' },
     { totalSpend: 100, totalConversions: 2, totalLeads: 2 },
   ]));
