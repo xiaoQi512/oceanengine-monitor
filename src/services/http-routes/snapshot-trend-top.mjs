@@ -1,11 +1,14 @@
 // src/services/http-routes/snapshot-trend-top.mjs - 趋势 TOP5 查询
 
-export function queryTop5Delta(db, st, prevTimeStmt, top5DeltaStmt) {
+export function queryTop5Delta(db, st, prevTimeStmt, top5DeltaStmt, accountId = '') {
   try {
-    const prevT = prevTimeStmt ? prevTimeStmt.get(st) : null;
-    const prevPrevT = prevT?.snapshot_time ? prevTimeStmt.get(prevT.snapshot_time) : null;
+    const prevTimeArgs = (t) => accountId ? [accountId, t] : [t];
+    const prevT = prevTimeStmt ? prevTimeStmt.get(...prevTimeArgs(st)) : null;
+    const prevPrevT = prevT?.snapshot_time && prevTimeStmt ? prevTimeStmt.get(...prevTimeArgs(prevT.snapshot_time)) : null;
+    const params = { prevTime: prevT?.snapshot_time || null, prevPrevTime: prevPrevT?.snapshot_time || null, currTime: st };
+    if (accountId) params.accountId = accountId;
     return top5DeltaStmt
-      ? top5DeltaStmt.all({ prevTime: prevT?.snapshot_time || null, prevPrevTime: prevPrevT?.snapshot_time || null, currTime: st })
+      ? top5DeltaStmt.all(params)
         .filter(r => (r.delta_cost || 0) > 0)
         .map(r => {
           const deltaCost = Number(r.delta_cost || 0);

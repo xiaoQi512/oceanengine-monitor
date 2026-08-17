@@ -8,7 +8,8 @@ export function serveSnapshotTrend(url, req, res, ctx) {
   try {
     let db = null;
     try { db = new Database(DB_PATH, { readonly: true }); } catch {}
-    const data = loadSnapshotTrendData(db, parseSnapshotTime);
+    const accountId = url.searchParams.get('accountId') || '';
+    const data = loadSnapshotTrendData(db, parseSnapshotTime, undefined, accountId);
     if (db) { try { db.close(); } catch {} }
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify(data));

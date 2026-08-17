@@ -1,6 +1,8 @@
 // src/services/http-routes/snapshot-trend-agg.mjs - 趋势单点聚合
 
-export function queryAggPoint(db, st) {
+export function queryAggPoint(db, st, accountId = '') {
+  const accountCond = accountId ? " AND account_id = ?" : "";
+  const params = accountId ? [st, accountId] : [st];
   // activeCount 仅统计 cost > 0 的计划（与 5min 真实采集口径一致：投放且有消耗）
   // status='投放中' 且 cost=0 的不算"在投活跃"
   const agg = db.prepare(`
@@ -12,15 +14,15 @@ export function queryAggPoint(db, st) {
       COUNT(DISTINCT CASE WHEN cost > 0 AND status IN ('投放中','启用中','启用') THEN campaign_id END) as deliveringCount,
       COALESCE(SUM(msg_lead), 0) as msgLead,
       COALESCE(SUM(form_submit), 0) as formSubmit
-    FROM snapshots WHERE snapshot_time = ? AND source_type = '5min'
-  `).get(st);
+    FROM snapshots WHERE snapshot_time = ? AND source_type = '5min'${accountCond}
+  `).get(...params);
   const cpmRow = db.prepare(`
     SELECT COALESCE(SUM(cost), 0) as totalCostForCpm,
       COALESCE(SUM(CASE WHEN cpm > 0 AND cost > 0 THEN cost / cpm END), 0) as sumCostDivCpm,
       COALESCE(SUM(CASE WHEN cpm > 0 AND cost > 0 THEN cost / cpm * 1000 END), 0) as totalImpr,
       COALESCE(SUM(CASE WHEN cpm > 0 AND cost > 0 AND ctr > 0 THEN (cost / cpm * 1000) * ctr END), 0) as totalClk
-    FROM snapshots WHERE snapshot_time = ? AND source_type = '5min' AND cpm > 0 AND cost > 0
-  `).get(st);
+    FROM snapshots WHERE snapshot_time = ? AND source_type = '5min' AND cpm > 0 AND cost > 0${accountCond}
+  `).get(...params);
   const aggCost = Number(agg?.totalCost || 0);
   const aggConv = Number(agg?.totalConv || 0);
   const tCost = Number(cpmRow?.totalCostForCpm || 0);

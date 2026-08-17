@@ -3,7 +3,7 @@ import { buildTrendTimeFrames } from './snapshot-trend-time.mjs';
 import { queryTop5Delta } from './snapshot-trend-top.mjs';
 import { queryAggPoint } from './snapshot-trend-agg.mjs';
 
-export function loadSnapshotTrendData(db, parseSnapshotTime, POINTS = 12) {
+export function loadSnapshotTrendData(db, parseSnapshotTime, POINTS = 12, accountId = '') {
   const emptyBaseFields = {
     baseSpend: 0, baseConversions: 0, baseImpressions: 0, baseClicks: 0,
     labels: [], timestamps: [], spend: [], cpl: [], cpm: [],
@@ -14,12 +14,14 @@ export function loadSnapshotTrendData(db, parseSnapshotTime, POINTS = 12) {
   if (!db) return emptyBaseFields;
 
   // 取最近 5min 快照（DB 已满格，整刻钟也有合成5min数据）
+  const accountCond = accountId ? ' AND account_id = ?' : '';
+  const dbTimesParams = accountId ? [accountId, 24] : [24];
   const dbTimes = db.prepare(`
     SELECT snapshot_time FROM snapshots
-    WHERE source_type = '5min'
+    WHERE source_type = '5min'${accountCond}
     GROUP BY snapshot_time
     ORDER BY snapshot_time DESC LIMIT ?
-  `).all(24).reverse();
+  `).all(...dbTimesParams).reverse();
 
   if (dbTimes.length < 1) return emptyBaseFields;
 
@@ -39,16 +41,19 @@ export function loadSnapshotTrendData(db, parseSnapshotTime, POINTS = 12) {
     }
   }
 
-  const basePoint = baseTime ? queryAggPoint(db, baseTime) : { spend: 0, conversions: 0, impressions: 0, clicks: 0 };
+  const basePoint = baseTime ? queryAggPoint(db, baseTime, accountId) : { spend: 0, conversions: 0, impressions: 0, clicks: 0 };
   const baseSpend = basePoint.spend;
   const baseConversions = basePoint.conversions;
   const baseImpressions = basePoint.impressions;
   const baseClicks = basePoint.clicks;
 
   // top5 预编译
+  const topCond = accountId ? ' AND s.account_id = @accountId' : '';
+  const joinCond = accountId ? ' AND prev.account_id = s.account_id' : '';
+  const joinPrevPrevCond = accountId ? ' AND prevPrev.account_id = s.account_id' : '';
   let prevTimeStmt = null, top5DeltaStmt = null;
   try {
-    prevTimeStmt = db.prepare(`SELECT snapshot_time FROM snapshots WHERE source_type = '5min' AND snapshot_time < ? ORDER BY snapshot_time DESC LIMIT 1`);
+    prevTimeStmt = db.prepare(`SELECT snapshot_time FROM snapshots WHERE source_type = '5min'${accountCond} AND snapshot_time < ? ORDER BY snapshot_time DESC LIMIT 1`);
     top5DeltaStmt = db.prepare(`SELECT s.campaign_id, c.name,
       s.cost - COALESCE(prev.cost, 0) as delta_cost,
       s.leads - COALESCE(prev.leads, 0) as delta_leads,
@@ -56,10 +61,10 @@ export function loadSnapshotTrendData(db, parseSnapshotTime, POINTS = 12) {
       prev.cost as prev_cost,
       prev.cost - COALESCE(prevPrev.cost, 0) as prev_delta_cost
       FROM snapshots s
-      LEFT JOIN snapshots prev ON s.campaign_id = prev.campaign_id AND prev.snapshot_time = @prevTime AND prev.source_type = '5min'
-      LEFT JOIN snapshots prevPrev ON s.campaign_id = prevPrev.campaign_id AND prevPrev.snapshot_time = @prevPrevTime AND prevPrev.source_type = '5min'
+      LEFT JOIN snapshots prev ON s.campaign_id = prev.campaign_id AND prev.snapshot_time = @prevTime AND prev.source_type = '5min'${joinCond}
+      LEFT JOIN snapshots prevPrev ON s.campaign_id = prevPrev.campaign_id AND prevPrev.snapshot_time = @prevPrevTime AND prevPrev.source_type = '5min'${joinPrevPrevCond}
       LEFT JOIN campaigns c ON s.campaign_id = c.campaign_id
-      WHERE s.snapshot_time = @currTime AND s.source_type = '5min'
+      WHERE s.snapshot_time = @currTime AND s.source_type = '5min'${topCond}
       ORDER BY delta_cost DESC LIMIT 5`);
   } catch {}
 
@@ -75,7 +80,7 @@ export function loadSnapshotTrendData(db, parseSnapshotTime, POINTS = 12) {
       convBreakdown.push(null); top5PerPoint.push([]);
       continue;
     }
-    const point = queryAggPoint(db, st);
+    const point = queryAggPoint(db, st, accountId);
     spend.push(point.spend);
     cpl.push(point.cpl);
     cpm.push(point.cpm);
@@ -87,7 +92,7 @@ export function loadSnapshotTrendData(db, parseSnapshotTime, POINTS = 12) {
     spendingCount.push(point.spendingCount);
     deliveringCount.push(point.deliveringCount);
     convBreakdown.push(point.convBreakdown);
-    top5PerPoint.push(queryTop5Delta(db, st, prevTimeStmt, top5DeltaStmt));
+    top5PerPoint.push(queryTop5Delta(db, st, prevTimeStmt, top5DeltaStmt, accountId));
   }
 
   // totalPlanCount: 5min 快照的全量 campaign_id 数（账户总计划数）
@@ -107,12 +112,12 @@ export function loadSnapshotTrendData(db, parseSnapshotTime, POINTS = 12) {
           s.cost - COALESCE(prev.cost, 0) as delta_cost,
           s.leads - COALESCE(prev.leads, 0) as delta_leads
         FROM snapshots s
-        LEFT JOIN snapshots prev ON s.campaign_id = prev.campaign_id AND prev.snapshot_time = @t15ago AND prev.source_type = '5min'
+        LEFT JOIN snapshots prev ON s.campaign_id = prev.campaign_id AND prev.snapshot_time = @t15ago AND prev.source_type = '5min'${joinCond}
         LEFT JOIN campaigns c ON s.campaign_id = c.campaign_id
-        WHERE s.snapshot_time = @latestT AND s.source_type = '5min'
+        WHERE s.snapshot_time = @latestT AND s.source_type = '5min'${topCond}
           AND (s.cost - COALESCE(prev.cost, 0)) > 0
         ORDER BY delta_cost DESC LIMIT 5
-      `).all({ t15ago, latestT }).map(r => {
+      `).all({ t15ago, latestT, ...(accountId ? { accountId } : {}) }).map(r => {
         const deltaCost = Number(r.delta_cost) || 0;
         const deltaLeads = Number(r.delta_leads) || 0;
         return {

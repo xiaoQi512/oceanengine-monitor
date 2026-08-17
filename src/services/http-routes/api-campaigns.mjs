@@ -104,7 +104,7 @@ export async function serveCampaigns(url, req, res, ctx) {
 
   if (url.pathname === '/api/campaigns') {
     try {
-      const projects = await fetchCampaigns(getApiClient);
+      const projects = await fetchCampaigns(getApiClient, accountId);
       const list = projects.map(p => normalizeCampaign(p, 'default'));
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8',
         'Cache-Control': 'no-store' });
@@ -118,7 +118,7 @@ export async function serveCampaigns(url, req, res, ctx) {
 
   if (url.pathname === '/api/campaigns/grouped') {
     try {
-      const projects = await fetchCampaigns(getApiClient);
+      const projects = await fetchCampaigns(getApiClient, accountId);
       const list = projects.map(p => normalizeCampaign(p, 'grouped'));
       const GROUPS = ['简单投', '画面直投', '短引直'];
 
