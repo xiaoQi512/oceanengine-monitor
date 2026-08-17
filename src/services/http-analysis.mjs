@@ -1,4 +1,4 @@
-﻿// src/services/http-analysis.mjs - http-server 数据分析兼容入口
+// src/services/http-analysis.mjs - http-server 数据分析兼容入口
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR, loadSuggestionHistory } from '../utils/monitor-utils.mjs';
@@ -7,10 +7,12 @@ export * from './http-snapshot.mjs';
 export * from './http-delivery.mjs';
 export * from './http-effect.mjs';
 
-export function getLatestSnapshot({ dataDir = DATA_DIR, fsImpl = fs, pathImpl = path } = {}) {
+export function getLatestSnapshot({ dataDir = DATA_DIR, accountId = '', fsImpl = fs, pathImpl = path } = {}) {
   try {
     const files = fsImpl.readdirSync(dataDir)
-      .filter(f => /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.json$/.test(f))
+      .filter(f => accountId
+          ? f.startsWith(accountId + '-') && /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.json$/.test(f.slice(accountId.length + 1))
+          : /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.json$/.test(f))
       .sort();
     if (files.length === 0) return null;
     return JSON.parse(fsImpl.readFileSync(pathImpl.join(dataDir, files[files.length - 1]), 'utf-8'));

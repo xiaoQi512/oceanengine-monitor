@@ -51,4 +51,16 @@ const before = await readPlanAfterValue('计划A', 100, {
 });
 assert.strictEqual(before.projectId, 'p1');
 
+const beforeById = await readPlanAfterValue('0803-真人直播-短引直-S3（真人口播)', 100, {
+  campaignId: '7669763298461073418',
+  getApiClientFn: async () => ({
+    createClient: async () => ({
+      request: async () => ({
+        data: { data: { projects: [{ project_name: '0803-真人直播-短引直-S3(真人口播)', project_id: '7669763298461073418', project_status_name: '暂停', campaign_budget: 5000 }] } },
+      }),
+    }),
+  }),
+});
+assert.strictEqual(beforeById.projectId, '7669763298461073418');
+
 console.log('\n全部测试通过');

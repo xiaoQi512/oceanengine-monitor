@@ -264,5 +264,43 @@ module.exports = {
       merge_logs: true,
       time: true,
     },
+
+    // ====== SQLite 自动备份 23:45（日汇总后执行，WAL 在线备份）======
+    {
+      name: "pm2-db-backup",
+      script: "scripts/backup-db.mjs",
+      cwd: MONITOR_DIR,
+      exec_mode: "fork",
+      interpreter: NODE,
+      env: { NODE_ENV: "production", OEC_SILENT: "1" },
+      instances: 1,
+      autorestart: false,
+      max_restarts: 0,
+      kill_timeout: 120000,
+      cron_restart: "45 23 * * *",
+      out_file: `${LOG_DIR}\\pm2-backup-out.log`,
+      error_file: `${LOG_DIR}\\pm2-backup-err.log`,
+      merge_logs: true,
+      time: true,
+    },
+
+    // ====== 监控健康检查 watchdog（每5分钟，检查快照新鲜度与 8899 服务）======
+    {
+      name: "pm2-watchdog",
+      script: "scripts/watchdog.mjs",
+      cwd: MONITOR_DIR,
+      exec_mode: "fork",
+      interpreter: NODE,
+      env: { NODE_ENV: "production", OEC_SILENT: "1" },
+      instances: 1,
+      autorestart: false,
+      max_restarts: 0,
+      kill_timeout: 30000,
+      cron_restart: "*/5 * * * *",
+      out_file: `${LOG_DIR}\\pm2-watchdog-out.log`,
+      error_file: `${LOG_DIR}\\pm2-watchdog-err.log`,
+      merge_logs: true,
+      time: true,
+    },
   ],
 };

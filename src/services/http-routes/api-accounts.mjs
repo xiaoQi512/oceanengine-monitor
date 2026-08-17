@@ -2,27 +2,43 @@
 import { normalizeCampaign } from './api-campaigns.mjs';
 
 export async function serveAccounts(url, req, res, ctx) {
-  const { getLatestSnapshot, ACCOUNT_ID, ACCOUNT_NAME, getApiClient } = ctx;
+  const { getLatestSnapshot, ACCOUNT_ID, ACCOUNT_NAME, ACCOUNTS = [], getApiClient } = ctx;
 
   if (url.pathname === '/api/accounts' && (!req || req.method === 'GET')) {
     try {
-      const snap = getLatestSnapshot();
       const accounts = [];
-      if (snap && snap.summary) {
-        const sm = snap.summary;
+      for (const acc of ACCOUNTS) {
+        const snap = getLatestSnapshot({ accountId: acc.accountId || '' });
+        const sm = snap?.summary || {};
         const spend = Number(sm.accountSpend ?? sm.totalSpend ?? 0);
         const leads = Number(sm.totalLeads ?? 0);
         const conversions = Number(sm.totalConversions ?? 0);
         const cpa = conversions > 0 ? Number((spend / conversions).toFixed(2)) : 0;
         accounts.push({
-          id: ACCOUNT_ID,
-          name: ACCOUNT_NAME,
+          id: acc.accountId || '',
+          name: acc.name || '',
+          scope: acc.scope || 'main_live',
           platform: 'oceanengine',
           spend,
           leads,
           cpa,
           activeCount: Number(sm.totalActive ?? 0),
           budget: Number(sm.accountBudget ?? 0),
+          hasSnapshot: !!snap,
+        });
+      }
+      if (accounts.length === 0) {
+        accounts.push({
+          id: ACCOUNT_ID,
+          name: ACCOUNT_NAME,
+          scope: 'main_live',
+          platform: 'oceanengine',
+          spend: 0,
+          leads: 0,
+          cpa: 0,
+          activeCount: 0,
+          budget: 0,
+          hasSnapshot: false,
         });
       }
       const platforms = [

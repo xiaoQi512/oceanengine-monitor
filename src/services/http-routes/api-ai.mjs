@@ -1,5 +1,9 @@
-// src/services/http-routes/api-ai.mjs - AI 学习数据 API
+// src/services/http-routes/api-ai.mjs - AI 学习数据与诊断建议 API
 import fs from 'node:fs';
+import {
+  buildDiagnosisSuggestions,
+  summarizeDiagnosis,
+} from '../../domain/ai-diagnosis.mjs';
 
 export async function serveAi(url, req, res, ctx) {
   if (url.pathname !== '/api/ai/learning-data') return false;
@@ -12,7 +16,10 @@ export async function serveAi(url, req, res, ctx) {
     getApiClient,
     ANOMALY_MIN_SPEND,
     ANOMALY_MAX_CPA,
+    loadSuggestionHistory,
+    getLatestSnapshot,
   } = ctx;
+  const accountId = url.searchParams.get('accountId') || '';
 
   try {
     const raw = fs.existsSync(ACTION_AUDIT_FILE) ? fs.readFileSync(ACTION_AUDIT_FILE, 'utf-8') : '';
@@ -27,6 +34,29 @@ export async function serveAi(url, req, res, ctx) {
     }));
 
     const rules = extractRules(eventsWithEffect);
+
+      let diagnosis = [];
+      let diagnosisSummary = { total: 0, byType: {}, highCount: 0, mediumCount: 0 };
+      try {
+        const history = typeof loadSuggestionHistory === 'function' ? loadSuggestionHistory() : null;
+        const latest = typeof getLatestSnapshot === 'function' ? getLatestSnapshot({ accountId }) : null;
+        const analysis = latest ? {
+          alerts: latest.alerts || [],
+          delta: latest.delta || {},
+          summary: latest.summary || {},
+        } : null;
+        diagnosis = buildDiagnosisSuggestions({
+          alerts: analysis?.alerts || [],
+          analysis,
+          history,
+          rules,
+          now: new Date().toISOString(),
+        });
+        diagnosisSummary = summarizeDiagnosis(diagnosis);
+      } catch (e) {
+        console.error('[ai-diagnosis] 生成诊断失败:', e.message);
+      }
+
 
     let anomalies = [];
     try {
@@ -43,7 +73,7 @@ export async function serveAi(url, req, res, ctx) {
           id: String(p.id || ''),
           name: p.project_name || '',
           spend, leads, cpa: Number(cpa.toFixed(2)),
-          status: p.project_status_first_name || p.status_str || '',
+          status: p.project_status_name || p.project_status_first_name || p.status_str || '',
           deliveryType: classifyDeliveryType(p.project_name || '') || '其他',
         };
       }).filter(p => {
@@ -60,6 +90,8 @@ export async function serveAi(url, req, res, ctx) {
       rules,
       recentActions: eventsWithEffect.slice(0, 20),
       anomalies,
+        diagnosis,
+        diagnosisSummary,
       summary: {
         totalAudits: lines.length,
         evaluatedActions: eventsWithEffect.filter(e => e.effect?.status === 'evaluated').length,
@@ -68,7 +100,7 @@ export async function serveAi(url, req, res, ctx) {
     }));
   } catch (e) {
     res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: e.message, rules: [], recentActions: [], anomalies: [] }));
+    res.end(JSON.stringify({ error: e.message, rules: [], recentActions: [], anomalies: [], diagnosis: [], diagnosisSummary: { total: 0, byType: {}, highCount: 0, mediumCount: 0 } }));
   }
   return true;
 }

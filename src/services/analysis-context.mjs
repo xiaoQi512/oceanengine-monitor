@@ -2,7 +2,7 @@
 import path from 'node:path';
 import { getLocalDate as defaultGetLocalDate } from '../utils/monitor-utils.mjs';
 import {
-  readDailyLog as defaultReadDailyLog,
+  findDailyLog as defaultFindDailyLog,
   loadPreviousSnapshots as defaultLoadPreviousSnapshots,
   loadTodaysSnapshots as defaultLoadTodaysSnapshots,
 } from './snapshot-store.mjs';
@@ -17,19 +17,19 @@ import {
 export function loadAnalysisContext({
   dataDir,
   getLocalDate = defaultGetLocalDate,
-  readDailyLog = defaultReadDailyLog,
+  findDailyLog = defaultFindDailyLog,
   loadPreviousSnapshots = defaultLoadPreviousSnapshots,
   loadTodaysSnapshots = defaultLoadTodaysSnapshots,
   days = 3,
 } = {}) {
   const now = new Date();
-  const todayLog = readDailyLog(path.join(dataDir, `daily-${getLocalDate()}.json`));
+  const todayLog = findDailyLog(dataDir, getLocalDate());
   const trends = detectTrendsFromLog(todayLog);
   const window3h = analyze3HourWindowFromLog(todayLog, Date.now());
 
   const yesterdayDate = getLocalDate(new Date(now - 24 * 60 * 60 * 1000));
   const yesterdayBaseline = computeYesterdayBaseline(
-    readDailyLog(path.join(dataDir, `daily-${yesterdayDate}.json`)),
+    findDailyLog(dataDir, yesterdayDate),
     now,
     yesterdayDate,
   );
@@ -37,7 +37,7 @@ export function loadAnalysisContext({
   const dailyLogs = [];
   for (let d = 1; d <= days; d++) {
     const dateStr = getLocalDate(new Date(now - d * 24 * 60 * 60 * 1000));
-    const log = readDailyLog(path.join(dataDir, `daily-${dateStr}.json`));
+    const log = findDailyLog(dataDir, dateStr);
     if (log) dailyLogs.push({ date: dateStr, log });
   }
   const multiDay = computeMultiDayBaseline(dailyLogs, now);

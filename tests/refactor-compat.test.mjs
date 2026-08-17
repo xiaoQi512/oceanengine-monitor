@@ -20,6 +20,20 @@ async function testDefaultExports() {
   console.log('✅ 默认导出兼容');
 }
 
+function ensureTestEnv() {
+  for (const key of [
+    'LARK_MONITOR_CHAT_ID',
+    'LARK_REPORT_CHAT_ID',
+    'LARK_BOT_APP_ID',
+    'SHIFT_SPREADSHEET_TOKEN',
+    'SHIFT_SHEET_ID',
+    'OEC_ACCOUNT_ID',
+    'OEC_VIDEO_ACCOUNT_ID',
+  ]) {
+    if (!process.env[key]) process.env[key] = 'test-placeholder';
+  }
+}
+
 async function testConfigSingleSource() {
   const config = await import('../src/config/index.mjs');
   const utils = await import('../src/utils/monitor-utils.mjs');
@@ -30,7 +44,7 @@ async function testConfigSingleSource() {
   assert.strictEqual(config.FEISHU_ANCHOR_CHAT_ID, utils.FEISHU_ANCHOR_CHAT_ID, 'FEISHU_ANCHOR_CHAT_ID 应来自 src/config');
   assert.strictEqual(config.DEFAULT_ACCOUNT.accountId, config.ACCOUNT_ID, 'DEFAULT_ACCOUNT 与 ACCOUNT_ID 不应分叉');
   assert.strictEqual(config.DEFAULT_ACCOUNT.monitorChatId, config.FEISHU_CHAT_ID, 'DEFAULT_ACCOUNT 与 FEISHU_CHAT_ID 不应分叉');
-  assert.strictEqual(config.ACCOUNTS.length, 1, 'accounts.json 应包含默认账户');
+  assert.strictEqual(config.ACCOUNTS.length, 6, 'accounts.json 应包含主监控 + 5 个 AI 区域账户');
   assert.strictEqual(config.validateConfig().ok, true, '配置校验应通过');
   console.log('✅ 配置单一来源');
 }
@@ -93,6 +107,7 @@ async function testDbWriteModes() {
 }
 
 async function run() {
+  ensureTestEnv();
   await testDefaultExports();
   await testConfigSingleSource();
   await testCronImportSafe();

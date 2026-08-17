@@ -68,7 +68,7 @@ export async function runMonitorCycle({
     accountBudget,
     accountBalance,
     pageSummary,
-  } = await d.collectMonitorData();
+  } = await d.collectMonitorData({ accountId: config.accountId });
 
   const analysis = d.analyzeMonitorData(campaigns, accountSpend, accountBudget, accountBalance, pageSummary, {
     dataDir: config.dataDir,
@@ -78,18 +78,22 @@ export async function runMonitorCycle({
     dailyEndHour: config.dailyEndHour,
     dailyEndMinute: config.dailyEndMinute,
   });
+    analysis.accountId = config.accountId;
+    analysis.accountName = config.accountName;
 
   const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
   d.saveSnapshot({
     analysis,
     timestamp,
     dataDir: config.dataDir,
+      accountId: config.accountId,
     atomicWriteJSON: d.atomicWriteJSON,
     dualInsertSnapshot: d.dualInsertSnapshot,
     verifyConsistency: d.verifyConsistency,
   });
   d.saveDailyLog(analysis, {
     dataDir: config.dataDir,
+      accountId: config.accountId,
     getLocalDate: d.getLocalDate,
     atomicWriteJSON: d.atomicWriteJSON,
   });

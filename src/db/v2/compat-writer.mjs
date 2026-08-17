@@ -51,6 +51,7 @@ export function insertSnapshot(data, snapshotTime) {
     const budget = parseFloat(String(c.budget || '0').replace(/,/g, '')) || 0;
     const bid = parseFloat(String(c.bid || '').replace(/[^\d.]/g, '')) || null;
     api.campaigns.upsert({
+        account_id: data.accountId || '',
       campaign_id: String(c.id),
       name: c.name || '',
       status: c.rawStatus || c.status || '',
@@ -62,6 +63,7 @@ export function insertSnapshot(data, snapshotTime) {
       snapshot_time: st,
       snapshot_cst: '',
       campaign_id: String(c.id),
+        account_id: data.accountId || '',
       cost: num(c.spend),
       leads: num(c.leads),
       conversions: num(c.conversions),

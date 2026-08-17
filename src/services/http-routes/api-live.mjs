@@ -7,6 +7,7 @@ export function serveLiveStatus(url, req, res, ctx) {
   try {
     const { getLocalDate, DATA_DIR, DB_PATH, getLatestSnapshot } = ctx;
     const today = getLocalDate();
+      const accountId = url.searchParams.get('accountId') || '';
     const sessions = buildShifts(today, DATA_DIR);
     const anchors = buildAnchors(today, DATA_DIR);
     const shiftData = buildShiftData(today, DATA_DIR, DB_PATH);
@@ -16,7 +17,7 @@ export function serveLiveStatus(url, req, res, ctx) {
       ? getSessionAccountSpend(DB_PATH, sessionWindow.startCst, sessionWindow.endCst)
       : null;
     const payload = buildLivePayload({
-      sessions, anchors, snap: getLatestSnapshot(), shiftData, DATA_DIR,
+      sessions, anchors, snap: getLatestSnapshot({ accountId }), shiftData, DATA_DIR,
       sessionAccount,
     });
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });

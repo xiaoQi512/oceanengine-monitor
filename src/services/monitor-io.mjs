@@ -4,9 +4,11 @@ import path from 'node:path';
 import { buildDailyLogEntry } from '../domain/daily-log-entry.mjs';
 import { shouldSendHtmlReport } from '../domain/html-report-decision.mjs';
 
-export function saveDailyLog(analysis, { dataDir, getLocalDate, atomicWriteJSON }) {
+export function saveDailyLog(analysis, { dataDir, accountId = '', getLocalDate, atomicWriteJSON }) {
   const today = getLocalDate();
-  const logFile = path.join(dataDir, `daily-${today}.json`);
+  const logFile = accountId
+    ? path.join(dataDir, `daily-${accountId}-${today}.json`)
+    : path.join(dataDir, `daily-${today}.json`);
   let log = [];
   if (fs.existsSync(logFile)) {
     try { log = JSON.parse(fs.readFileSync(logFile, 'utf-8')); } catch {}
@@ -19,11 +21,14 @@ export function saveSnapshot({
   analysis,
   timestamp,
   dataDir,
+  accountId = '',
   atomicWriteJSON,
   dualInsertSnapshot,
   verifyConsistency,
 }) {
-  const jsonFile = path.join(dataDir, `${timestamp}.json`);
+  const jsonFile = accountId
+    ? path.join(dataDir, `${accountId}-${timestamp}.json`)
+    : path.join(dataDir, `${timestamp}.json`);
   let jsonOk = false;
   let sqliteRows = 0;
 

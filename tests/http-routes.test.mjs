@@ -317,11 +317,17 @@ async function testLiveStatus() {
   const handled = serveLiveStatus(new URL('http://x/api/live-status'), null, res, {
     getLocalDate: () => '2026-08-01',
     DATA_DIR: path.join(PROJECT_ROOT, 'monitor-data'),
-    getLatestSnapshot: () => ({ totalSpend: 100, shifts: [] }),
+    getLatestSnapshot: () => ({
+      totalSpend: 100,
+      shifts: [],
+      summary: { accountBudget: 55000 },
+      delta: { dailyBudget: 55000 },
+    }),
   });
   assert.strictEqual(handled, true);
   assert.strictEqual(res.status, 200);
   assert.strictEqual(JSON.parse(res.body).kpi.totalSpend, 100);
+  assert.strictEqual(JSON.parse(res.body).kpi.dailyBudget, 55000);
   console.log('✅ live-status routes');
 }
 

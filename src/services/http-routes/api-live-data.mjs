@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { getSnapshotAt, cstToUtc } from '../../db/snapshot-db.mjs';
+import { getCarModel } from '../shift-pusher-state.mjs';
 
 /**
  * 构造今日各班次数据明细
@@ -11,14 +12,29 @@ import { getSnapshotAt, cstToUtc } from '../../db/snapshot-db.mjs';
  *   2. snapshots 表 (SQLite) → 每班次时段内消耗/线索
  *   3. shift_metrics.detail_json → 车型 carModel
  *   4. shift-push-lock.json → 已推送班次
+ *   5. shift-overrides.json → 人工核对修正值（按 date → label 覆盖 spend/leads）
  * @param {string} dateStr - YYYY-MM-DD
  * @param {string} DATA_DIR - monitor-data 目录
  * @param {string} DB_PATH - oceanengine.db 完整路径
- * @returns {Array<{start,end,anchor,carModel,spend,leads,cpl,conversions,privateMsg,pushed}>}
+ * @returns {Array<{start,end,anchor,carModel,spend,leads,cpl,conversions,privateMsg,pushed,corrected?}>}
  */
+function loadShiftOverrides(DATA_DIR, dateStr) {
+  try {
+    const f = path.join(DATA_DIR, 'shift-overrides.json');
+    if (!fs.existsSync(f)) return {};
+    const data = JSON.parse(fs.readFileSync(f, 'utf-8'));
+    return (data && data[dateStr]) || {};
+  } catch {
+    return {};
+  }
+}
+
 export function buildShiftData(dateStr, DATA_DIR, DB_PATH) {
   const result = [];
   if (!dateStr || !DATA_DIR) return result;
+
+  // 5. 人工核对修正覆盖（优先于快照聚合）
+  const overrides = loadShiftOverrides(DATA_DIR, dateStr);
 
   // 1. 读排班
   let shiftList = [];
@@ -106,6 +122,15 @@ export function buildShiftData(dateStr, DATA_DIR, DB_PATH) {
         const startCst = `${dateStr} ${start}:00`;
         const endCst = `${dateStr} ${end}:00`;
         const planRows = planAggStmt.all({ startCst, endCst });
+        // 快照差值（账户级，与换班推送 getShiftDelta 同口径）
+        // 文件快照在 0 消耗时也落盘（07:00 整点 totalSpend=0），能准确定位班次边界；
+        // 而 DB snapshots 表在 0 消耗时不写行，MAX-MIN 会漏算首班次起点。
+        const startUtc = cstToUtc(dateStr, start);
+        const endUtc = cstToUtc(dateStr, end);
+        const startSnap = getSnapshotAt(startUtc.utcDate, startUtc.utcHHMM, dateStr, start);
+        const endSnap = getSnapshotAt(endUtc.utcDate, endUtc.utcHHMM, dateStr, end);
+        const snapSpend = (startSnap && endSnap) ? Number((endSnap.totalSpend - startSnap.totalSpend).toFixed(2)) : null;
+        const snapLeads = (startSnap && endSnap) ? Math.max(0, endSnap.totalLeads - startSnap.totalLeads) : null;
         let spend = 0, leads = 0, openCount = 0, wCpmNum = 0, wCpmDen = 0, wCtrNum = 0, wCtrDen = 0;
         for (const p of planRows) {
           const dCost = Math.max(0, (p.max_cost || 0) - (p.min_cost || 0));
@@ -125,9 +150,22 @@ export function buildShiftData(dateStr, DATA_DIR, DB_PATH) {
             }
           }
         }
+        // 快照差值可用时，以账户级口径覆盖 MAX-MIN 聚合结果（MAX-MIN 会因 DB 缺 0 消耗快照而漏算）
+        if (snapSpend != null && (snapSpend > 0 || snapLeads > 0)) {
+          spend = snapSpend;
+          leads = snapLeads;
+        }
         const cpl = leads > 0 ? Number((spend / leads).toFixed(2)) : (spend > 0 ? Number(spend.toFixed(2)) : 0);
         const avgCpm = wCpmDen > 0 ? Number((wCpmNum / wCpmDen).toFixed(2)) : 0;
         const avgCtr = wCtrDen > 0 ? Number(((wCtrNum / wCtrDen) * 100).toFixed(2)) : 0;
+
+        // 人工核对修正覆盖
+        const ov = overrides[lbl];
+        const finalSpend = ov && ov.spend != null ? Number(ov.spend) : Number(spend.toFixed(2));
+        const finalLeads = ov && ov.leads != null ? Math.round(Number(ov.leads)) : Math.round(leads);
+        const finalCpl = ov && ov.spend != null && ov.leads != null
+          ? Number((finalSpend / finalLeads).toFixed(2))
+          : cpl;
 
         // 进度计算
         const [sh, sm] = start.split(':').map(Number);
@@ -142,16 +180,17 @@ export function buildShiftData(dateStr, DATA_DIR, DB_PATH) {
           start, end,
           label: lbl,
           anchor: s.anchorName || '待定',
-          carModel: carModelMap.get(lbl) || '贝塔S3',
-          spend: Number(spend.toFixed(2)),
-          leads: Math.round(leads),
-          cpl,
+          carModel: carModelMap.get(lbl) || getCarModel({ getLocalDateFn: () => dateStr }),
+          spend: finalSpend,
+          leads: finalLeads,
+          cpl: finalCpl,
           cpm: avgCpm,
           ctr: avgCtr,
           progress,
           conversions: Math.round(openCount),
           open: Math.round(openCount),
           pushed: pushedLabels.has(lbl),
+          corrected: !!ov,
         });
       }
     }
@@ -161,13 +200,20 @@ export function buildShiftData(dateStr, DATA_DIR, DB_PATH) {
       const lbl = s.label || '';
       const [start, end] = lbl.split('-').map(x => x.trim());
       if (!start || !end) continue;
+      const ov = overrides[lbl];
       result.push({
         start, end,
         label: lbl,
         anchor: s.anchorName || '待定',
-        carModel: carModelMap.get(lbl) || '贝塔S3',
-        spend: 0, leads: 0, cpl: 0, cpm: 0, ctr: 0, progress: 0, conversions: 0, open: 0,
+        carModel: carModelMap.get(lbl) || getCarModel({ getLocalDateFn: () => dateStr }),
+        spend: ov && ov.spend != null ? Number(ov.spend) : 0,
+        leads: ov && ov.leads != null ? Math.round(Number(ov.leads)) : 0,
+        cpl: ov && ov.spend != null && ov.leads != null
+          ? Number((Number(ov.spend) / Math.round(Number(ov.leads))).toFixed(2))
+          : 0,
+        cpm: 0, ctr: 0, progress: 0, conversions: 0, open: 0,
         pushed: pushedLabels.has(lbl),
+        corrected: !!ov,
       });
     }
   } finally {
@@ -240,9 +286,12 @@ export function buildLivePayload({ sessions, anchors, snap, shiftData: shiftData
   const saSpend = Number(sa.spend || 0);
   const saLeads = Number(sa.leads || 0);
   const saConv = Number(sa.conversions || 0);
-  const baseSpend = snap?.totalSpend ?? snap?.accountSpend ?? snap?.summarySpend ?? 0;
-  const baseLeads = snap?.totalLeads ?? snap?.totalConv ?? 0;
-  const baseConv = snap?.totalConversions ?? snap?.totalConv ?? 0;
+  const baseSpend = snap?.totalSpend ?? snap?.accountSpend ?? snap?.summary?.accountSpend
+    ?? snap?.summarySpend ?? snap?.summary?.totalSpend ?? 0;
+  const baseLeads = snap?.totalLeads ?? snap?.totalConv ?? snap?.summary?.totalLeads
+    ?? snap?.summary?.totalConversions ?? 0;
+  const baseConv = snap?.totalConversions ?? snap?.totalConv ?? snap?.summary?.totalConversions
+    ?? snap?.summary?.totalLeads ?? 0;
   const kpi = snap ? {
     totalSpend: saSpend > 0 ? saSpend : baseSpend,
     liveSpend: snap.liveSpend ?? 0,
@@ -255,7 +304,7 @@ export function buildLivePayload({ sessions, anchors, snap, shiftData: shiftData
     liveCpl: snap.liveCpl ?? 0,
     videoCpl: snap.videoCpl ?? 0,
     privateMsg: snap.privateMsg ?? 0,
-    dailyBudget: snap.dailyBudget ?? snap.accountBudget ?? 45000,
+    dailyBudget: Number(snap.summary?.accountBudget ?? snap.delta?.dailyBudget ?? snap.dailyBudget ?? snap.accountBudget ?? 45000) || 45000,
     aiRegionsSpend: snap.aiRegionsSpend ?? 0,
   } : {};
   return { isLive, currentAnchor, shifts, shiftData, pushLog, accounts, kpi, updatedAt: nowIso };

@@ -11,9 +11,20 @@ import { runMonitorCycle } from './monitor-cycle.mjs';
 
 const OEC_FORCE = process.env.OEC_FORCE === '1';
 const OEC_DRY_RUN = process.env.OEC_DRY_RUN === '1';
+const MONITOR_ALL_ACCOUNTS = process.env.MONITOR_ALL_ACCOUNTS === '1';
 
 // ====== 主流程 ======
 async function main() {
+  if (MONITOR_ALL_ACCOUNTS) {
+    const { runMultiAccountCycle } = await import('./monitor-multi-cycle.mjs');
+    const results = await runMultiAccountCycle({
+      force: OEC_FORCE,
+      dryRun: OEC_DRY_RUN,
+    });
+    const allStopped = results.length > 0 && results.every(r => r.ok && r.result?.stopped);
+    if (allStopped) process.exit(0);
+    return;
+  }
   const result = await runMonitorCycle({
     config: CONFIG,
     force: OEC_FORCE,

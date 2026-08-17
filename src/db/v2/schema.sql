@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 CREATE TABLE IF NOT EXISTS campaigns (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   campaign_id   TEXT NOT NULL UNIQUE,
+    account_id    TEXT NOT NULL DEFAULT '',
   name          TEXT NOT NULL DEFAULT '',
   status        TEXT NOT NULL DEFAULT '',
   daily_budget  REAL NOT NULL DEFAULT 0,
@@ -41,6 +42,7 @@ CREATE TABLE IF NOT EXISTS snapshots (
   snapshot_time     TEXT NOT NULL,               -- UTC ISO时间
   snapshot_cst      TEXT NOT NULL DEFAULT '',     -- CST北京时间 HH:MM
   campaign_id       TEXT NOT NULL,
+    account_id        TEXT NOT NULL DEFAULT '',
   cost              REAL NOT NULL DEFAULT 0,      -- 累计消耗
   leads             INTEGER NOT NULL DEFAULT 0,
   conversions       INTEGER NOT NULL DEFAULT 0,
@@ -66,6 +68,7 @@ CREATE TABLE IF NOT EXISTS snapshots (
 CREATE TABLE IF NOT EXISTS daily_summaries (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   date            TEXT NOT NULL UNIQUE,            -- YYYY-MM-DD
+    account_id      TEXT NOT NULL DEFAULT '',
   total_cost      REAL NOT NULL DEFAULT 0,
   total_leads     INTEGER NOT NULL DEFAULT 0,
   total_conversions INTEGER NOT NULL DEFAULT 0,
@@ -85,6 +88,7 @@ CREATE TABLE IF NOT EXISTS daily_summaries (
 CREATE TABLE IF NOT EXISTS shift_metrics (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   date            TEXT NOT NULL,                    -- YYYY-MM-DD
+    account_id      TEXT NOT NULL DEFAULT '',
   shift_label     TEXT NOT NULL,                    -- HH:MM-HH:MM
   anchor_name     TEXT NOT NULL DEFAULT '',
   spend           REAL NOT NULL DEFAULT 0,

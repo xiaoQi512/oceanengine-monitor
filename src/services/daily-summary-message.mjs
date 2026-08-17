@@ -51,7 +51,7 @@ export function buildDailySummaryMessage({ live, video, anchors, sessions, today
     `${firstSession}-${lastSession} 直播时段数据`,
     `【主播】：${anchors.length > 0 ? anchors.join(' ') : '-'}`,
     '【私信人数】：-',
-    '【线索数】：-',
+    `【线索数】：${totalLeads}（直播${live.totalLeads}/短视频${video.totalLeads}）`,
     `【投流费用】：${fmt(totalConsume)}元（直播${fmt(live.totalConsume)}元/短视频${fmt(video.totalConsume)}元）`,
     `【线索成本（CPL）】：${totalCpl}元（直播CPL${liveCpl}/短视频CPL${videoCpl}）`,
   ].join('\n');

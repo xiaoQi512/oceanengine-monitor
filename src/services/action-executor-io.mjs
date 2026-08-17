@@ -41,8 +41,9 @@ export async function reportToFeishu(
 export async function readPlanAfterValue(
   planName,
   timeoutMs = 10000,
-  { getApiClientFn = getApiClient, accountId = ACCOUNT_ID } = {},
+  options = {},
 ) {
+  const { getApiClientFn = getApiClient, accountId = ACCOUNT_ID, campaignId = '' } = options;
   try {
     const { createClient } = await getApiClientFn();
     const client = await createClient({ useCache: true });
@@ -54,7 +55,11 @@ export async function readPlanAfterValue(
       new Promise((_, reject) => setTimeout(() => reject(new Error('readPlanAfterValue timeout')), timeoutMs)),
     ]);
     const projects = result?.data?.data?.projects || [];
-    const target = projects.find(c => c.project_name?.includes(planName));
+    // 优先精确 ID 匹配（避免 "xxx" 被 "xxx_1" 的模糊匹配抢先命中）
+    let target = campaignId
+      ? projects.find(c => String(c.project_id || c.campaign_id || '') === String(campaignId))
+      : null;
+    if (!target) target = projects.find(c => c.project_name?.includes(planName));
     if (!target) return null;
     return {
       status: target.project_status_name || '',

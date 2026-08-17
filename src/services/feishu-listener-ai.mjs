@@ -14,7 +14,7 @@ let campaignCache = null;
 
 async function defaultCreateClient() {
   const { createClient } = await import('./api-client.mjs');
-  return createClient;
+  return createClient({ useCache: true });
 }
 
 export async function getAccountContext({ dataDir = DATA_DIR, fsImpl = fs, pathImpl = path } = {}) {

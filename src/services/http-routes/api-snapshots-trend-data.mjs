@@ -5,11 +5,11 @@ import { queryAggPoint } from './snapshot-trend-agg.mjs';
 
 export function loadSnapshotTrendData(db, parseSnapshotTime, POINTS = 12) {
   const emptyBaseFields = {
-    baseSpend: 0, baseConversions: 0, baseImpressions: 0,
+    baseSpend: 0, baseConversions: 0, baseImpressions: 0, baseClicks: 0,
     labels: [], timestamps: [], spend: [], cpl: [], cpm: [],
-    conversions: [], impressions: [], activeCount: [], planSpend: [],
+    conversions: [], impressions: [], clicks: [], activeCount: [], planSpend: [],
     spendingCount: [], deliveringCount: [], totalPlanCount: 0, pausedPlanCount: 0,
-    convBreakdown: [], top5PerPoint: []
+    convBreakdown: [], top5PerPoint: [], top5_15m: []
   };
   if (!db) return emptyBaseFields;
 
@@ -39,10 +39,11 @@ export function loadSnapshotTrendData(db, parseSnapshotTime, POINTS = 12) {
     }
   }
 
-  const basePoint = baseTime ? queryAggPoint(db, baseTime) : { spend: 0, conversions: 0, impressions: 0 };
+  const basePoint = baseTime ? queryAggPoint(db, baseTime) : { spend: 0, conversions: 0, impressions: 0, clicks: 0 };
   const baseSpend = basePoint.spend;
   const baseConversions = basePoint.conversions;
   const baseImpressions = basePoint.impressions;
+  const baseClicks = basePoint.clicks;
 
   // top5 预编译
   let prevTimeStmt = null, top5DeltaStmt = null;
@@ -62,14 +63,14 @@ export function loadSnapshotTrendData(db, parseSnapshotTime, POINTS = 12) {
       ORDER BY delta_cost DESC LIMIT 5`);
   } catch {}
 
-  const spend = [], cpl = [], cpm = [], conversions = [], impressions = [];
+  const spend = [], cpl = [], cpm = [], conversions = [], impressions = [], clicks = [];
   const activeCount = [], planSpend = [], spendingCount = [], deliveringCount = [];
   const convBreakdown = [], top5PerPoint = [];
 
   for (const st of actualTimes) {
     if (!st) {
       // 无 5min 快照（偶发漏采） → NaN（Chart.js 断线）
-      spend.push(NaN); cpl.push(NaN); cpm.push(NaN); conversions.push(NaN); impressions.push(NaN);
+      spend.push(NaN); cpl.push(NaN); cpm.push(NaN); conversions.push(NaN); impressions.push(NaN); clicks.push(NaN);
       activeCount.push(NaN); planSpend.push(NaN); spendingCount.push(NaN); deliveringCount.push(NaN);
       convBreakdown.push(null); top5PerPoint.push([]);
       continue;
@@ -80,6 +81,7 @@ export function loadSnapshotTrendData(db, parseSnapshotTime, POINTS = 12) {
     cpm.push(point.cpm);
     conversions.push(point.conversions);
     impressions.push(point.impressions);
+    clicks.push(point.clicks);
     activeCount.push(point.activeCount);
     planSpend.push(point.planSpend);
     spendingCount.push(point.spendingCount);
@@ -93,11 +95,41 @@ export function loadSnapshotTrendData(db, parseSnapshotTime, POINTS = 12) {
   // pausedPlanCount: 总计划 - 投放中（取最后一个真实格点）
   const lastDelivering = deliveringCount.filter(v => typeof v === 'number' && !isNaN(v)).pop() || 0;
   const pausedPlanCount = totalPlanCount > lastDelivering ? totalPlanCount - lastDelivering : 0;
+
+  // 近15分钟新增消耗 TOP5：最新快照 vs 15分钟前快照(往前3个快照)的消耗差值，按差值降序
+  let top5_15m = [];
+  if (dbTimes.length >= 4) {
+    const latestT = dbTimes[dbTimes.length - 1].snapshot_time;
+    const t15ago = dbTimes[dbTimes.length - 4].snapshot_time;
+    try {
+      top5_15m = db.prepare(`
+        SELECT s.campaign_id, c.name,
+          s.cost - COALESCE(prev.cost, 0) as delta_cost,
+          s.leads - COALESCE(prev.leads, 0) as delta_leads
+        FROM snapshots s
+        LEFT JOIN snapshots prev ON s.campaign_id = prev.campaign_id AND prev.snapshot_time = @t15ago AND prev.source_type = '5min'
+        LEFT JOIN campaigns c ON s.campaign_id = c.campaign_id
+        WHERE s.snapshot_time = @latestT AND s.source_type = '5min'
+          AND (s.cost - COALESCE(prev.cost, 0)) > 0
+        ORDER BY delta_cost DESC LIMIT 5
+      `).all({ t15ago, latestT }).map(r => {
+        const deltaCost = Number(r.delta_cost) || 0;
+        const deltaLeads = Number(r.delta_leads) || 0;
+        return {
+          name: (r.name || r.campaign_id || '').slice(0, 30),
+          spend: Number(deltaCost.toFixed(2)),
+          leads: deltaLeads,
+          cpl: deltaLeads > 0 ? Number((deltaCost / deltaLeads).toFixed(2)) : 0
+        };
+      });
+    } catch {}
+  }
+
   return {
-    baseSpend, baseConversions, baseImpressions,
+    baseSpend, baseConversions, baseImpressions, baseClicks,
     labels, timestamps,
-    spend, cpl, cpm, conversions, impressions,
+    spend, cpl, cpm, conversions, impressions, clicks,
     activeCount, planSpend, spendingCount, deliveringCount,
-    totalPlanCount, pausedPlanCount, convBreakdown, top5PerPoint
+    totalPlanCount, pausedPlanCount, convBreakdown, top5PerPoint, top5_15m
   };
 }

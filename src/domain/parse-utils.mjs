@@ -11,7 +11,11 @@ export function parsePlanBudget(budgetStr) {
 
 export function parseSnapshotTime(filename) {
   try {
-    const ts = filename.replace('.json', '').replace('T', ' ').replace(/-/g, (m, i) => i >= 10 ? ':' : m);
+    // 兼容带 accountId 前缀与不带前缀的快照文件名
+    // 例: 2026-08-17T02-30-05.json 与 1842681352509635-2026-08-17T02-30-05.json
+    const m = String(filename).match(/(\d{4}-\d{2}-\d{2})T(\d{2}-\d{2}-\d{2})\.json$/);
+    if (!m) return 0;
+    const ts = `${m[1]} ${m[2]}`.replace(/-/g, (mm, i) => i >= 10 ? ':' : mm);
     return new Date(ts + 'Z').getTime();
   } catch {
     return 0;

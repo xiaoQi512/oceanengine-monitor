@@ -15,11 +15,25 @@ export function readDailyLog(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf-8')); } catch { return null; }
 }
 
+/**
+ * 按日期读取 daily 日志，兼容带 accountId 前缀（daily-{accountId}-{date}.json）
+ */
+export function findDailyLog(dataDir, date) {
+  const plain = path.join(dataDir, `daily-${date}.json`);
+  if (fs.existsSync(plain)) return readDailyLog(plain);
+  try {
+    const files = fs.readdirSync(dataDir)
+      .filter(f => f.startsWith('daily-') && f.includes(`${date}.json`));
+    if (files.length) return readDailyLog(path.join(dataDir, files[files.length - 1]));
+  } catch {}
+  return null;
+}
+
 export function loadPreviousSnapshots(dataDir) {
   const result = { t15: null, t30: null, t60: null };
   try {
     const files = fs.readdirSync(dataDir)
-      .filter(f => f.endsWith('.json') && f.startsWith('202'))
+      .filter(f => f.endsWith('.json') && /(?:\d{4}-\d{2}-\d{2}-)?\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.json$/.test(f))
       .map(f => ({ name: f, age: Math.max((Date.now() - parseSnapshotTime(f)) / 60000, 0) }))
       .sort((a, b) => a.age - b.age);
 
@@ -61,13 +75,15 @@ export function loadPreviousSnapshots(dataDir) {
 export function loadTodaysSnapshots(dataDir) {
   const today = new Date().toISOString().substring(0, 10);
   try {
+    // 兼容带 accountId 前缀与不带前缀的今日快照
     const files = fs.readdirSync(dataDir)
-      .filter(f => f.endsWith('.json') && f.startsWith(today))
+      .filter(f => f.endsWith('.json') && f.includes(today + 'T'))
       .sort();
     return files.map(f => {
       try {
         const snap = JSON.parse(fs.readFileSync(path.join(dataDir, f), 'utf-8'));
-        snap._time = f.substring(0, 19).replace('T', ' ') + ':00';
+        const m = f.match(/(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.json/);
+        snap._time = m ? m[1].replace('T', ' ') + ':00' : f.substring(0, 19).replace('T', ' ') + ':00';
         return snap;
       } catch { return { active: [], allSpending: [], time: null }; }
     });

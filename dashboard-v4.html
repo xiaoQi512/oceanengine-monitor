@@ -1120,12 +1120,43 @@ function switchView(id) {
 async function fetchJson(url) {
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(url + " " + res.status);
-  return res.json();
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(url + " invalid JSON");
+  }
 }
 
 function num(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+
+function trendValues(raw) {
+  return (raw || []).map(v => {
+    if (v === null || v === undefined || v === '') return NaN;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : NaN;
+  });
+}
+
+function trendDelta(raw, base) {
+  const values = trendValues(raw);
+  return values.map((v, i) => {
+    if (!Number.isFinite(v)) return NaN;
+    let prev = i === 0 ? Number(base) : NaN;
+    if (i > 0) {
+      for (let j = i - 1; j >= 0; j--) {
+        if (Number.isFinite(values[j])) {
+          prev = values[j];
+          break;
+        }
+      }
+    }
+    if (!Number.isFinite(prev)) return NaN;
+    return Math.max(0, Math.round((v - prev) * 100) / 100);
+  });
 }
 
 function fmtInt(v) {
@@ -1283,37 +1314,35 @@ function normalizePlans(grouped) {
 }
 
 function normalizeTrend(t) {
-  const spend = (t.spend || []).map(num);
-  const baseSpend = num(t.baseSpend);
-  const deltaSpend = spend.map((v, i) => {
-    const raw = i === 0 ? v - baseSpend : v - spend[i - 1];
-    return Math.max(0, Math.round(raw * 100) / 100);
-  });
-  const conversions = (t.conversions || []).map(num);
-  const baseConversions = num(t.baseConversions);
-  const deltaConv = conversions.map((v, i) => {
-    const raw = i === 0 ? v - baseConversions : v - conversions[i - 1];
-    return Math.max(0, Math.round(raw * 100) / 100);
-  });
+  const spend = trendValues(t.spend);
+  const baseSpend = Number(t.baseSpend);
+  const deltaSpend = trendDelta(spend, baseSpend);
+  const conversions = trendValues(t.conversions);
+  const baseConversions = Number(t.baseConversions);
+  const deltaConv = trendDelta(conversions, baseConversions);
+  const impressions = trendValues(t.impressions);
+  const baseImpressions = Number(t.baseImpressions);
+  const deltaImpressions = trendDelta(impressions, baseImpressions);
   return {
     deltaSpend,
     totalSpend: spend,
     leads: conversions,
-    cpl: (t.cpl || []).map(num),
-    cpm: (t.cpm || []).map(num),
+    cpl: trendValues(t.cpl),
+    cpm: trendValues(t.cpm),
     conversions,
     deltaConversions: deltaConv,
-    impressions: (t.impressions || []).map(num),
-    deliveringCount: (t.deliveringCount || []).map(num),
-    planSpend: (t.planSpend || []).map(num),
+    impressions,
+    deltaImpressions,
+    deliveringCount: trendValues(t.deliveringCount),
+    planSpend: trendValues(t.planSpend),
     timestamps: t.timestamps || [],
     convBreakdown: t.convBreakdown || [],
     top5PerPoint: t.top5PerPoint || [],
     baseSpend,
     baseConversions,
-    baseImpressions: num(t.baseImpressions),
-    totalPlanCount: num(t.totalPlanCount),
-    pausedPlanCount: num(t.pausedPlanCount)
+    baseImpressions,
+    totalPlanCount: Number(t.totalPlanCount) || 0,
+    pausedPlanCount: Number(t.pausedPlanCount) || 0
   };
 }
 
@@ -1335,7 +1364,7 @@ function normalizeKpi(liveData, snap5) {
   const ctr = ctrWeight ? (weightedCtr / ctrWeight) * 100 : num(k.ctr || 0);
   return {
     totalSpend: spend,
-    dailyBudget: num(k.dailyBudget || s.accountBudget || 60000),
+    dailyBudget: num(s.accountBudget || k.dailyBudget || 60000),
     totalLeads: leads,
     avgCpl: num(k.avgCpl || (leads ? spend / leads : 0)),
     totalMsgOpen: num(k.totalMsgOpen || s.totalMsgOpen),
@@ -1654,20 +1683,20 @@ function renderSparklines() {
     let values = (DATA.trend && DATA.trend[realKeys[key]]) || DATA.spark[key] || [];
     if (key === "cpm" && DATA.trend) {
       const t = DATA.trend;
-      const spend = (t.totalSpend || []).map(num);
-      const impr = (t.impressions || []).map(num);
-      const baseSpend = num(t.baseSpend);
-      const baseImpr = num(t.baseImpressions);
+      const deltaSpend = t.deltaSpend || [];
+      const deltaImpr = t.deltaImpressions || [];
       // 千展成本不是累计量，使用相邻快照增量计算时段千展成本，表现类似心率波动
-      const incremental = spend.map((v, i) => {
-        const deltaSpend = i === 0 ? v - baseSpend : v - spend[i - 1];
-        const deltaImpr = i === 0 ? impr[0] - baseImpr : impr[i] - impr[i - 1];
-        return deltaSpend > 0 && deltaImpr > 0 ? (deltaSpend / deltaImpr) * 1000 : null;
+      const incremental = deltaSpend.map((v, i) => {
+        const ds = Number(v);
+        const di = Number(deltaImpr[i]);
+        return Number.isFinite(ds) && Number.isFinite(di) && ds > 0 && di > 0 ? (ds / di) * 1000 : null;
       }).filter(v => v !== null && Number.isFinite(v));
       if (incremental.length >= 2) values = incremental;
     }
+    if (Array.isArray(values)) {
+      values = values.filter(v => v !== null && v !== undefined && Number.isFinite(Number(v))).map(Number);
+    }
     if (values.length < 2) return;
-    if (!values.length) return;
     const w = 120, h = 42, pad = 2;
     const min = Math.min(...values), max = Math.max(...values), range = (max - min) || 1;
     const pts = values.map((v, i) => {
@@ -1687,14 +1716,14 @@ function renderTrendChart() {
   const labels = DATA.trendLabels || [];
   if (!labels.length) return;
   const t = DATA.trend || {};
-  const rawSpend = (t.totalSpend || []).map(num);
-  const rawConv = ((t.conversions && t.conversions.length) ? t.conversions : (t.leads || [])).map(num);
-  const rawCpl = (t.cpl || []).map(num);
-  const rawCpm = (t.cpm || []).map(num);
-  const rawImpr = (t.impressions || []).map(num);
-  const baseSpend = num(t.baseSpend);
-  const baseConv = num(t.baseConversions);
-  const baseImpr = num(t.baseImpressions);
+  const rawSpend = trendValues(t.totalSpend);
+  const rawConv = trendValues((t.conversions && t.conversions.length) ? t.conversions : (t.leads || []));
+  const rawCpl = trendValues(t.cpl);
+  const rawCpm = trendValues(t.cpm);
+  const rawImpr = trendValues(t.impressions);
+  const baseSpend = Number(t.baseSpend);
+  const baseConv = Number(t.baseConversions);
+  const baseImpr = Number(t.baseImpressions);
   const isVoid = v => v === null || v === undefined || isNaN(v);
   let displaySpend;
   let displayConv;
@@ -1703,23 +1732,16 @@ function renderTrendChart() {
   let displayDelivering;
 
   if (trendMode === "delta") {
-    displaySpend = rawSpend.map((v, i) =>
-      i === 0
-        ? (isVoid(v) || isVoid(baseSpend) ? NaN : Math.max(0, v - baseSpend))
-        : (isVoid(v) || isVoid(rawSpend[i - 1]) ? NaN : Math.max(0, v - rawSpend[i - 1])));
-    displayConv = rawConv.map((v, i) =>
-      i === 0
-        ? (isVoid(v) ? NaN : Math.max(0, v - baseConv))
-        : (isVoid(v) || isVoid(rawConv[i - 1]) ? NaN : Math.max(0, v - rawConv[i - 1])));
+    displaySpend = trendDelta(rawSpend, baseSpend);
+    displayConv = trendDelta(rawConv, baseConv);
     displayCpl = displaySpend.map((v, i) => {
-      if (isNaN(v) || isNaN(displayConv[i])) return NaN;
+      if (!Number.isFinite(v) || !Number.isFinite(displayConv[i])) return NaN;
       return displayConv[i] <= 0 ? v : Math.max(0, v / displayConv[i]);
     });
+    const deltaImpr = trendDelta(rawImpr, baseImpr);
     displayCpm = displaySpend.map((v, i) => {
-      const deltaImpr = i === 0
-        ? (isVoid(rawImpr[0]) ? NaN : rawImpr[0] - baseImpr)
-        : (isVoid(rawImpr[i]) || isVoid(rawImpr[i - 1]) ? NaN : rawImpr[i] - rawImpr[i - 1]);
-      return isNaN(deltaImpr) || isNaN(v) || deltaImpr <= 0 || v <= 0 ? NaN : Math.max(0, (v / deltaImpr) * 1000);
+      const dImpr = deltaImpr[i];
+      return !Number.isFinite(v) || !Number.isFinite(dImpr) || dImpr <= 0 || v <= 0 ? NaN : Math.max(0, (v / dImpr) * 1000);
     });
     displayDelivering = (t.deliveringCount || []).map(v => v ?? null);
   } else {
@@ -2134,8 +2156,15 @@ async function startInactivePlan(key) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type: "resume", campaign_id: plan.id, planName: plan.name, source: "dashboard-v4", reason: "启动未投放计划" })
     });
-    const data = await res.json();
-    if (data.ok || data.queued || res.status === 200) {
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      const preview = text.replace(/\s+/g, " ").slice(0, 80);
+      throw new Error("API returned HTTP " + res.status + ": " + preview);
+    }
+    if (res.ok && (data.ok || data.queued)) {
       toast("启动已入队：" + plan.name);
       markPlanProcessed(plan);
       const activePlan = DATA.plans.find(p => p.id === plan.id || p.name === plan.name);
@@ -2227,7 +2256,7 @@ async function planAction(name, action) {
       renderAll();
       setTimeout(loadData, 1800);
     } else {
-      throw new Error(data.error || "入队失败");
+      throw new Error(data.error || ("HTTP " + res.status));
     }
   } catch (e) {
     toast("操作失败：" + e.message);

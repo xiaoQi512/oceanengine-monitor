@@ -29,16 +29,30 @@ export async function fetchLiveAllDay({
   logFn(`  ${sessions.length} 个班次, 首班 ${sessions[0].start}`);
   let totalConsume = 0;
   let totalLeads = 0;
+
+  // 一次拉取全天数据（getSessionStats 返回全时段 rows，StartTime/EndTime 仅作粗过滤，
+  // EndTime 为闭区间会多含 1 小时，需按班次小时半开区间 [start, end) 手动过滤）
+  const firstStart = todayStr + ' ' + sessions[0].start + ':00';
+  const lastEnd = todayStr + ' ' + sessions[sessions.length - 1].end + ':00';
+  const dayResult = await getSessionStatsFn(client, {
+    accountId: liveAccountId,
+    startTime: firstStart,
+    endTime: lastEnd,
+  });
+
   for (const session of sessions) {
-    const st = todayStr + ' ' + session.start + ':00';
-    const et = todayStr + ' ' + session.end + ':00';
-    const result = await getSessionStatsFn(client, {
-      accountId: liveAccountId,
-      startTime: st,
-      endTime: et,
-    });
-    const sessionCost = result.total?.cost || 0;
-    const sessionLeads = result.total?.leads || 0;
+    const [sh] = session.start.split(':').map(Number);
+    const [eh] = session.end.split(':').map(Number);
+    const hours = new Set();
+    for (let h = sh; h < eh; h++) hours.add(h);
+    let sessionCost = 0;
+    let sessionLeads = 0;
+    for (const row of (dayResult.rows || [])) {
+      const rowHour = parseInt(row.hour?.match(/(\d{2}):00/)?.[1] ?? -1);
+      if (!hours.has(rowHour)) continue;
+      sessionCost += row.cost;
+      sessionLeads += row.leads;
+    }
     totalConsume += sessionCost;
     totalLeads += sessionLeads;
     logFn(`    [${session.start}-${session.end}]: ¥${sessionCost.toFixed(2)} / ${sessionLeads}转化`);

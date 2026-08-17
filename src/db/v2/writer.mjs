@@ -29,6 +29,7 @@ export function insertSnapshot(data, sourceType = '15min') {
     // 先 upsert 计划
     api.campaigns.upsert({
       campaign_id: p.id,
+        account_id: data.accountId || '',
       name: p.name,
       status: p.rawStatus || p.status,
       daily_budget: p.budget || 0,
@@ -38,6 +39,7 @@ export function insertSnapshot(data, sourceType = '15min') {
     snapshots.push({
       snapshot_time: snapshotTime,
       snapshot_cst: cstStr,
+        account_id: data.accountId || '',
       campaign_id: p.id,
       cost: p.spend || 0,
       leads: p.leads || 0,
@@ -62,10 +64,12 @@ export function insertSnapshot(data, sourceType = '15min') {
     if (existing) continue;
     api.campaigns.upsert({
       campaign_id: p.id, name: p.name,
+        account_id: data.accountId || '',
       status: p.rawStatus || p.status, daily_budget: p.budget || 0,
     });
     snapshots.push({
       snapshot_time: snapshotTime, snapshot_cst: cstStr,
+        account_id: data.accountId || '',
       campaign_id: p.id, cost: p.spend || 0, leads: p.leads || 0,
       conversions: p.conversions || 0, msg_open: p.privateMsgOpen || 0,
       msg_lead: p.privateMsgRetain || 0, form_submit: p.formSubmit || 0,

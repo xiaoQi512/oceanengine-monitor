@@ -35,13 +35,14 @@ export async function processHead(d) {
     await d.reportToFeishu(head, { ok: false, err: '计划名编码损坏（可能来自 curl），请用 Write 工具重新入队' }, planName);
     return { processed: true, ok: false, reason };
   }
-  const beforeValue = await d.readPlanAfterValue(planName);
+  const candidateId = head.campaignId || head.campaign_id || '';
+  const beforeValue = await d.readPlanAfterValue(planName, undefined, { campaignId: candidateId });
 
   let result = null;
   let attempts = 0;
   let method = 'none';
 
-  const projectId = beforeValue?.projectId || head.projectId || '';
+  const projectId = beforeValue?.projectId || head.projectId || candidateId || '';
   const httpStep = await runHttpApiAttempts(d, head, planName, projectId);
   result = httpStep.result;
   attempts = httpStep.attempts;
@@ -56,7 +57,7 @@ export async function processHead(d) {
         traceRef: head.traceRef || '',
         actionType: auditAction,
         planName,
-        projectId: projectId || beforeValue?.projectId || '',
+        projectId,
         reason: head.reason || '',
         beforeValue,
         afterValue: null,
@@ -89,7 +90,7 @@ export async function processHead(d) {
     afterValue = pickAfterValue(result);
     if (!afterValue) {
       console.log('[worker] afterValue 缺失，调 API 回读:', planName);
-      afterValue = await d.readPlanAfterValue(planName);
+      afterValue = await d.readPlanAfterValue(planName, undefined, { campaignId: projectId });
     }
   }
   d.writeAudit(buildActionAudit({
@@ -99,7 +100,7 @@ export async function processHead(d) {
     result,
     attempts,
     method,
-    projectId: beforeValue?.projectId || head.projectId || '',
+    projectId,
   }));
 
   await finalizeAction(d, result, head, planName, attempts);

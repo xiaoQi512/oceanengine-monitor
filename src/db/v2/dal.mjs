@@ -57,7 +57,7 @@ export function initDB(opts = {}) {
   runMigrations(_db);
 
   _initDone = true;
-  console.log(`  🗄️ 数据库就绪: ${dbPath} (${_db.pragma('user_version')})`);
+  console.log(`  🗄️ 数据库就绪: ${dbPath} (${_db.pragma('user_version', { simple: true })})`);
   return _db;
 }
 
@@ -155,15 +155,16 @@ function listCampaigns(db, { status, limit = 50 } = {}) {
 
 /** 批量 upsert 计划 */
 const upsertCampaignStmt = Symbol('upsertCampaign');
-function upsertCampaign(db, { campaign_id, name, status, daily_budget = 0, bid = null }) {
+function upsertCampaign(db, { campaign_id, account_id = '', name, status, daily_budget = 0, bid = null }) {
   return db.prepare(`
-    INSERT INTO campaigns(campaign_id, name, status, daily_budget, bid, updated_at)
-    VALUES (@cid, @name, @status, @budget, @bid, datetime('now','localtime'))
+    INSERT INTO campaigns(campaign_id, account_id, name, status, daily_budget, bid, updated_at)
+    VALUES (@cid, @accountId, @name, @status, @budget, @bid, datetime('now','localtime'))
     ON CONFLICT(campaign_id) DO UPDATE SET
+      account_id = excluded.account_id,
       name = excluded.name, status = excluded.status,
       daily_budget = excluded.daily_budget, bid = excluded.bid,
       updated_at = datetime('now','localtime')
-  `).run({ cid: campaign_id, name, status, budget: daily_budget, bid });
+  `).run({ cid: campaign_id, accountId: account_id, name, status, budget: daily_budget, bid });
 }
 
 // ====== 快照查询 ======
@@ -171,10 +172,10 @@ function upsertCampaign(db, { campaign_id, name, status, daily_budget = 0, bid =
 /** 插入快照 (批量事务) */
 function insertSnapshots(db, snapshots) {
   const stmt = db.prepare(`
-    INSERT INTO snapshots(snapshot_time, snapshot_cst, campaign_id, cost, leads, conversions,
+    INSERT INTO snapshots(snapshot_time, snapshot_cst, account_id, campaign_id, cost, leads, conversions,
       msg_open, msg_lead, form_submit, ctr, cpm, cvr, views, views_1min, comments,
       source_type, status, page_summary_json, raw_json)
-    VALUES (@time, @cst, @cid, @cost, @leads, @conv, @open, @msgl, @form,
+    VALUES (@time, @cst, @accountId, @cid, @cost, @leads, @conv, @open, @msgl, @form,
       @ctr, @cpm, @cvr, @views, @v1m, @cmt, @src, @status, @page, @raw)
   `);
 
@@ -182,6 +183,7 @@ function insertSnapshots(db, snapshots) {
     for (const s of items) {
       stmt.run({
         time: s.snapshot_time, cst: s.snapshot_cst || '',
+          accountId: s.account_id || '',
         cid: s.campaign_id, cost: s.cost || 0, leads: s.leads || 0,
         conv: s.conversions || 0, open: s.msg_open || 0, msgl: s.msg_lead || 0,
         form: s.form_submit || 0, ctr: s.ctr || 0, cpm: s.cpm || 0,

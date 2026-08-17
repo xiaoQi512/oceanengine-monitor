@@ -15,6 +15,7 @@ PRAGMA encoding = 'UTF-8';
 CREATE TABLE IF NOT EXISTS campaigns (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   campaign_id   TEXT NOT NULL UNIQUE,        -- 巨量引擎计划ID
+    account_id    TEXT NOT NULL DEFAULT '',       -- 广告账户ID
   name          TEXT NOT NULL DEFAULT '',
   status        TEXT NOT NULL DEFAULT '',     -- 启用中/暂停/已删除
   daily_budget  REAL NOT NULL DEFAULT 0,      -- 日预算(元)
@@ -29,6 +30,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
 CREATE TABLE IF NOT EXISTS snapshots (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
   snapshot_time     TEXT NOT NULL,             -- ISO时间 (与JSON文件名一致)
+    account_id        TEXT NOT NULL DEFAULT '',   -- 广告账户ID
   campaign_id       TEXT NOT NULL,             -- 关联campaigns.campaign_id
   cost              REAL NOT NULL DEFAULT 0,   -- 累计消耗
   leads             INTEGER NOT NULL DEFAULT 0,
@@ -115,6 +117,7 @@ CREATE TABLE IF NOT EXISTS name_overrides (
 CREATE INDEX IF NOT EXISTS idx_snapshots_time       ON snapshots(snapshot_time);
 CREATE INDEX IF NOT EXISTS idx_snapshots_camp_time  ON snapshots(campaign_id, snapshot_time);
 CREATE INDEX IF NOT EXISTS idx_snapshots_source     ON snapshots(source_type);
+CREATE INDEX IF NOT EXISTS idx_snapshots_source_time ON snapshots(source_type, snapshot_time);
 CREATE INDEX IF NOT EXISTS idx_alerts_time          ON alerts(alert_time);
 CREATE INDEX IF NOT EXISTS idx_alerts_unresolved    ON alerts(resolved) WHERE resolved = 0;
 CREATE INDEX IF NOT EXISTS idx_actions_time         ON actions(action_time);

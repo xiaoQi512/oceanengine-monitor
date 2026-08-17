@@ -1,4 +1,4 @@
-﻿// oceanengine-api-client.mjs — 巨量引擎 HTTP API 直连客户端 (v2.2)
+// oceanengine-api-client.mjs — 巨量引擎 HTTP API 直连客户端 (v2.2)
 // 直接调 OceanEngine 内部 API 获取 JSON 数据
 // Cookie 过期时自动触发 CDP 登录流程
 //
@@ -300,14 +300,14 @@ export async function getHourlyStats(client, options = {}) {
  * @param {object} client
  * @returns {Promise<object>} 与 v3.1 兼容的数据结构
  */
-export async function collectAllData(client) {
+export async function collectAllData(client, { accountId = ACCOUNT_ID } = {}) {
   const start = Date.now();
-  console.log('  📡 HTTP API 数据采集 (无CDP/无浏览器)...');
+  console.log(`  📡 HTTP API 数据采集 (无CDP/无浏览器) account=${accountId}...`);
 
   // 并发请求3个API
   let [page1, stats] = await Promise.all([
-    getProjects(client, { page: 1, pageSize: 100 }),
-    getDashboardStats(client),
+    getProjects(client, { accountId, page: 1, pageSize: 100 }),
+    getDashboardStats(client, accountId),
   ]);
 
   // Cookie 过期检测：如果 projects 返回了但 metrics 全空，强制刷新 Cookie 重试
@@ -317,8 +317,8 @@ export async function collectAllData(client) {
       console.log('  ⚠ metrics为空，Cookie可能过期，强制刷新重试...');
       await client.refreshCookies();
       [page1, stats] = await Promise.all([
-        getProjects(client, { page: 1, pageSize: 100 }),
-        getDashboardStats(client),
+        getProjects(client, { accountId, page: 1, pageSize: 100 }),
+        getDashboardStats(client, accountId),
       ]);
     }
   }
@@ -330,7 +330,7 @@ export async function collectAllData(client) {
   if (pag && pag.total_page > 1) {
     console.log(`  📄 分页抓取: ${pag.total_page} 页 / ${pag.total_count} 条`);
     for (let p = 2; p <= Math.min(pag.total_page, 5); p++) {
-      const next = await getProjects(client, { page: p, pageSize: 100 });
+      const next = await getProjects(client, { accountId, page: p, pageSize: 100 });
       if (next.projects.length === 0) break;
 
       // 检查该页是否有消耗项目
@@ -374,6 +374,7 @@ export async function collectAllData(client) {
       cpa: parseFloat(String(m.conversion_cost || '0').replace(/,/g, '')),
       budget: parseFloat(String(p.campaign_budget || '0').replace(/,/g, '')),
       budgetMode: p.campaign_budget_mode_name || '',
+      bid: parseFloat(String(p.project_bid ?? p.project_deep_cpa_bid ?? '0').replace(/,/g, '')) || 0,
       liveEnter: parseInt(String(m.luban_live_enter_cnt || '0').replace(/,/g, '')) || 0,
       liveViews: parseInt(String(m.luban_live_enter_cnt || '0').replace(/,/g, '')) || 0,
       liveOneMin: parseInt(String(m.live_watch_one_minute_count || '0').replace(/,/g, '')) || 0,
@@ -409,6 +410,7 @@ export async function collectAllData(client) {
   console.log(`  ✅ 采集完成: ${campaigns.length} 条计划 (${spendingCount}有消耗) | 总消耗 ¥${pageSummary?.spend?.toFixed(2) || '?'} | ${elapsed}s`);
 
   return {
+    accountId,
     campaigns,
     accountSpend: stats?.todaySpend || pageSummary?.spend || 0,
     accountBudget: stats?.todayBudget || 0,

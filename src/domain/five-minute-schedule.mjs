@@ -10,7 +10,9 @@ export function shouldRun5min({ minute, hour, force = false, shiftWin = {} }) {
   const start = (shiftWin.startHour ?? 7) * 60 + (shiftWin.startMinute || 0);
   const end = (shiftWin.endHour ?? 23) * 60 + (shiftWin.endMinute || 0);
   const now = hour * 60 + minute;
-  if (!force && (now < start || now >= end)) {
+  // 跨天窗口(start > end,如 17:00-15:30):覆盖 [start, 24:00) ∪ [0:00, end)
+  const inWindow = start > end ? (now >= start || now < end) : (now >= start && now < end);
+  if (!force && !inWindow) {
     return { run: false, reason: 'outside_window' };
   }
 

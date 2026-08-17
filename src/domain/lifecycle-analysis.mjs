@@ -40,11 +40,11 @@ export function computeLifecycleFromSnapshots(active, todaySnapshots, prev15Snap
     const hourlySpend = hoursActive > 0 ? c.spend / hoursActive : 0;
     const wasDead = prevDeadIds.has(c.id);
 
-    if (hoursActive >= 3 && hourlySpend < 100) {
+    if (hoursActive >= 3 && hourlySpend < 50) {
       c._lifecycle = 'dead';
       c._justRevived = false;
       lifecycleSummary.dead++;
-    } else if (wasDead && hourlySpend >= 100) {
+    } else if (wasDead && hourlySpend >= 50) {
       c._lifecycle = 'active';
       c._justRevived = true;
       lifecycleSummary.active++;

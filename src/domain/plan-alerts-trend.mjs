@@ -15,5 +15,5 @@ export function buildTrendAlerts(trends = {}) {
 export function buildDeadPlanAlerts(active = []) {
   const deadCampaigns = active.filter(c => c._lifecycle === 'dead');
   if (deadCampaigns.length === 0) return [];
-  return [{ type: 'dead_plan', name: `${deadCampaigns.length} 条计划疑似死亡`, detail: deadCampaigns.map(c => `${c.name.slice(0, 30)}: 时均消耗<¥100 且 已投放≥3h`).join('; '), severity: 'low' }];
+  return [{ type: 'dead_plan', name: `${deadCampaigns.length} 条计划低耗停滞`, detail: deadCampaigns.map(c => `${c.name.slice(0, 30)}: 时均消耗<¥50 且 已投放≥3h`).join('; '), severity: 'low' }];
 }

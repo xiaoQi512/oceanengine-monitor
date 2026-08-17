@@ -17,7 +17,8 @@ export function queryAggPoint(db, st) {
   const cpmRow = db.prepare(`
     SELECT COALESCE(SUM(cost), 0) as totalCostForCpm,
       COALESCE(SUM(CASE WHEN cpm > 0 AND cost > 0 THEN cost / cpm END), 0) as sumCostDivCpm,
-      COALESCE(SUM(CASE WHEN cpm > 0 AND cost > 0 THEN cost / cpm * 1000 END), 0) as totalImpr
+      COALESCE(SUM(CASE WHEN cpm > 0 AND cost > 0 THEN cost / cpm * 1000 END), 0) as totalImpr,
+      COALESCE(SUM(CASE WHEN cpm > 0 AND cost > 0 AND ctr > 0 THEN (cost / cpm * 1000) * ctr END), 0) as totalClk
     FROM snapshots WHERE snapshot_time = ? AND source_type = '5min' AND cpm > 0 AND cost > 0
   `).get(st);
   const aggCost = Number(agg?.totalCost || 0);
@@ -30,6 +31,7 @@ export function queryAggPoint(db, st) {
     cpm: tSum > 0 ? Number((tCost / tSum).toFixed(2)) : 0,
     conversions: aggConv,
     impressions: Math.round(Number(cpmRow?.totalImpr || 0)),
+    clicks: Math.round(Number(cpmRow?.totalClk || 0)),
     activeCount: Number(agg?.campaignCount || 0),
     planSpend: Number(aggCost.toFixed(2)),
     spendingCount: Number(agg?.spendingCount || 0),

@@ -59,13 +59,15 @@ const _scanCache = new Map(); // dateStr → { at: Date.now(), files: string[] }
 function scanSnapshotFiles(utcDate) {
   const now = Date.now();
   const cached = _scanCache.get(utcDate);
-  const pattern = `${utcDate}T`;
+  // 兼容带 accountId 前缀与不带前缀的 15min 快照文件
+  // 例: 2026-08-17T02-30-05.json 与 1842681352509635-2026-08-17T02-30-05.json 均匹配
+  const marker = `${utcDate}T`;
 
   // 缓存命中时快速校验文件数是否变化（新快照写入会触发刷新）
   if (cached && (now - cached.at) < 30000) {
     try {
       const currentCount = fs.readdirSync(MONITOR_DATA_DIR)
-        .filter(f => f.startsWith(pattern) && f.endsWith('.json') && !f.startsWith('5m-')).length;
+        .filter(f => f.includes(marker) && f.endsWith('.json') && !f.startsWith('5m-')).length;
       if (currentCount === cached.count) return cached.files;
     } catch {}
   }
@@ -73,7 +75,7 @@ function scanSnapshotFiles(utcDate) {
   let files;
   try {
     files = fs.readdirSync(MONITOR_DATA_DIR)
-      .filter(f => f.startsWith(pattern) && f.endsWith('.json') && !f.startsWith('5m-'))
+      .filter(f => f.includes(marker) && f.endsWith('.json') && !f.startsWith('5m-'))
       .map(f => path.join(MONITOR_DATA_DIR, f))
       .sort();
   } catch {

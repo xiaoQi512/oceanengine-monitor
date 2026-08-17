@@ -39,23 +39,20 @@ export const ACCOUNTS = loadAccounts();
 
 const DEFAULT_ACCOUNT_SOURCE = ACCOUNTS[0] || {};
 
-export const FEISHU_CHAT_ID = process.env.LARK_MONITOR_CHAT_ID
-  || DEFAULT_ACCOUNT_SOURCE.monitorChatId
-  || 'oc_8deeb3061bdbd43608de252a44c97a25';
+export const FEISHU_CHAT_ID = process.env.LARK_MONITOR_CHAT_ID || '';
 export const FEISHU_ANCHOR_CHAT_ID = process.env.LARK_REPORT_CHAT_ID
   || process.env.LARK_ANCHOR_CHAT_ID
-  || DEFAULT_ACCOUNT_SOURCE.reportChatId
-  || 'oc_b245ee4b255c7b25b7f8d953802c49ff';
-export const BOT_APP_ID = process.env.LARK_BOT_APP_ID || 'cli_a92d0bfc68f89cb2';
+  || '';
+export const BOT_APP_ID = process.env.LARK_BOT_APP_ID || '';
 export const ACCOUNT_NAME = process.env.ACCOUNT_NAME
   || DEFAULT_ACCOUNT_SOURCE.name
   || '极狐-区域福利号-直播';
 export const ACCOUNT_ID = process.env.OEC_ACCOUNT_ID
   || DEFAULT_ACCOUNT_SOURCE.accountId
-  || '1842681352509635';
+  || '';
 export const VIDEO_ACCOUNT_ID = process.env.OEC_VIDEO_ACCOUNT_ID
   || DEFAULT_ACCOUNT_SOURCE.videoAccountId
-  || '1852666142648332';
+  || '';
 export const CAMPAIGN_URL = `https://ad.oceanengine.com/promotion/promote-manage/project?aadvid=${ACCOUNT_ID}`;
 export const DAILY_BUDGET = Number(process.env.OEC_DAILY_BUDGET || '45000');
 export const AI_DAILY_BUDGET = Number(process.env.AI_DAILY_BUDGET || '60000');
@@ -68,8 +65,8 @@ export const ACTION_AUDIT_FILE = process.env.ACTION_AUDIT_FILE || path.join(DATA
 export const ACTION_PENDING_FILE = process.env.ACTION_PENDING_FILE || path.join(DATA_DIR, 'pending-actions.json');
 export const HISTORY_FILE = path.join(DATA_DIR, 'suggestion-history.json');
 
-export const SHIFT_SPREADSHEET_TOKEN = process.env.SHIFT_SPREADSHEET_TOKEN || 'GiNOslsWQhyHDPtclPscns3GnAf';
-export const SHIFT_SHEET_ID = process.env.SHIFT_SHEET_ID || 'j69tpS';
+export const SHIFT_SPREADSHEET_TOKEN = process.env.SHIFT_SPREADSHEET_TOKEN || '';
+export const SHIFT_SHEET_ID = process.env.SHIFT_SHEET_ID || '';
 export const SHIFT_BASE_DATE = new Date(2026, 5, 26);
 export const SHIFT_BASE_ROW = 200;
 
@@ -85,6 +82,7 @@ export const CDP_PORT = Number(process.env.CDP_PORT || '9222');
 export const CDP_PROXY_PORT = 3456;
 export const CDP_PROXY_URL = `http://localhost:${CDP_PROXY_PORT}`;
 export const FEEDBACK_PORT = Number(process.env.FEEDBACK_PORT || '8899');
+export const FEEDBACK_BIND_HOST = process.env.FEEDBACK_BIND_HOST || '127.0.0.1';
 
 export const CHROME_USER_DATA_DIR = process.env.CHROME_USER_DATA_DIR || 'D:\\ChromeCDP\\User Data';
 export const CHROME_PROFILE_DIRECTORY = process.env.CHROME_PROFILE_DIRECTORY
@@ -108,8 +106,11 @@ export function validateConfig() {
   const required = [
     ['accountId', DEFAULT_ACCOUNT.accountId],
     ['videoAccountId', DEFAULT_ACCOUNT.videoAccountId],
-    ['monitorChatId', DEFAULT_ACCOUNT.monitorChatId],
-    ['reportChatId', DEFAULT_ACCOUNT.reportChatId],
+    ['monitorChatId', FEISHU_CHAT_ID],
+    ['reportChatId', FEISHU_ANCHOR_CHAT_ID],
+    ['botAppId', BOT_APP_ID],
+    ['shiftSpreadsheetToken', SHIFT_SPREADSHEET_TOKEN],
+    ['shiftSheetId', SHIFT_SHEET_ID],
   ];
   const missing = required
     .filter(([, value]) => !value)

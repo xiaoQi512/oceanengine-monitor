@@ -34,6 +34,7 @@ export function normalizeApiProjects(projectsPage) {
       cpm: toFloat(m.cpm_platform),
       cvr: parseFloat(String(m.conversion_rate || '0%').replace(/%/g, '')) / 100 || 0,
       budget: toFloat(p.campaign_budget),
+      bid: toFloat(p.project_bid ?? p.project_deep_cpa_bid),
       liveViews: toInt(m.luban_live_enter_cnt),
       liveOver1Min: toInt(m.live_watch_one_minute_count),
       liveComments: toInt(m.luban_live_comment_cnt),

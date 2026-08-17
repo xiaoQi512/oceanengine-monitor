@@ -12,7 +12,7 @@ fs.rmSync(dir, { recursive: true, force: true });
 
 const live = await fetchLiveAllDay({
   createClientFn: async () => ({}),
-  getSessionStatsFn: async () => ({ total: { cost: 10, leads: 2 } }),
+  getSessionStatsFn: async () => ({ rows: [{ hour: '09:00:00', cost: 10, leads: 2 }] }),
   getSessionsForDateFn: () => [{ start: '09:00', end: '12:00' }],
   getTodayDateStrFn: () => '2026-08-02',
   logFn: () => {},

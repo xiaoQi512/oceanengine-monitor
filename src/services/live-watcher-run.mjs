@@ -17,17 +17,25 @@ export async function runLiveWatcher() {
   console.log(`[${timeStr()}] 🟢 live-watcher 启动 (轮询间隔 ${POLL_INTERVAL_MS / 1000}s)`);
 
   let state = loadState(STATE_FILE);
-  // 日期更替时重置标记
-  const td = todayStr();
-  if (state.todayDate !== td) {
-    state.todayDate = td;
+  // 日期更替时重置标记（启动时检查一次）
+  const bootTd = todayStr();
+  if (state.todayDate !== bootTd) {
+    state.todayDate = bootTd;
     saveState(state, STATE_FILE);
-    console.log(`[${timeStr()}] 📅 新的一天: ${td}`);
+    console.log(`[${timeStr()}] 📅 新的一天: ${bootTd}`);
   }
   console.log(`[${timeStr()}] 初始状态: wasLive=${state.wasLive}`);
 
   while (true) {
     try {
+      // 常驻进程跨天时更新日期标记（避免 todayDate 停留在启动日）
+      const td = todayStr();
+      if (state.todayDate !== td) {
+        state.todayDate = td;
+        saveState(state, STATE_FILE);
+        console.log(`[${timeStr()}] 📅 新的一天: ${td}`);
+      }
+
       const result = await checkLiveStatus();
 
       // API失败：保持旧状态，不触发任何动作

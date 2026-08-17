@@ -14,16 +14,16 @@ function parseCtrPct(v) {
   return n > 0 && n < 1 ? n * 100 : n;
 }
 
-async function fetchCampaigns(getApiClient) {
+async function fetchCampaigns(getApiClient, accountId = '') {
   const api = await getApiClient();
   const client = await api.createClient({ useCache: true });
-  const result = await api.getProjects(client, { page: 1, pageSize: 100 });
+  const result = await api.getProjects(client, { accountId, page: 1, pageSize: 100 });
   return result.projects || [];
 }
 
 export function normalizeCampaign(p, mode = 'default') {
   const m = p.metrics || {};
-  const statusName = p.project_status_first_name || p.project_status_name || p.status_str || p.status || '';
+  const statusName = p.project_status_name || p.project_status_first_name || p.status_str || p.status || '';
   let stdStatus = statusName;
   if (statusName.includes('启用')) stdStatus = '投放中';
   else if (statusName.includes('暂停')) stdStatus = '未投放(已暂停)';
@@ -48,7 +48,7 @@ export function normalizeCampaign(p, mode = 'default') {
     leads,
     cpa: spend > 0 && conversions > 0 ? Number((spend / conversions).toFixed(2)) : 0,
     budget: grouped ? Number(p.campaign_budget || p.budget || 0) : numOf(p.campaign_budget ?? p.budget),
-    bid: p.project_deep_cpa_bid || p.bid || '',
+    bid: p.project_bid ?? p.project_deep_cpa_bid ?? p.bid ?? '',
     ctr: parseCtrPct(m.ctr ?? p.ctr),
     cpm: grouped ? Number(m.cpm_platform || 0) : numOf(m.cpm_platform),
     cvr: grouped ? Number(m.conversion_rate || 0) : numOf(m.conversion_rate),
@@ -100,6 +100,7 @@ function buildGroups(plans, groups, classifyDeliveryType, emptyGroupSummary, sum
 
 export async function serveCampaigns(url, req, res, ctx) {
   const { classifyDeliveryType, emptyGroupSummary, summarizeGroup, getApiClient, DB_PATH } = ctx;
+  const accountId = url.searchParams.get('accountId') || '';
 
   if (url.pathname === '/api/campaigns') {
     try {

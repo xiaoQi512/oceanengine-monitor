@@ -3,12 +3,13 @@ import http from 'node:http';
 import os from 'node:os';
 import {
   getLocalDate, loadSuggestionHistory, saveSuggestionHistory, recalcSummary,
-  DATA_DIR, PROJECT_ROOT, FEEDBACK_PORT, ACCOUNT_NAME,
+  DATA_DIR, PROJECT_ROOT, FEEDBACK_PORT, FEEDBACK_BIND_HOST, ACCOUNT_NAME,
   ACCOUNT_ID,
+    ACCOUNTS,
   ACTION_AUDIT_FILE, ACTION_PENDING_FILE,
   ACTION_QUEUE_FILE,
 } from '../utils/monitor-utils.mjs';
-import { createHttpServerHandler } from './http-server-handler.mjs';
+import { createHttpServerHandler } from './http-server-handler-v2.mjs';
 import {
   get5mSnapshots,
   DB_PATH,
@@ -41,10 +42,12 @@ async function getApiClient() {
 
 const server = http.createServer(createHttpServerHandler({
   FEEDBACK_PORT,
+  CSRF_SECRET: process.env.CSRF_SECRET || '',
   PROJECT_ROOT,
   DATA_DIR,
   ACCOUNT_ID,
   ACCOUNT_NAME,
+    ACCOUNTS,
   getLocalDate,
   loadSuggestionHistory,
   saveSuggestionHistory,
@@ -76,7 +79,7 @@ const server = http.createServer(createHttpServerHandler({
 }));
 
 export function startServer() {
-  server.listen(FEEDBACK_PORT, '0.0.0.0', () => {
+  server.listen(FEEDBACK_PORT, FEEDBACK_BIND_HOST, () => {
     const nets = os.networkInterfaces();
     let lanIP = '127.0.0.1';
     for (const name of Object.keys(nets)) {
@@ -86,7 +89,7 @@ export function startServer() {
         }
       }
     }
-    console.log(`📡 反馈服务器已启动: http://0.0.0.0:${FEEDBACK_PORT}`);
+    console.log(`📡 反馈服务器已启动: http://${FEEDBACK_BIND_HOST}:${FEEDBACK_PORT}`);
     console.log(`   Dashboard: http://127.0.0.1:${FEEDBACK_PORT}/dashboard`);
     console.log(`   本机报表: http://127.0.0.1:${FEEDBACK_PORT}/report`);
     console.log(`   局域网报表: http://${lanIP}:${FEEDBACK_PORT}/report`);

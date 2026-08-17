@@ -5,12 +5,15 @@ import { DATA_DIR, getLocalDate, atomicWriteJSON } from '../utils/monitor-utils.
 
 const LOCK_FILE = path.join(DATA_DIR, 'shift-push-lock.json');
 const ERROR_LOG = path.join(DATA_DIR, 'shift-push-errors.log');
-const CAR_MODEL_DEFAULT = '贝塔S3';
+const CAR_MODEL_DEFAULT = '贝塔S3'; // 2026-08-15 之前
+const CAR_MODEL_NEW = '阿尔法S5'; // 2026-08-15 起
+const CAR_MODEL_SWITCH_DATE = '2026-08-15';
 const CAR_MODEL_OVERRIDE = { '2026-06-30': '问道V9' };
 
 export function getCarModel({ getLocalDateFn = getLocalDate } = {}) {
   const today = getLocalDateFn();
-  return CAR_MODEL_OVERRIDE[today] || CAR_MODEL_DEFAULT;
+  if (CAR_MODEL_OVERRIDE[today]) return CAR_MODEL_OVERRIDE[today];
+  return today >= CAR_MODEL_SWITCH_DATE ? CAR_MODEL_NEW : CAR_MODEL_DEFAULT;
 }
 
 export function log(...args) {

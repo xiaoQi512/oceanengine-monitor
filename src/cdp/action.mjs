@@ -45,7 +45,7 @@ async function readPlanStateFromApi(planName) {
       found: true,
       status: hit.project_status_name || hit.project_status_first_name || '',
       budget: parseFloat(String(hit.campaign_budget || '0').replace(/,/g, '')) || 0,
-      bid: hit.bid || '',
+      bid: hit.project_bid ?? hit.project_deep_cpa_bid ?? hit.bid ?? '',
       raw: hit,
     };
   } catch (e) {

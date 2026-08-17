@@ -5,6 +5,7 @@ import path from 'node:path';
 import { execSync, execFileSync, spawnSync, spawn } from 'node:child_process';
 import http from 'node:http';
 import { installConsoleInterceptor } from './logger.mjs';
+import { parseShiftRowsByDate } from '../domain/shift-schedule.mjs';
 import {
   PROJECT_ROOT,
   DATA_DIR,
@@ -19,6 +20,7 @@ import {
   BOT_APP_ID,
   ACCOUNT_NAME,
   ACCOUNT_ID,
+    ACCOUNTS,
   VIDEO_ACCOUNT_ID,
   CAMPAIGN_URL,
   DAILY_BUDGET,
@@ -33,6 +35,7 @@ import {
   CDP_PROXY_PORT,
   CDP_PROXY_URL,
   FEEDBACK_PORT,
+    FEEDBACK_BIND_HOST,
   CHROME_USER_DATA_DIR,
   CHROME_PROFILE_DIRECTORY,
   CHROME_PATHS,
@@ -73,7 +76,7 @@ export function getTodayShiftWindow() {
   const today = getLocalDate();
   if (_shiftWindowCacheDate === today && _shiftWindowCache) return _shiftWindowCache;
 
-  // 优先读取本地缓存
+  // 1) 优先读取本地缓存
   try {
     const cacheFile = path.join(DATA_DIR, `shifts-${today}.json`);
     if (fs.existsSync(cacheFile)) {
@@ -92,32 +95,67 @@ export function getTodayShiftWindow() {
     }
   } catch {}
 
+  // 2) 实时读取排班表:按 A 列日期匹配当日行(避免行号推算随场数变化漂移)
   try {
     const larkCli = findLarkCli();
     if (!larkCli) throw new Error('lark-cli not found');
-    const startRow = getShiftRowForDate(getLocalDate());
-    const count = getShiftsPerDay(today);
-    const endRow = startRow + count - 1;
-    const range = 'B' + startRow + ':' + endRow;
-    const out = execFileSync(
-      larkCli.endsWith('.exe') ? larkCli : 'cmd.exe',
-      larkCli.endsWith('.exe')
-        ? ['sheets', '+csv-get', '--spreadsheet-token', SHIFT_SPREADSHEET_TOKEN, '--sheet-id', SHIFT_SHEET_ID, '--range', range]
-        : ['/c', larkCli, 'sheets', '+csv-get', '--spreadsheet-token', SHIFT_SPREADSHEET_TOKEN, '--sheet-id', SHIFT_SHEET_ID, '--range', range],
-      { encoding: 'utf-8', timeout: 10000, windowsHide: true, cwd: PROJECT_ROOT }
-    );
-    const parsed = JSON.parse(out);
-    const csv = parsed?.data?.annotated_csv || '';
-    const lines = csv.split(/\n/).filter(l => l.trim());
-    const firstMatch = lines[0]?.match(/(\d{2}):(\d{2})-(\d{2}):(\d{2})/);
-    const lastMatch = lines[lines.length - 1]?.match(/(\d{2}):(\d{2})-(\d{2}):(\d{2})/);
-    if (!firstMatch || !lastMatch) throw new Error('parse failed');
-    const result = {
-      startHour: parseInt(firstMatch[1]),
-      startMinute: parseInt(firstMatch[2]),
-      endHour: parseInt(lastMatch[3]),
-      endMinute: parseInt(lastMatch[4]),
+    const isExe = larkCli.endsWith('.exe');
+    const run = (args, timeout = 15000) => {
+      const out = execFileSync(
+        isExe ? larkCli : 'cmd.exe',
+        isExe ? args : ['/c', larkCli, ...args],
+        { encoding: 'utf-8', timeout, windowsHide: true, cwd: PROJECT_ROOT }
+      );
+      return JSON.parse(out);
     };
+
+    // 2.1 行数(workbook-info),失败则用保守范围兜底
+    let endRow = 800;
+    try {
+      const info = run(['sheets', '+workbook-info', '--spreadsheet-token', SHIFT_SPREADSHEET_TOKEN]);
+      const sheet = info?.data?.sheets?.find(s => s.sheet_id === SHIFT_SHEET_ID)
+        || info?.data?.sheets?.[0];
+      if (sheet?.row_count) endRow = Math.max(2, Number(sheet.row_count));
+    } catch {}
+
+    // 2.2 读取日期列+时段列+主播列,按日期过滤
+    const csvOut = run([
+      'sheets', '+csv-get',
+      '--spreadsheet-token', SHIFT_SPREADSHEET_TOKEN,
+      '--sheet-id', SHIFT_SHEET_ID,
+      '--range', `A2:C${endRow}`,
+    ]);
+    const csv = csvOut?.data?.annotated_csv || '';
+    const shifts = parseShiftRowsByDate(csv, today);
+    if (!shifts.length) throw new Error('排班表未找到日期 ' + today);
+
+    const first = shifts[0].label.split('-')[0].split(':').map(Number);
+    const last = shifts[shifts.length - 1].label.split('-')[1].split(':').map(Number);
+    const result = {
+      startHour: first[0],
+      startMinute: first[1],
+      endHour: last[0],
+      endMinute: last[1],
+    };
+
+    // 2.3 回写当日缓存:供 api-live 班次面板/后续进程复用,避免每 5min 全表查询
+    try {
+      const cacheFile = path.join(DATA_DIR, `shifts-${today}.json`);
+      const tmpFile = cacheFile + '.tmp';
+      fs.writeFileSync(tmpFile, JSON.stringify({
+        date: today,
+        startHour: result.startHour,
+        startMinute: result.startMinute,
+        endHour: result.endHour,
+        endMinute: result.endMinute,
+        startTime: shifts[0].label.split('-')[0],
+        endTime: shifts[shifts.length - 1].label.split('-')[1],
+        shifts,
+        syncedAt: new Date().toISOString(),
+      }, null, 2), 'utf-8');
+      fs.renameSync(tmpFile, cacheFile);
+    } catch {}
+
     _shiftWindowCache = result;
     _shiftWindowCacheDate = today;
     return result;
@@ -313,6 +351,7 @@ export {
   BOT_APP_ID,
   ACCOUNT_NAME,
   ACCOUNT_ID,
+    ACCOUNTS,
   VIDEO_ACCOUNT_ID,
   CAMPAIGN_URL,
   DAILY_BUDGET,
@@ -327,6 +366,7 @@ export {
   CDP_PROXY_PORT,
   CDP_PROXY_URL,
   FEEDBACK_PORT,
+    FEEDBACK_BIND_HOST,
   CHROME_USER_DATA_DIR,
   CHROME_PROFILE_DIRECTORY,
   CHROME_PATHS,

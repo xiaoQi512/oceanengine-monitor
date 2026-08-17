@@ -40,13 +40,61 @@ assert.deepStrictEqual(
 );
 assert.deepStrictEqual(apiCalls, ['create', 'rooms', 'status']);
 
+// 首次 is_live=false，二次确认仍 false → 判定未开播
 assert.strictEqual(
   (await checkLiveStatus({
     ...deps,
     getOnlineRoomList: async () => [{ room_id: 'r1' }],
     getLiveRoomStatus: async () => ({ is_live: false }),
+    recheckDelayMs: 0,
   })).isLive,
   false,
+);
+
+// 首次 is_live=false，二次确认在线 → 判定在线（修复静默漏推）
+let statusCalls = 0;
+assert.deepStrictEqual(
+  await checkLiveStatus({
+    ...deps,
+    getOnlineRoomList: async () => [{ room_id: 'r1' }],
+    getLiveRoomStatus: async () => {
+      statusCalls += 1;
+      return statusCalls === 1 ? { is_live: false } : { is_live: true, room_title: '恢复直播' };
+    },
+    recheckDelayMs: 0,
+  }),
+  { isLive: true, roomTitle: '恢复直播' },
+);
+
+// 二次确认房间列表为空 → 按排班窗口视为在线
+let roomCallCount = 0;
+assert.strictEqual(
+  (await checkLiveStatus({
+    ...deps,
+    getOnlineRoomList: async () => {
+      roomCallCount += 1;
+      return roomCallCount === 1 ? [{ room_id: 'r1' }] : [];
+    },
+    getLiveRoomStatus: async () => ({ is_live: false }),
+    recheckDelayMs: 0,
+  })).isLive,
+  true,
+);
+
+// 二次确认 API 异常 → 保守视为在线
+let roomCallCount2 = 0;
+assert.strictEqual(
+  (await checkLiveStatus({
+    ...deps,
+    getOnlineRoomList: async () => {
+      roomCallCount2 += 1;
+      if (roomCallCount2 > 1) throw new Error('二次查询网络错误');
+      return [{ room_id: 'r1' }];
+    },
+    getLiveRoomStatus: async () => ({ is_live: false }),
+    recheckDelayMs: 0,
+  })).isLive,
+  true,
 );
 
 assert.strictEqual((await checkLiveStatus(deps)).isLive, true);

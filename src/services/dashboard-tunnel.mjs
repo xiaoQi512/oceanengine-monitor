@@ -11,7 +11,6 @@ import {
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const STATE_FILE = path.join(ROOT, 'monitor-data', 'dashboard-tunnel.json');
-const GATEWAY_LAST_URL_FILE = path.resolve(ROOT, '..', '.gateway_last_url.txt');
 const DEFAULT_SETTINGS_FILE = 'C:/Users/HTF2026/.codebuddy/settings.json';
 const DEFAULT_PROXY_PORT = 8898;
 const DEFAULT_UPSTREAM = 'http://127.0.0.1:8899';
@@ -34,7 +33,15 @@ function parsePort() {
   return Number.isInteger(raw) && raw > 0 && raw < 65536 ? raw : DEFAULT_PROXY_PORT;
 }
 
-function sendLogin(res, error = '') {
+function sendLogin(res, error = '', isApi = false) {
+  if (isApi) {
+    res.writeHead(401, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+    });
+    res.end(JSON.stringify({ error: 'unauthorized', message: error || '请重新登录' }));
+    return;
+  }
   const errHtml = error ? `<p style="color:#f87171">${error}</p>` : '';
   res.writeHead(401, {
     'Content-Type': 'text/html; charset=utf-8',
@@ -81,7 +88,7 @@ function handleLogin(req, res, password, authHash) {
       res.end();
       return;
     }
-    sendLogin(res, '密码错误');
+    sendLogin(res, '密码错误', true);
   });
 }
 
@@ -105,12 +112,12 @@ function handleRequest(req, res, password, authHash) {
       res.end();
       return;
     }
-    sendLogin(res, '密码错误');
+    sendLogin(res, '密码错误', true);
     return;
   }
 
   if (!isDashboardAuthorized(req, password)) {
-    sendLogin(res);
+    sendLogin(res, '', url.pathname.startsWith('/api/'));
     return;
   }
 
@@ -186,22 +193,18 @@ function readTunnelStateUrl() {
   }
 }
 
-function readGatewayLastUrl() {
-  try {
-    return fs.readFileSync(GATEWAY_LAST_URL_FILE, 'utf-8').trim();
-  } catch {
-    return '';
-  }
-}
-
-function notifyDashboardTunnel() {
-  const gatewayUrl = readGatewayLastUrl();
+function notifyDashboardTunnel(tunnelUrl) {
+  const password = readPassword();
+  const cleanTunnelUrl = String(tunnelUrl || '').replace(/\/+$/, '');
+  const passwordQuery = password ? `?password=${encodeURIComponent(password)}` : '';
+  const dashboardUrl = `${cleanTunnelUrl}/dashboard-v4${passwordQuery}`;
   const script = path.resolve(ROOT, '..', 'send_gateway_to_feishu.py');
   const python = process.env.PYTHON || 'python';
-  const child = spawn(python, [script, '--dashboard-only', gatewayUrl], {
+  const child = spawn(python, [script, '--dashboard-only', dashboardUrl], {
     stdio: 'ignore',
     windowsHide: true,
     cwd: path.dirname(script),
+    env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
   });
   child.on('error', (err) => console.error(`[dashboard-tunnel] 飞书通知失败: ${err.message}`));
   child.unref();
@@ -245,7 +248,7 @@ function startCloudflared(localPort) {
       const previousUrl = readTunnelStateUrl();
       writeTunnelState(url, child.pid, localPort);
       console.log(`[dashboard-tunnel] 仪表盘隧道: ${url}`);
-      if (previousUrl !== url) notifyDashboardTunnel();
+      if (previousUrl !== url) notifyDashboardTunnel(url);
     }
   };
   child.stdout.on('data', onData);

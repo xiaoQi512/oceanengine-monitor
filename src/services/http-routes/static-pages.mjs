@@ -19,17 +19,15 @@ function sendFile(res, file, contentType, fallback = 'Not Found') {
 
 export function serveStaticPages(url, res, ctx) {
   const { PROJECT_ROOT } = ctx;
-  if (url.pathname === '/dashboard') {
-    const file = path.join(PROJECT_ROOT, 'dashboard-v4.html');
+  if (url.pathname === '/dashboard' || url.pathname === '/dashboard-v4' || url.pathname === '/dashboard-v5') {
+    const v5 = path.join(PROJECT_ROOT, 'dashboard-v5.html');
+    const file = fs.existsSync(v5) ? v5 : path.join(PROJECT_ROOT, 'dashboard-v4.html');
     if (!fs.existsSync(file)) {
       res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end('<html><body style="font-family:sans-serif;padding:40px"><h2>dashboard-v4.html 未生成</h2></body></html>');
+      res.end('<html><body style="font-family:sans-serif;padding:40px"><h2>dashboard-v5.html 未生成</h2></body></html>');
       return true;
     }
     return sendFile(res, file, 'text/html; charset=utf-8');
-  }
-  if (url.pathname === '/dashboard-v4') {
-    return sendFile(res, path.join(PROJECT_ROOT, 'dashboard-v4.html'), 'text/html; charset=utf-8', '');
   }
   if (url.pathname === '/dashboard.js') return sendFile(res, path.join(PROJECT_ROOT, 'dashboard.js'), 'application/javascript; charset=utf-8');
   if (url.pathname === '/dashboard.css') return sendFile(res, path.join(PROJECT_ROOT, 'dashboard.css'), 'text/css; charset=utf-8');

@@ -22,12 +22,76 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+// 5m 快照超过该时限视为过期,回退最新 15min 快照,避免仪表盘展示跨天/停摆的陈旧数据
+const MAX_5M_AGE_MS = 25 * 60 * 1000;
+
+// 将 15min 快照映射为 5m 快照兼容结构(前端 normalizeKpi 依赖的字段)
+export function map15mTo5mLatest(snap) {
+  if (!snap) return null;
+  const summary = snap.summary || {};
+  const delta = snap.delta || {};
+  const plans = snap.allSpending || snap.active || [];
+  const campaigns = plans.map(c => ({
+    id: c.id || '',
+    name: c.name || '',
+    status: c.status || c.rawStatus || '',
+    spend: toNumber(c.spend),
+    conversions: toNumber(c.conversions),
+    formSubmit: toNumber(c.formSubmit),
+    privateMsgOpen: toNumber(c.privateMsgOpen),
+    privateMsgRetain: toNumber(c.privateMsgRetain),
+    leads: toNumber(c.leads ?? c.conversions),
+    ctr: toNumber(c.ctr),
+    cpm: toNumber(c.cpm),
+    cvr: toNumber(c.cvr),
+    budget: toNumber(c.budget),
+    bid: toNumber(c.bid),
+  }));
+  const totalSpend = toNumber(summary.accountSpend ?? summary.totalSpend);
+  const totalConv = toNumber(summary.totalConversions ?? summary.totalLeads);
+  return {
+    accountSpend: totalSpend,
+    accountBudget: toNumber(summary.accountBudget ?? delta.dailyBudget),
+    accountBalance: toNumber(summary.accountBalance),
+    summarySpend: totalSpend,
+    totalConv,
+    activeCount: toNumber(summary.totalActive),
+    spendingCount: toNumber(summary.totalSpending),
+    impressions: toNumber(summary.impressions),
+    liveViews: toNumber(summary.totalLiveViews),
+    liveOver1Min: toNumber(summary.totalLiveOver1Min),
+    allSpending: plans,
+    active: plans.filter(c => (c.status || '').includes('投放中') || c.rawStatus === '启用'),
+    campaigns,
+    summary: { totalSpend, totalLeads: toNumber(summary.totalLeads ?? summary.totalConversions) },
+    time: snap.time || new Date().toISOString(),
+    _rolling: { last5min: toNumber(delta.spendLast15min) / 3, last5minMinutes: 5 },
+    _recentCPM: toNumber(summary.avgCPM),
+    sourceType: '15min-fallback',
+    _staleFallback: true,
+  };
+}
+
+function resolveFresh5mLatest(getLatestSnapshot, get5mSnapshots, accountId = '') {
+  const snaps = get5mSnapshots(1, { accountId });
+  const latest = snaps.length ? snaps[snaps.length - 1] : null;
+  const ageMs = latest?.time ? Date.now() - new Date(latest.time).getTime() : Infinity;
+  if (!latest || !Number.isFinite(ageMs) || ageMs > MAX_5M_AGE_MS) {
+    try {
+      const fallback = map15mTo5mLatest(getLatestSnapshot({ accountId }));
+      if (fallback) return fallback;
+    } catch (_) { /* 15min 快照也不可用时保持原样 */ }
+  }
+  return latest;
+}
+
 export function serveSnapshots(url, req, res, ctx) {
   const { getLatestSnapshot, get5mSnapshots, DB_PATH, DATA_DIR, getLocalDate } = ctx;
+  const accountId = url.searchParams.get('accountId') || '';
 
   if (url.pathname === '/api/snapshots') {
     try {
-      const snap = getLatestSnapshot();
+      const snap = getLatestSnapshot({ accountId });
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8',
         'Cache-Control': 'no-store' });
       res.end(JSON.stringify(snap || {}));
@@ -40,8 +104,7 @@ export function serveSnapshots(url, req, res, ctx) {
 
   if (url.pathname === '/api/snapshots/cpm-compare') {
     try {
-      const snaps = get5mSnapshots(1);
-      const latest = snaps.length ? snaps[snaps.length - 1] : null;
+      const latest = resolveFresh5mLatest(getLatestSnapshot, get5mSnapshots);
       const currentCpm = Number(latest?._recentCPM || latest?.cpm || 0);
       let yesterdayAvgCpm = 0;
       if (DB_PATH) {
@@ -132,8 +195,7 @@ export function serveSnapshots(url, req, res, ctx) {
 
   if (url.pathname === '/api/kpi/compare') {
     try {
-      const snaps = get5mSnapshots(1);
-      const latest = snaps.length ? snaps[snaps.length - 1] : null;
+      const latest = resolveFresh5mLatest(getLatestSnapshot, get5mSnapshots);
       const dailyBudget = Number(latest?.accountBudget || 60000);
       const currentSpeed = Number(latest?._rolling?.last5min || 0);
       const currentCpm = Number(latest?._recentCPM || 0);
@@ -217,8 +279,8 @@ export function serveSnapshots(url, req, res, ctx) {
   if (url.pathname === '/api/snapshots/5m') {
     try {
       const historyN = Math.max(0, parseInt(url.searchParams.get('history') || '0', 10) || 0);
-      const snaps = get5mSnapshots(historyN > 0 ? historyN : 1);
-      const latest = snaps.length ? snaps[snaps.length - 1] : null;
+      const snaps = get5mSnapshots(historyN > 0 ? historyN : 1, { accountId });
+      const latest = resolveFresh5mLatest(getLatestSnapshot, get5mSnapshots);
 
       // 从 DB 聚合当日私信开口/留资数据(每 plan 取 MAX-MIN 得当日增量)
       let totalMsgOpen = 0, totalMsgLead = 0;

@@ -2,11 +2,12 @@
 // 静态资源 dashboard-v4 + Chart.js 缓存优先
 // API 请求网络优先
 
-const CACHE_VERSION = 'oec-dash-v4';
-const NETWORK_FIRST = ['/dashboard', '/dashboard-v4'];
+const CACHE_VERSION = 'oec-dash-v7';
+const NETWORK_FIRST = ['/dashboard', '/dashboard-v4', '/dashboard-v5'];
 const STATIC_ASSETS = [
   '/dashboard',
   '/dashboard-v4',
+  '/dashboard-v5',
   '/vendor/chart.umd.min.js',
   '/manifest.json',
 ];

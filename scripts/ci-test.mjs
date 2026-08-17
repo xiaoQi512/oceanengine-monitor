@@ -148,6 +148,8 @@ const CI_TESTS = [
   'tests/campaign-analysis.test.mjs',
   'tests/card-top-lines.test.mjs',
   'tests/api-actions-core.test.mjs',
+    'tests/metrics-registry.test.mjs',
+    'tests/ai-diagnosis.test.mjs',
   'scripts/check-agent-rules.mjs',
 ];
 
