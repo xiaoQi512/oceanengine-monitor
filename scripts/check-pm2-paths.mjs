@@ -21,9 +21,15 @@ for (const app of apps) {
   assert.ok(!seen.has(app.name), `重复的 PM2 应用名: ${app.name}`);
   seen.add(app.name);
   const cwd = app.cwd || PROJECT_ROOT;
-  const script = path.resolve(cwd, app.script);
-  assert.ok(fs.existsSync(script), `${app.name} 脚本不存在: ${script}`);
-  assert.ok(fs.existsSync(path.resolve(cwd)), `${app.name} 工作目录不存在: ${cwd}`);
+  // 绝对 Windows 路径(如 C:/Users/...)仅本机可解析，跨平台检查时跳过
+  const winAbsCwd = isWindowsAbsolutePath(cwd);
+  const winAbsScript = isWindowsAbsolutePath(app.script);
+  if (process.platform === 'win32' || !(winAbsCwd || winAbsScript)) {
+    assert.ok(fs.existsSync(path.resolve(cwd, app.script)), `${app.name} 脚本不存在: ${path.resolve(cwd, app.script)}`);
+  }
+  if (process.platform === 'win32' || !winAbsCwd) {
+    assert.ok(fs.existsSync(path.resolve(cwd)), `${app.name} 工作目录不存在: ${cwd}`);
+  }
   assert.ok(app.env && typeof app.env === 'object', `${app.name} 应包含 env 对象`);
   if (app.args !== undefined) {
     assert.ok(typeof app.args === 'string' || Array.isArray(app.args), `${app.name} args 应为字符串或数组`);
