@@ -4,7 +4,8 @@
 //       pm2 start ecosystem.config.cjs --only pm2-15min  (仅启动15分钟)
 const MONITOR_DIR = process.env.MONITOR_DIR || __dirname;
 const LOG_DIR = `${MONITOR_DIR}\\monitor-data`;
-const NODE = process.env.NODE_EXE || "C:\\Users\\HTF2026\\.workbuddy\\binaries\\node\\versions\\22.22.2\\node.exe";
+// ⚠️ 2026-08-29: WorkBuddy 将 node 版本目录 22.22.2 → 22.22.2-2（current 指向已更新）
+const NODE = process.env.NODE_EXE || "C:\\Users\\HTF2026\\.workbuddy\\binaries\\node\\versions\\22.22.2-2\\node.exe";
 
 module.exports = {
   apps: [

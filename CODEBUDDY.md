@@ -6,14 +6,15 @@
 
 ### Node.js
 - **版本**: Node 22.22.2 (ABI 127)
-- **路径**: `C:\Users\HTF2026\.workbuddy\binaries\node\versions\22.22.2\node.exe`
+- **路径**: `C:\Users\HTF2026\.workbuddy\binaries\node\versions\22.22.2-2\node.exe`
 - **PM2 配置**: `ecosystem.config.cjs` 所有进程 `interpreter` 绑定此版本
+- ⚠️ 2026-08-29: 版本目录由 22.22.2 改为 22.22.2-2（WorkBuddy 更新），旧路径已删除
 
 > ⚠️ **不要使用 PATH 中的 Node 24 (ABI 137)**
 > 本机同时存在 Node 24 (`/e/炼丹炉/nodejs/node`)，PM2 脚本强制使用 Node 22。
 > 安装/重建原生模块必须用 Node 22 的 npm：
 > ```
-> "C:/Users/HTF2026/.workbuddy/binaries/node/versions/22.22.2/npm.cmd" install <pkg>
+> "C:/Users/HTF2026/.workbuddy/binaries/node/versions/22.22.2-2/npm.cmd" install <pkg>
 > ```
 
 ### 原生模块
@@ -85,5 +86,5 @@ pm2 restart pm2-15min pm2-5min
 tail -f monitor-data/monitor.log
 
 # 重建原生模块 (Node 升级后)
-C:/Users/HTF2026/.workbuddy/binaries/node/versions/22.22.2/npm.cmd rebuild better-sqlite3
+C:/Users/HTF2026/.workbuddy/binaries/node/versions/22.22.2-2/npm.cmd rebuild better-sqlite3
 ```
