@@ -14,6 +14,9 @@ jobs:
   # ====== 单元测试 (push/PR/schedule) ======
   test:
     runs-on: ubuntu-latest
+    env:
+      # CI 无 .env，注入占位值仅用于验证配置加载链路非空（不触发真实推送）
+      LARK_MONITOR_CHAT_ID: oc_ci_test_placeholder
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
