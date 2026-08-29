@@ -6,11 +6,75 @@ import { ACCOUNT_ID } from '../config/index.mjs';
 import { OEC_BASE_URL, OEC_COOKIE_CACHE_FILE } from '../platform/oec-client.mjs';
 
 const COOKIE_CACHE_TTL = 2 * 60 * 60 * 1000; // Cookie 缓存2小时 (实测session约2h)
+const TAB_TITLES = ['投放管理', '巨量引擎工作台'];
+// 覆盖登录态 cookie 实际所在域（business 工作台、ad 投放、sso 登录、根域）
+const COOKIE_URLS = [
+  'https://ad.oceanengine.com',
+  'https://sso.oceanengine.com',
+  'https://business.oceanengine.com',
+  'https://www.oceanengine.com',
+  'https://oceanengine.com',
+];
+const EXTRACT_MAX_ATTEMPTS = 3; // ws 提取偶发 timeout → 重试
+const EXTRACT_RETRY_DELAY_MS = 1500;
+
+/**
+ * 对单个标签页执行一次 CDP Cookie 提取（ws 连接 + getCookies + UA）。
+ * 失败抛错由上层重试。
+ */
+async function extractFromTabOnce(tab) {
+  const ws = new WebSocket(tab.webSocketDebuggerUrl);
+  let cmdId = 1;
+  const pending = new Map();
+  let settled = false;
+
+  function wsSend(method, params = {}) {
+    return new Promise((resolve, reject) => {
+      const id = cmdId++;
+      pending.set(id, { resolve, reject });
+      ws.send(JSON.stringify({ id, method, params }));
+      setTimeout(() => {
+        if (pending.has(id)) { pending.delete(id); reject(new Error('timeout')); }
+      }, 10000);
+    });
+  }
+
+  try {
+    await new Promise((r, rej) => { ws.once('open', r); ws.once('error', rej); setTimeout(() => rej(new Error('ws timeout')), 8000); });
+    ws.on('message', (data) => {
+      const d = Buffer.isBuffer(data) ? data.toString() : String(data || '');
+      let msg; try { msg = JSON.parse(d); } catch { return; }
+      if (msg.id && pending.has(msg.id)) { const { resolve } = pending.get(msg.id); pending.delete(msg.id); resolve(msg); }
+    });
+
+    await wsSend('Network.enable');
+
+    // 优先 getCookies(指定域)；若返回空（标签页所在域不在列表中），回退 getAllCookies 过滤 oceanengine 域
+    let cookies = (await wsSend('Network.getCookies', { urls: COOKIE_URLS }))?.result?.cookies || [];
+    if (cookies.length === 0) {
+      const all = (await wsSend('Network.getAllCookies'))?.result?.cookies || [];
+      cookies = all.filter(c => /oceanengine\.com|bytedance\.com|zijieapi\.com|feelgood\.cn$/.test(c.domain || ''));
+      if (cookies.length > 0) console.log(`  ℹ getCookies 域内为空，改用 getAllCookies (${cookies.length} 个)`);
+    }
+
+    const uaResult = await wsSend('Runtime.evaluate', { expression: 'navigator.userAgent', returnByValue: true });
+    const userAgent = uaResult?.result?.result?.value || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+    settled = true;
+    return { cookies, userAgent };
+  } finally {
+    try { ws.close(); } catch {}
+    if (!settled) {
+      // 失败时清理未决 pending，避免残留定时器
+      for (const { reject } of pending.values()) { try { reject(new Error('aborted')); } catch {} }
+      pending.clear();
+    }
+  }
+}
 
 export async function extractCookiesFromBrowser() {
   console.log('  🍪 从浏览器提取 Cookie...');
 
-  const tab = await getOceanEngineTab(['投放管理', '巨量引擎工作台']);
+  const tab = await getOceanEngineTab(TAB_TITLES);
 
   // 浏览器未登录 → 尝试自动登录
   if (!tab) {
@@ -32,57 +96,37 @@ export async function extractCookiesFromBrowser() {
     throw new Error('未找到巨量引擎标签页且无法自动登录');
   }
 
-  const ws = new WebSocket(tab.webSocketDebuggerUrl);
-  let cmdId = 1;
-  const pending = new Map();
+  // 提取重试：CDP ws 提取偶发 timeout（多进程并发/浏览器繁忙），重试后仍失败才抛错
+  let lastErr = null;
+  for (let attempt = 1; attempt <= EXTRACT_MAX_ATTEMPTS; attempt++) {
+    try {
+      const { cookies, userAgent } = await extractFromTabOnce(tab);
 
-  function wsSend(method, params = {}) {
-    return new Promise((resolve, reject) => {
-      const id = cmdId++;
-      pending.set(id, { resolve, reject });
-      ws.send(JSON.stringify({ id, method, params }));
-      setTimeout(() => {
-        if (pending.has(id)) { pending.delete(id); reject(new Error('timeout')); }
-      }, 10000);
-    });
+      // URI编码cookie值，确保HTTP头仅含ASCII安全字符（如get_new_msg_timer_cycle含中文）
+      const cookieString = cookies.map(c => `${c.name}=${encodeURIComponent(c.value)}`).join('; ');
+
+      const headers = {
+        'Cookie': cookieString,
+        'User-Agent': userAgent,
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'Referer': `${OEC_BASE_URL}/promotion/promote-manage/project?aadvid=${ACCOUNT_ID}`,
+        'Origin': OEC_BASE_URL,
+        'Content-Type': 'application/json',
+      };
+
+      const cookieData = { cookies: cookieString, headers, expireAt: Date.now() + COOKIE_CACHE_TTL };
+      fs.writeFileSync(OEC_COOKIE_CACHE_FILE, JSON.stringify(cookieData, null, 2));
+
+      console.log(`  ✅ 提取 ${cookies.length} 个 Cookie (有效期至 ${new Date(cookieData.expireAt).toLocaleString()})`);
+      return cookieData;
+    } catch (e) {
+      lastErr = e;
+      if (attempt < EXTRACT_MAX_ATTEMPTS) {
+        console.log(`  ⚠ Cookie 提取第 ${attempt} 次失败: ${e.message?.slice(0, 40)}，${(EXTRACT_RETRY_DELAY_MS / 1000).toFixed(0)}s 后重试...`);
+        await new Promise(r => setTimeout(r, EXTRACT_RETRY_DELAY_MS));
+      }
+    }
   }
-
-  await new Promise((r, rej) => { ws.once('open', r); ws.once('error', rej); setTimeout(() => rej(new Error('ws timeout')), 8000); });
-  ws.on('message', (data) => {
-    const d = Buffer.isBuffer(data) ? data.toString() : String(data || '');
-    let msg; try { msg = JSON.parse(d); } catch { return; }
-    if (msg.id && pending.has(msg.id)) { const { resolve } = pending.get(msg.id); pending.delete(msg.id); resolve(msg); }
-  });
-
-  await wsSend('Network.enable');
-
-  const result = await wsSend('Network.getCookies', {
-    urls: ['https://ad.oceanengine.com', 'https://sso.oceanengine.com'],
-  });
-  const cookies = result?.result?.cookies || [];
-  // URI编码cookie值，确保HTTP头仅含ASCII安全字符（如get_new_msg_timer_cycle含中文）
-  const cookieString = cookies.map(c => `${c.name}=${encodeURIComponent(c.value)}`).join('; ');
-
-  const uaResult = await wsSend('Runtime.evaluate', {
-    expression: 'navigator.userAgent', returnByValue: true,
-  });
-  ws.close();
-
-  const userAgent = uaResult?.result?.result?.value || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
-
-  const headers = {
-    'Cookie': cookieString,
-    'User-Agent': userAgent,
-    'Accept': 'application/json, text/plain, */*',
-    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-    'Referer': `${OEC_BASE_URL}/promotion/promote-manage/project?aadvid=${ACCOUNT_ID}`,
-    'Origin': OEC_BASE_URL,
-    'Content-Type': 'application/json',
-  };
-
-  const cookieData = { cookies: cookieString, headers, expireAt: Date.now() + COOKIE_CACHE_TTL };
-  fs.writeFileSync(OEC_COOKIE_CACHE_FILE, JSON.stringify(cookieData, null, 2));
-
-  console.log(`  ✅ 提取 ${cookies.length} 个 Cookie (有效期至 ${new Date(cookieData.expireAt).toLocaleString()})`);
-  return cookieData;
+  throw lastErr;
 }

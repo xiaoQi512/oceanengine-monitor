@@ -1,12 +1,11 @@
 // sw.js — Service Worker (运行时缓存策略)
-// 静态资源 dashboard-v4 + Chart.js 缓存优先
+// 静态资源 dashboard-v5 + Chart.js 缓存优先
 // API 请求网络优先
 
-const CACHE_VERSION = 'oec-dash-v7';
-const NETWORK_FIRST = ['/dashboard', '/dashboard-v4', '/dashboard-v5'];
+const CACHE_VERSION = 'oec-dash-v8';
+const NETWORK_FIRST = ['/dashboard', '/dashboard-v5'];
 const STATIC_ASSETS = [
   '/dashboard',
-  '/dashboard-v4',
   '/dashboard-v5',
   '/vendor/chart.umd.min.js',
   '/manifest.json',
@@ -53,7 +52,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   // 同源静态资源 & 本地 vendor
-  // - dashboard-v4: 网络优先
+  // - dashboard-v5: 网络优先
   // - manifest: 缓存优先 + 后台更新
   const isNetworkFirst = NETWORK_FIRST.includes(url.pathname);
   const isStaticCache = url.pathname === '/manifest.json';

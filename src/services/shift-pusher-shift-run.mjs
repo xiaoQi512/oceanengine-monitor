@@ -16,14 +16,15 @@ const OEC_FORCE = process.env.OEC_FORCE === '1';
 const OEC_DRY_RUN = process.env.OEC_DRY_RUN === '1';
 const OEC_SKIP_WRITE_SHEET = process.env.OEC_SKIP_WRITE_SHEET === '1';
 
-export async function runShift(shift) {
+export async function runShift(shift, { force = false } = {}) {
   const row = shift.row;
+  const forced = OEC_FORCE || force;
   log('▶ 开始处理时段: ' + shift.label + ' (行' + row + ', 小时' + shift.hours.join(',') + ')');
-  if (!OEC_FORCE && isAlreadyPushed(shift.label)) {
+  if (!forced && isAlreadyPushed(shift.label)) {
     log('⏭ 已推送过 ' + shift.label + '，跳过');
     return;
   }
-  if (!OEC_FORCE) {
+  if (!forced) {
     log('⏳ 班次已结束，等待30秒以确保结束快照完整...');
     await new Promise(r => setTimeout(r, 30_000));
   }

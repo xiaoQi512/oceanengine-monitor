@@ -1,6 +1,47 @@
 // src/services/shift-pusher-run-main.mjs - 换班轮询主循环与强制执行
+import fs from 'node:fs';
+import path from 'node:path';
 import { getShiftEndMinutes, isShiftEnded } from './shift-pusher-schedule.mjs';
 import { isAlreadyPushed, log, logError } from './shift-pusher-state.mjs';
+
+/**
+ * 消费仪表盘补推信号(repush-signal.json)：
+ * 检测到 signal.shiftLabel 时，对对应班次强制执行 runShift(force)，然后清理信号文件。
+ */
+export async function consumeRepushSignal({
+  runShift,
+  shiftCache,
+  dataDir,
+  logFn = log,
+} = {}) {
+  if (!dataDir) return;
+  const signalFile = path.join(dataDir, 'repush-signal.json');
+  let signal;
+  try {
+    signal = JSON.parse(fs.readFileSync(signalFile, 'utf-8'));
+  } catch {
+    return; // 无信号或文件无效
+  }
+  const { shiftLabel } = signal;
+  if (!shiftLabel) {
+    try { fs.unlinkSync(signalFile); } catch {}
+    return;
+  }
+  const todayShifts = shiftCache.getTodayShifts();
+  const shift = todayShifts.find(s => s.label === shiftLabel);
+  if (!shift) {
+    logFn(`🔧 补推信号 ${shiftLabel} 未找到匹配班次，忽略并清理`);
+    try { fs.unlinkSync(signalFile); } catch {}
+    return;
+  }
+  logFn(`🔧 收到补推信号，强制执行: ${shiftLabel}`);
+  try {
+    await runShift(shift, { force: true });
+  } catch (e) {
+    logFn('补推失败 ' + shiftLabel + ':', e.message);
+  }
+  try { fs.unlinkSync(signalFile); } catch {}
+}
 
 export async function pollOnce({
   runShift,
@@ -16,6 +57,8 @@ export async function pollOnce({
   logErrorFn = logError,
 } = {}) {
   shiftCache.ensureTodayShifts({ dataDir, getLocalDateFn, readTodayShiftsFn, logFn });
+  // 先消费仪表盘补推信号（每轮优先执行）
+  await consumeRepushSignal({ runShift, shiftCache, dataDir, logFn });
   for (const shift of shiftCache.getTodayShifts()) {
     if (isShiftEndedFn(shift, now)) {
       if (isAlreadyPushedFn(shift.label)) continue;

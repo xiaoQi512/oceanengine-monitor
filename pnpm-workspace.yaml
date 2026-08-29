@@ -1,0 +1,2 @@
+minimumReleaseAgeExclude:
+  - '@xgone/dsh-remote@0.1.5'

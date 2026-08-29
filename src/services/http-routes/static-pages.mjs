@@ -19,9 +19,9 @@ function sendFile(res, file, contentType, fallback = 'Not Found') {
 
 export function serveStaticPages(url, res, ctx) {
   const { PROJECT_ROOT } = ctx;
-  if (url.pathname === '/dashboard' || url.pathname === '/dashboard-v4' || url.pathname === '/dashboard-v5') {
-    const v5 = path.join(PROJECT_ROOT, 'dashboard-v5.html');
-    const file = fs.existsSync(v5) ? v5 : path.join(PROJECT_ROOT, 'dashboard-v4.html');
+  // 统一入口：/dashboard 与 /dashboard-v5 均返回当前版本 dashboard-v5.html
+  if (url.pathname === '/dashboard' || url.pathname === '/dashboard-v5') {
+    const file = path.join(PROJECT_ROOT, 'dashboard-v5.html');
     if (!fs.existsSync(file)) {
       res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end('<html><body style="font-family:sans-serif;padding:40px"><h2>dashboard-v5.html 未生成</h2></body></html>');
@@ -29,34 +29,6 @@ export function serveStaticPages(url, res, ctx) {
     }
     return sendFile(res, file, 'text/html; charset=utf-8');
   }
-  if (url.pathname === '/dashboard.js') return sendFile(res, path.join(PROJECT_ROOT, 'dashboard.js'), 'application/javascript; charset=utf-8');
-  if (url.pathname === '/dashboard.css') return sendFile(res, path.join(PROJECT_ROOT, 'dashboard.css'), 'text/css; charset=utf-8');
-  if (url.pathname === '/dashboard-v3.js') return sendFile(res, path.join(PROJECT_ROOT, 'dashboard-v3.js'), 'application/javascript; charset=utf-8', '');
-  if (url.pathname === '/dashboard-v3.css') return sendFile(res, path.join(PROJECT_ROOT, 'dashboard-v3.css'), 'text/css; charset=utf-8', '');
-  if (url.pathname === '/dashboard-v3') {
-    const file = path.join(PROJECT_ROOT, 'dashboard-v3.html');
-    const html = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : '<html><body><h2>dashboard-v3.html 尚未创建</h2></body></html>';
-    res.writeHead(200, {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
-      'Last-Modified': new Date().toUTCString(),
-    });
-    res.end(html);
-    return true;
-  }
-  if (url.pathname === '/dashboard-v2') {
-    const file = path.join(PROJECT_ROOT, 'dashboard-v2.html');
-    const html = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : '<html><body><h2>dashboard-v2.html 尚未创建</h2></body></html>';
-    res.writeHead(200, {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
-      'Last-Modified': new Date().toUTCString(),
-    });
-    res.end(html);
-    return true;
-  }
-  if (url.pathname === '/dashboard-v2.js') return sendFile(res, path.join(PROJECT_ROOT, 'dashboard-v2.js'), 'application/javascript; charset=utf-8', '');
-  if (url.pathname === '/dashboard-v2.css') return sendFile(res, path.join(PROJECT_ROOT, 'dashboard-v2.css'), 'text/css; charset=utf-8', '');
   if (url.pathname === '/manifest.json') return sendFile(res, path.join(PROJECT_ROOT, 'manifest.json'), 'application/manifest+json; charset=utf-8', '{}');
   if (url.pathname === '/sw.js') {
     const file = path.join(PROJECT_ROOT, 'sw.js');

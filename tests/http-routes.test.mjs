@@ -46,20 +46,15 @@ function mockRes() {
 
 async function testStatic() {
   const res = mockRes();
-  const handled = serveStatic(new URL('http://x/dashboard-v2'), null, res, { PROJECT_ROOT });
+  const handled = serveStatic(new URL('http://x/dashboard-v5'), null, res, { PROJECT_ROOT });
   assert.strictEqual(handled, true);
   assert.strictEqual(res.status, 200);
-  assert.ok(res.body.includes('dashboard-v2'), '应返回 dashboard-v2 HTML');
-
-  const v4 = mockRes();
-  assert.strictEqual(serveStatic(new URL('http://x/dashboard-v4'), null, v4, { PROJECT_ROOT }), true);
-  assert.strictEqual(v4.status, 200);
-  assert.ok(v4.body.includes('实时仪表盘'), '应返回 dashboard-v4 HTML');
+  assert.ok(res.body.includes('实时仪表盘'), '应返回 dashboard-v5 HTML');
 
   const prod = mockRes();
   assert.strictEqual(serveStatic(new URL('http://x/dashboard'), null, prod, { PROJECT_ROOT }), true);
   assert.strictEqual(prod.status, 200);
-  assert.ok(prod.body.includes('实时仪表盘'), '应返回生产版 dashboard-v4 HTML');
+  assert.ok(prod.body.includes('实时仪表盘'), '应返回生产版 dashboard-v5 HTML');
 
   const redirect = mockRes();
   assert.strictEqual(serveStatic(new URL('http://x/'), null, redirect, { PROJECT_ROOT }), true);

@@ -47,16 +47,12 @@ Thumbs.db
 # HTML 报告(生成物)
 *.html
 !dashboard-v5.html
-!dashboard-v5-offline.html
 monitor-data/
 archive/
 .daemon-backups/
 _q*
 *.bak-*
 ls/
-
-# 仪表盘 v4 封版文件
-!dashboard-v4.html
 
 # 临时/诊断产物
 tmp-inspect/

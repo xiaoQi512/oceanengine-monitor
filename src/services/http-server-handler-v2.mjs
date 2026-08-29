@@ -143,11 +143,9 @@ export function createHttpServerHandler(deps) {
       return;
     }
 
-    // 只读 API GET 自动下发 double-submit cookie（页面无需预热请求）
-    if (method === 'GET' && url.pathname.startsWith('/api/')
-        && !String(req.headers?.cookie || '').includes(CSRF_COOKIE_NAME + '=')) {
-      sendCsrfCookie(res);
-    }
+    // 只读 API GET 不再自动下发 csrf_token cookie：
+    // 并发 GET 各自生成随机 token 互相覆盖, 会破坏 double-submit 一致性(前端变量与 cookie 不同步 → POST 403 CSRF)。
+    // token 统一由 GET /api/csrf-token 下发(前端 ensureCsrfToken 唯一入口)。
 
     if (url.pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });

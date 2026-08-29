@@ -1232,11 +1232,23 @@ async function fetchJson(url, options) {
     const sep = String(url).includes("?") ? "&" : "?";
     finalUrl = String(url) + sep + "accountId=" + encodeURIComponent(currentAccountId);
   }
-  const res = await fetch(finalUrl, { cache: "no-store", ...(options || {}), method, headers });
-  const text = await res.text();
-  let parsed;
-  try { parsed = JSON.parse(text); }
-  catch { throw new Error("API returned HTTP " + res.status + ": " + text.replace(/\s+/g, " ").slice(0, 80)); }
+  const doFetch = async (h) => {
+    const r = await fetch(finalUrl, { cache: "no-store", ...(options || {}), method, headers: h });
+    const t = await r.text();
+    let p;
+    try { p = JSON.parse(t); }
+    catch { p = null; }
+    return { r, t, p };
+  };
+  let { r: res, t: text, p: parsed } = await doFetch(headers);
+  // CSRF 失败重试一次(多标签页/竞态导致 cookie 与 token 不同步): 强制刷新 token 后重发
+  if (method !== "GET" && res.status === 403 && parsed?.error === "CSRF") {
+    csrfToken = "";
+    await ensureCsrfToken();
+    if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+    ({ r: res, t: text, p: parsed } = await doFetch(headers));
+  }
+  if (parsed === null) throw new Error("API returned HTTP " + res.status + ": " + text.replace(/\s+/g, " ").slice(0, 80));
   if (!res.ok) throw new Error(parsed.error || ("HTTP " + res.status));
   return parsed;
 }
@@ -1258,12 +1270,11 @@ async function loadAccounts() {
     const accounts = data?.accounts || [];
     const select = document.getElementById("accountSelect");
     if (!select) return;
-    select.innerHTML = accounts.map(a =>
+    select.innerHTML = '<option value="">全部账户</option>' + accounts.map(a =>
       '<option value="' + escAttr(a.id || "") + '">' + esc(a.name || a.id || "未命名") + "</option>"
     ).join("");
-    if (!currentAccountId && accounts.length > 0) {
-      currentAccountId = accounts[0].id || "";
-    }
+    // 默认全局视图(currentAccountId 为空); 存量数据 account_id 为空, 自动设账户ID会过滤出空数据
+    currentAccountId = "";
     select.value = currentAccountId;
     if (currentAccountId) loadData(false);
   } catch (e) {

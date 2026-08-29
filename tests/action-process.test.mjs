@@ -10,7 +10,7 @@ assert.deepStrictEqual(result, { processed: false, reason: 'empty' });
 const httpCalls = [];
 const audits = [];
 const apiResult = await processHead({
-  loadQueue: async () => ({ actions: [{ type: 'resume', planName: '0803-真人直播-短引直-S3（真人口播)', campaignId: '7669763298461073418', source: 'dashboard-v4' }] }),
+  loadQueue: async () => ({ actions: [{ type: 'resume', planName: '0803-真人直播-短引直-S3（真人口播)', campaignId: '7669763298461073418', source: 'dashboard-v5' }] }),
   saveQueue: async () => {},
   readPlanAfterValue: async () => null,
   tryHttpApi: async (head, projectId) => {

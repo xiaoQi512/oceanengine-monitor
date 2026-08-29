@@ -86,33 +86,52 @@ async function main() {
   const failures = [];
   const state = loadState();
 
-  // 1. 15min 快照新鲜度（最新快照 JSON 文件）
+  // 直播窗口判断: 非直播时段(23:00-07:00)监控静默不写快照, 快照"过期"属正常, 跳过快照检查
+  let inLiveWindow = true;
   try {
-    const files = fs.readdirSync(DATA_DIR)
-      .filter(f => /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.json$/.test(f))
-      .sort();
-    const newest = files[files.length - 1];
-    if (!newest) {
-      failures.push('未找到任何 15min 快照文件');
+    const { getTodayShiftWindow } = await import('../src/utils/monitor-utils.mjs');
+    const win = getTodayShiftWindow();
+    const nowD = new Date();
+    const hm = nowD.getHours() * 60 + nowD.getMinutes();
+    const start = (win.startHour ?? 7) * 60 + (win.startMinute || 0);
+    const end = (win.endHour ?? 23) * 60 + (win.endMinute || 0);
+    inLiveWindow = start > end ? (hm >= start || hm < end) : (hm >= start && hm < end);
+  } catch {}
+
+  // 1. 15min 快照新鲜度（最新快照 JSON 文件）
+  // 兼容带 accountId 前缀与不带前缀的文件: 1842681352509635-2026-08-17T...json 或 2026-08-17T...json
+  // 按快照时间排序(文件名时间戳解析)取最新, 避免字符串排序把带前缀(1开头)文件排到不带前缀(2开头)前面
+  if (inLiveWindow) {
+    try {
+      const { parseSnapshotTime } = await import('../src/domain/parse-utils.mjs');
+      const files = fs.readdirSync(DATA_DIR)
+        .filter(f => !f.startsWith('5m-') && /(?:\d{4}-\d{2}-\d{2}-)?\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.json$/.test(f))
+        .sort((a, b) => parseSnapshotTime(b) - parseSnapshotTime(a));
+      const newest = files[0];
+      if (!newest) {
+        failures.push('未找到任何 15min 快照文件');
+      } else {
+        const age = Date.now() - fs.statSync(path.join(DATA_DIR, newest)).mtimeMs;
+        if (age > FIFTEEN_MAX_AGE) {
+          failures.push(`15min 快照过期: ${newest} (${Math.round(age / 60000)} 分钟前)`);
+        }
+      }
+    } catch (e) {
+      failures.push(`15min 快照检查异常: ${e.message}`);
+    }
+
+    // 2. 5m 快照新鲜度（5m-*.json 文件）
+    const latest5 = latestFile('5m-', '.json');
+    if (!latest5) {
+      failures.push('未找到任何 5m 快照文件');
     } else {
-      const age = Date.now() - fs.statSync(path.join(DATA_DIR, newest)).mtimeMs;
-      if (age > FIFTEEN_MAX_AGE) {
-        failures.push(`15min 快照过期: ${newest} (${Math.round(age / 60000)} 分钟前)`);
+      const age = fileAgeMs(latest5);
+      if (age > FIVE_MAX_AGE) {
+        failures.push(`5m 快照过期: ${latest5} (${Math.round(age / 60000)} 分钟前)`);
       }
     }
-  } catch (e) {
-    failures.push(`15min 快照检查异常: ${e.message}`);
-  }
-
-  // 2. 5m 快照新鲜度（5m-*.json 文件）
-  const latest5 = latestFile('5m-', '.json');
-  if (!latest5) {
-    failures.push('未找到任何 5m 快照文件');
   } else {
-    const age = fileAgeMs(latest5);
-    if (age > FIVE_MAX_AGE) {
-      failures.push(`5m 快照过期: ${latest5} (${Math.round(age / 60000)} 分钟前)`);
-    }
+    log('🌙 非直播时段，跳过快照新鲜度检查');
   }
 
   // 3. feedback-server 健康检查

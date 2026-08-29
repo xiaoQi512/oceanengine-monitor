@@ -109,6 +109,47 @@ module.exports = {
       time: true,
     },
 
+    // ====== dsh-tunnel 常驻：DSH web 独立远程隧道（认证代理 8897 -> 3080 + cloudflared）======
+    {
+      name: "dsh-tunnel",
+      script: "src/services/dsh-tunnel.mjs",
+      cwd: MONITOR_DIR,
+      exec_mode: "fork",
+      interpreter: NODE,
+      env: { NODE_ENV: "production" },
+      instances: 1,
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 5000,
+      kill_timeout: 10000,
+      max_memory_restart: "128M",
+      out_file: `${LOG_DIR}\\pm2-dsh-tunnel-out.log`,
+      error_file: `${LOG_DIR}\\pm2-dsh-tunnel-err.log`,
+      merge_logs: true,
+      time: true,
+    },
+
+    // ====== dsh-web 常驻：DSH web 服务本体（127.0.0.1:3080），远程访问不依赖桌面版 ======
+    {
+      name: "dsh-web",
+      script: "C:/Users/HTF2026/.workbuddy/binaries/node/versions/22.22.2/node_modules/@deepseek-ai/dsh/lib/bin.js",
+      args: "web",
+      cwd: "C:/Users/HTF2026/.workbuddy/binaries/node/versions/22.22.2/node_modules/@deepseek-ai/dsh",
+      exec_mode: "fork",
+      interpreter: NODE,
+      env: { NODE_ENV: "production" },
+      instances: 1,
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 5000,
+      kill_timeout: 15000,
+      max_memory_restart: "600M",
+      out_file: `${LOG_DIR}\\pm2-dsh-web-out.log`,
+      error_file: `${LOG_DIR}\\pm2-dsh-web-err.log`,
+      merge_logs: true,
+      time: true,
+    },
+
     // ====== 5分钟速报（cron 触发，跑完即退）======
     {
       name: "pm2-5min",

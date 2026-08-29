@@ -142,9 +142,12 @@ async function apiRequest(url, options = {}) {
  */
 export async function getProjects(client, options = {}) {
   const {
-    page = 1, pageSize = 200, accountId = ACCOUNT_ID,
+    page = 1, pageSize = 200, accountId: accountIdOpt = ACCOUNT_ID,
     date = localDateStr(),
   } = options;
+  // 空串 accountId 不触发默认值(仅 undefined 触发), 需显式兜底到主账户
+  // 全局视图(无 accountId 参数)应返回主账户数据
+  const accountId = accountIdOpt || ACCOUNT_ID;
 
   const body = JSON.stringify({
     st: date,
