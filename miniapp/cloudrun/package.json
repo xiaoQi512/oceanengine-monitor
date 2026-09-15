@@ -1,0 +1,16 @@
+{
+  "name": "monitor-api",
+  "version": "1.0.0",
+  "description": "巨量引擎监控小程序 - 云托管中枢服务",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@cloudbase/node-sdk": "^3.9.0",
+    "express": "^4.19.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
