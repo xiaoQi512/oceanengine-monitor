@@ -185,6 +185,9 @@ Page({
     const wMax = Math.max(...arr.map(w => w.cost), 1)
     const sumCost = arr.reduce((a, b) => a + b.cost, 0)
     const sumLeads = arr.reduce((a, b) => a + b.leads, 0)
+    // CPA 点位基准: 区间内有效 CPA 的最大值
+    const cpaVals = arr.filter(w => w.leads > 0).map(w => w.cost / w.leads)
+    const cpaMax = Math.max(...cpaVals, 1)
     this.setData({
       detailBars: arr.map((w, i) => {
         const cpa = w.leads > 0 ? Math.round(w.cost / w.leads) : null
