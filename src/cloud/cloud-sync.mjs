@@ -43,23 +43,73 @@ function fmtHM(ts) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-// ---------- 近15分钟 (铁律: 最近3个5分钟桶, 速率按真实分钟) ----------
+// 单快照点击数推算: clicks_i = 曝光_i × ctr_i, 曝光_i = spend_i × 1000 / cpm_i
+function estClicks(snap) {
+  let clicks = 0;
+  for (const c of (snap?.campaigns || [])) {
+    const cs = Number(c.spend) || 0;
+    const cpmI = Number(c.cpm) || 0;
+    const ctrI = Number(c.ctr) || 0;
+    if (cpmI > 0 && cs > 0) clicks += (cs * 1000 / cpmI) * (ctrI > 1 ? ctrI / 100 : ctrI);
+  }
+  return clicks;
+}
 
-function last15Module(snaps) {
-  if (snaps.length < 2) return { minutes: 0, spend: 0, leads: 0, conv: 0, opens: 0, retains: 0, forms: 0, speed_1h: 0, top5: [] };
-  const idx = Math.min(2, snaps.length - 1);
-  const newest = snaps[0].data, oldest = snaps[idx].data;
-  const minutes = Math.max(1, Math.round((snaps[0].mtime - snaps[idx].mtime) / 60000));
+// 两快照差值 (15分钟窗口基础量)
+function windowDiff(a, b) {
   const num = (o, k) => Number(o?.[k]) || 0;
   const sum = (o, k) => (o?.campaigns || []).reduce((s, c) => s + (Number(c[k]) || 0), 0);
+  const spend = +(num(a, 'accountSpend') - num(b, 'accountSpend')).toFixed(2);
+  const impr = num(a, 'impressions') - num(b, 'impressions');
+  const clicks = Math.round(estClicks(a) - estClicks(b));
+  return {
+    spend,
+    leads: num(a, 'totalConv') - num(b, 'totalConv'),
+    opens: sum(a, 'privateMsgOpen') - sum(b, 'privateMsgOpen'),
+    impr,
+    clicks,
+    cpm: impr > 0 ? +((spend / impr) * 1000).toFixed(1) : 0,
+    ctr: impr > 0 ? +((clicks / impr) * 100).toFixed(2) : 0
+  };
+}
+
+const deltaPct = (cur, prev) => (prev > 0 && cur >= 0) ? +(((cur - prev) / prev) * 100).toFixed(1) : null;
+
+// ---------- 近15分钟 (铁律: 最近3个5分钟桶, 速率按真实分钟) + 上一轮窗口环比 ----------
+
+function last15Module(snaps) {
+  if (snaps.length < 2) {
+    return { minutes: 0, spend: 0, leads: 0, opens: 0, cpm: 0, ctr: 0, impr: 0, clicks: 0, speed_1h: 0, deltas: null, top5: [] };
+  }
+  const idx = Math.min(2, snaps.length - 1);
+  const minutes = Math.max(1, Math.round((snaps[0].mtime - snaps[idx].mtime) / 60000));
+
+  // 本轮窗口: snaps[0] - snaps[2]; 上一轮窗口: snaps[3] - snaps[5] (用于环比)
+  const cur = windowDiff(snaps[0].data, snaps[idx].data);
+  let prev = null, deltas = null;
+  if (snaps.length >= 6) {
+    const p = windowDiff(snaps[3].data, snaps[5].data);
+    if (p.spend > 0 || p.leads > 0 || p.opens > 0) {
+      prev = p;
+      deltas = {
+        spend: deltaPct(cur.spend, p.spend),
+        leads: deltaPct(cur.leads, p.leads),
+        opens: deltaPct(cur.opens, p.opens),
+        cpm: deltaPct(cur.cpm, p.cpm),
+        ctr: deltaPct(cur.ctr, p.ctr)
+      };
+    }
+  }
+
   // 近1小时均速 (12桶真实分钟)
   const hIdx = Math.min(12, snaps.length - 1);
   const hourMs = Math.max(1, snaps[0].mtime - snaps[hIdx].mtime);
-  const hourSpend = num(snaps[0].data, 'accountSpend') - num(snaps[hIdx].data, 'accountSpend');
+  const hourSpend = (Number(snaps[0].data.accountSpend) || 0) - (Number(snaps[hIdx].data.accountSpend) || 0);
+
   // 计划级增量 TOP5 (桶内需有明细): 消耗/线索增量 + CPL + 无转化预警(消耗≥300且0线索)
   const top5 = [];
-  const newC = Array.isArray(newest.campaigns) && newest.campaigns.length ? newest.campaigns : null;
-  const oldC = Array.isArray(oldest.campaigns) && oldest.campaigns.length ? oldest.campaigns : null;
+  const newC = Array.isArray(snaps[0].data.campaigns) && snaps[0].data.campaigns.length ? snaps[0].data.campaigns : null;
+  const oldC = Array.isArray(snaps[idx].data.campaigns) && snaps[idx].data.campaigns.length ? snaps[idx].data.campaigns : null;
   if (newC && oldC) {
     const oldMap = new Map(oldC.map(c => [String(c.id), c]));
     top5.push(...newC
@@ -79,17 +129,19 @@ function last15Module(snaps) {
       .sort((a, b) => b.cost - a.cost)
       .slice(0, 5));
   }
+
   return {
     minutes,
-    spend: +(num(newest, 'accountSpend') - num(oldest, 'accountSpend')).toFixed(2),
-    leads: num(newest, 'totalConv') - num(oldest, 'totalConv'),
-    conv: num(newest, 'totalConv') - num(oldest, 'totalConv'),
-    opens: sum(newest, 'privateMsgOpen') - sum(oldest, 'privateMsgOpen'),
-    retains: sum(newest, 'privateMsgRetain') - sum(oldest, 'privateMsgRetain'),
-    forms: sum(newest, 'formSubmit') - sum(oldest, 'formSubmit'),
-    // 15分钟 CPM = 增量消耗 / 增量曝光 × 1000
-    impr: num(newest, 'impressions') - num(oldest, 'impressions'),
+    spend: cur.spend,
+    leads: cur.leads,
+    opens: cur.opens,
+    impr: cur.impr,
+    clicks: cur.clicks,
+    cpm: cur.cpm,
+    ctr: cur.ctr,
+    speed_15m: +(cur.spend / minutes).toFixed(1),
     speed_1h: +(hourSpend / (hourMs / 60000)).toFixed(1),
+    deltas,
     top5
   };
 }
@@ -343,7 +395,6 @@ function buildPayload(snap, prev, yesterday) {
   const files = listSnapshots();
   const snaps = readRecentSnaps(files, 13);
   const last15 = last15Module(snaps);
-  last15.cpm15 = last15.impr > 0 ? +((last15.spend / last15.impr) * 1000).toFixed(1) : 0;
   const hourlyTrend = hourlyTrendModule(snaps);
   const speed15 = last15.minutes > 0 ? +(last15.spend / last15.minutes).toFixed(1) : 0;
   const elapsedMin = Math.max(1, nowMin - startMin);

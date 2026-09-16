@@ -97,8 +97,16 @@
 .trend-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
 .trend-bar { width: 100%; min-height: 6rpx; border-radius: 6rpx 6rpx 0 0; background: #2A4BD8; opacity: .75; }
 .trend-bar-hot { background: #5B8CFF; opacity: 1; }
-.trend-hour { font-size: 18rpx; color: #5A6379; margin-top: 8rpx; }
+.trend-hour {
+  font-size: 18rpx; color: #5A6379; margin-top: 8rpx;
+  height: 26rpx; line-height: 26rpx;  /* 固定行高: 空占位不塌陷, X轴对齐 */
+}
 .trend-hour-blank { visibility: hidden; }
+
+/* 近15分钟环比 */
+.m15-delta { font-size: 20rpx; margin-top: 4rpx; }
+.m15-delta.up { color: #FF5A5A; }
+.m15-delta.down { color: #2EDB8B; }
 .card-more { color: #8A93A8; font-size: 22rpx; }
 
 /* 表格 (班次/形式) */

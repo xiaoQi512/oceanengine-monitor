@@ -77,11 +77,31 @@
       <text class="card-more">速度 ¥{{summary.speed_15m}}/分 · 近1小时 ¥{{last15.speed_1h}}/分</text>
     </view>
     <view class="m15-row">
-      <view class="m15-item m15-wide"><text class="m15-v">¥{{last15.spend}}</text><text class="m15-l">消耗</text></view>
-      <view class="m15-item"><text class="m15-v">{{last15.leads}}</text><text class="m15-l">线索</text></view>
-      <view class="m15-item"><text class="m15-v">{{last15.opens}}</text><text class="m15-l">开口</text></view>
-      <view class="m15-item"><text class="m15-v">¥{{last15.cpm15}}</text><text class="m15-l">CPM</text></view>
-      <view class="m15-item"><text class="m15-v">{{summary.speed_15m}}</text><text class="m15-l">速度/分</text></view>
+      <view class="m15-item m15-wide">
+        <text class="m15-l">消耗</text>
+        <text class="m15-v">¥{{last15.spend}}</text>
+        <text class="m15-delta {{deltas.spend > 0 ? 'up' : deltas.spend < 0 ? 'down' : ''}}" wx:if="{{deltas}}">{{deltas.spend === null ? '--' : (deltas.spend > 0 ? '+' : '') + deltas.spend + '%'}}</text>
+      </view>
+      <view class="m15-item">
+        <text class="m15-l">线索</text>
+        <text class="m15-v">{{last15.leads}}</text>
+        <text class="m15-delta {{deltas.leads > 0 ? 'up' : deltas.leads < 0 ? 'down' : ''}}" wx:if="{{deltas}}">{{deltas.leads === null ? '--' : (deltas.leads > 0 ? '+' : '') + deltas.leads + '%'}}</text>
+      </view>
+      <view class="m15-item">
+        <text class="m15-l">开口</text>
+        <text class="m15-v">{{last15.opens}}</text>
+        <text class="m15-delta {{deltas.opens > 0 ? 'up' : deltas.opens < 0 ? 'down' : ''}}" wx:if="{{deltas}}">{{deltas.opens === null ? '--' : (deltas.opens > 0 ? '+' : '') + deltas.opens + '%'}}</text>
+      </view>
+      <view class="m15-item">
+        <text class="m15-l">CPM</text>
+        <text class="m15-v">¥{{last15.cpm}}</text>
+        <text class="m15-delta {{deltas.cpm > 0 ? 'up' : deltas.cpm < 0 ? 'down' : ''}}" wx:if="{{deltas}}">{{deltas.cpm === null ? '--' : (deltas.cpm > 0 ? '+' : '') + deltas.cpm + '%'}}</text>
+      </view>
+      <view class="m15-item">
+        <text class="m15-l">CTR</text>
+        <text class="m15-v">{{last15.ctr}}%</text>
+        <text class="m15-delta {{deltas.ctr > 0 ? 'up' : deltas.ctr < 0 ? 'down' : ''}}" wx:if="{{deltas}}">{{deltas.ctr === null ? '--' : (deltas.ctr > 0 ? '+' : '') + deltas.ctr + '%'}}</text>
+      </view>
     </view>
     <view class="top5-title">新增消耗 TOP5</view>
     <view class="top5-item {{item.warn ? 'top5-warn' : ''}}" wx:for="{{last15.top5}}" wx:key="name">
