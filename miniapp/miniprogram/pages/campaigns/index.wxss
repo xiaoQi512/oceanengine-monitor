@@ -27,6 +27,16 @@
 }
 .camp-ypd { font-size: 20rpx; color: #6B7280; }
 
+/* 历史行: 昨日/近7日 恒显示 */
+.hist-row {
+  display: flex; gap: 16rpx; margin-top: 20rpx;
+  background: #10152A; border-radius: 12rpx; padding: 16rpx 20rpx;
+}
+.hist-cell { flex: 1; display: flex; flex-direction: column; }
+.hist-k { font-size: 20rpx; color: #5A6379; margin-bottom: 6rpx; }
+.hist-v { font-size: 24rpx; color: #E5E9F2; font-weight: 600; }
+.hist-sub { font-size: 20rpx; font-weight: 400; color: #8A93A8; }
+
 /* 详情弹层 */
 .detail-tags { display: flex; gap: 12rpx; margin-top: 12rpx; align-items: center; }
 .detail-grid { display: flex; flex-wrap: wrap; gap: 12rpx; margin-top: 24rpx; }

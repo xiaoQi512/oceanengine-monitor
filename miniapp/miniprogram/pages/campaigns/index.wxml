@@ -25,10 +25,13 @@
     <view class="chips">
       <view class="chip sort-chip {{sortKey === 'cost' ? 'active' : ''}}" bindtap="setSort" data-k="cost">消耗↓</view>
       <view class="chip sort-chip {{sortKey === 'cpa' ? 'active' : ''}}" bindtap="setSort" data-k="cpa">CPA↓</view>
+      <view class="chip sort-chip {{sortKey === 'ycost' ? 'active' : ''}}" bindtap="setSort" data-k="ycost">昨日↓</view>
+      <view class="chip sort-chip {{sortKey === 'w7cost' ? 'active' : ''}}" bindtap="setSort" data-k="w7cost">7日↓</view>
+      <view class="chip sort-chip {{sortKey === 'w7cpa' ? 'active' : ''}}" bindtap="setSort" data-k="w7cpa">7日CPA↓</view>
     </view>
   </scroll-view>
 
-  <!-- 计划卡列表 (分页) -->
+  <!-- 计划列表 (紧凑行, 历史数据直接展示) -->
   <view class="camp-card" wx:for="{{shownCampaigns}}" wx:key="id" bindtap="openDetail" data-id="{{item.id}}">
     <view class="camp-head">
       <view class="camp-name">{{item.name}}</view>
@@ -36,23 +39,39 @@
     </view>
     <view class="camp-tags">
       <text class="camp-type">{{item.type}}</text>
-      <text class="camp-ypd" wx:if="{{item.yesterday_cost}}">昨日 ¥{{item.yesterday_cost}} / {{item.yesterday_leads}}线索</text>
     </view>
-    <view class="camp-budget">
-      <view class="progress-track">
-        <view class="progress-fill {{item.fillCls}} {{item.budgetPct > 80 ? 'fill-hot' : ''}}"></view>
+
+    <!-- 当日数据 (仅当日有消耗时展示) -->
+    <block wx:if="{{item.cost > 0}}">
+      <view class="camp-budget">
+        <view class="progress-track">
+          <view class="progress-fill {{item.fillCls}} {{item.budgetPct > 80 ? 'fill-hot' : ''}}"></view>
+        </view>
+        <view class="camp-budget-meta">
+          <text>{{item.fmtCost}} / ¥{{item.budget}}</text>
+          <text>{{item.budgetPct}}%</text>
+        </view>
       </view>
-      <view class="camp-budget-meta">
-        <text>{{item.fmtCost}} / ¥{{item.budget}}</text>
-        <text>{{item.budgetPct}}%</text>
+      <view class="camp-metrics">
+        <view class="camp-metric"><text class="cm-label">线索</text><text class="cm-value">{{item.leads}}</text></view>
+        <view class="camp-metric"><text class="cm-label">CPA</text><text class="cm-value">{{item.fmtCpa}}</text></view>
+        <view class="camp-metric"><text class="cm-label">开口</text><text class="cm-value">{{item.opens}}</text></view>
+        <view class="camp-metric"><text class="cm-label">CPM</text><text class="cm-value">¥{{item.cpm}}</text></view>
+      </view>
+    </block>
+
+    <!-- 历史行: 昨日 / 近7日 (恒显示, 找历史好计划不用点详情) -->
+    <view class="hist-row">
+      <view class="hist-cell">
+        <text class="hist-k">昨日</text>
+        <text class="hist-v">¥{{item.yCost}}<text wx:if="{{item.yLeads}}" class="hist-sub"> / {{item.yLeads}}线索 / CPA¥{{item.yCpa}}</text><text wx:else class="hist-sub"> 未投</text></text>
+      </view>
+      <view class="hist-cell">
+        <text class="hist-k">近7日</text>
+        <text class="hist-v">¥{{item.w7Cost}}<text wx:if="{{item.w7Leads}}" class="hist-sub"> / {{item.w7Leads}}线索 / CPA¥{{item.w7Cpa}}</text><text wx:else class="hist-sub"> 未投</text></text>
       </view>
     </view>
-    <view class="camp-metrics">
-      <view class="camp-metric"><text class="cm-label">线索</text><text class="cm-value">{{item.leads}}</text></view>
-      <view class="camp-metric"><text class="cm-label">CPA</text><text class="cm-value">{{item.fmtCpa}}</text></view>
-      <view class="camp-metric"><text class="cm-label">开口</text><text class="cm-value">{{item.opens}}</text></view>
-      <view class="camp-metric"><text class="cm-label">CPM</text><text class="cm-value">¥{{item.cpm}}</text></view>
-    </view>
+
     <view class="camp-actions">
       <view class="act-btn {{item.status === '投放中' ? 'act-pause' : 'act-enable'}}" catchtap="onToggle" data-id="{{item.id}}" data-status="{{item.status}}">
         {{item.status === '投放中' ? '暂停' : '启用'}}

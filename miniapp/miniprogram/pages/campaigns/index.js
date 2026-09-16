@@ -51,13 +51,24 @@ Page({
       const { source, data } = await store.getCampaigns()
       this.allCampaigns = (data || []).map(c => {
         const pct = c.budget ? Math.min(100, Math.max(0, Math.round(c.cost / c.budget * 100))) : 0
+        // 近7日历史聚合 (week 8项, 前7项为历史, 不含今日)
+        const hist = (c.week || []).slice(0, 7)
+        const w7Cost = hist.reduce((a, b) => a + b.cost, 0)
+        const w7Leads = hist.reduce((a, b) => a + b.leads, 0)
         return {
           ...c,
           fmtCost: fmt.fmtMoney(c.cost),
           fmtCpa: fmt.fmtMoney(c.cpa),
           budgetPct: pct,
-          // 档位类替代内联 style (真机求值不可靠): w0~w100 每10%一档
-          fillCls: 'w' + Math.round(pct / 10) * 10
+          fillCls: 'w' + Math.round(pct / 10) * 10,
+          // 昨日
+          yCost: c.yesterday_cost || 0,
+          yLeads: c.yesterday_leads || 0,
+          yCpa: c.yesterday_leads > 0 ? Math.round(c.yesterday_cost / c.yesterday_leads) : 0,
+          // 近7日
+          w7Cost: Math.round(w7Cost),
+          w7Leads: w7Leads,
+          w7Cpa: w7Leads > 0 ? Math.round(w7Cost / w7Leads) : 0
         }
       })
       this.setData({
@@ -100,6 +111,16 @@ Page({
         if (bValid) return 1
         return b.cost - a.cost
       }
+      if (sk === 'ycost') return (b.yCost || 0) - (a.yCost || 0) || (b.w7Cost || 0) - (a.w7Cost || 0)
+      if (sk === 'w7cost') return (b.w7Cost || 0) - (a.w7Cost || 0)
+      // 7日CPA: 有转化的降序在前, 无转化垫底按7日消耗
+      if (sk === 'w7cpa') {
+        const aV = a.w7Cpa > 0, bV = b.w7Cpa > 0
+        if (aV && bV) return b.w7Cpa - a.w7Cpa || b.w7Cost - a.w7Cost
+        if (aV) return -1
+        if (bV) return 1
+        return b.w7Cost - a.w7Cost
+      }
       return (b.cost || 0) - (a.cost || 0)
     })
     this.setData({
@@ -119,7 +140,12 @@ Page({
   },
 
   setFilter(e) {
-    this.setData({ filter: e.currentTarget.dataset.f })
+    const f = e.currentTarget.dataset.f
+    // 未启动分组: 默认按7日消耗排序(历史表现好的优先)
+    if (f === 'zero' && this.data.sortKey === 'cost') {
+      this.setData({ sortKey: 'w7cost' })
+    }
+    this.setData({ filter: f })
     this.applyFilter()
   },
 
