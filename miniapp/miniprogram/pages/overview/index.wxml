@@ -111,10 +111,10 @@
         <view class="top5-meta">
           <text wx:if="{{item.cpl}}" class="top5-cpl">线索成本 ¥{{item.cpl}} · {{item.leads}}线索</text>
           <text wx:if="{{item.warn}}" class="top5-flag">⚠ 无转化预警</text>
-          <text wx:if="{{item.delta !== null}}" class="top5-delta {{item.delta > 0 ? 'up' : 'down'}}">{{item.delta > 0 ? '↑' : '↓'}}{{item.delta < 0 ? '' : '+'}}{{item.delta}}%</text>
-          <text wx:else class="top5-delta">环比--</text>
         </view>
       </view>
+      <text wx:if="{{item.delta !== null}}" class="top5-delta {{item.delta > 0 ? 'up' : 'down'}}">{{item.delta > 0 ? '↑' : '↓'}}{{item.delta < 0 ? '' : '+'}}{{item.delta}}%</text>
+      <text wx:else class="top5-delta">--</text>
       <text class="top5-cost {{item.warn ? 'up' : ''}}">¥{{item.cost}}</text>
     </view>
     <view wx:if="{{!last15.top5.length}}" class="empty">暂无增量数据</view>

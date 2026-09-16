@@ -90,7 +90,7 @@
 .top5-meta { display: flex; gap: 16rpx; margin-top: 4rpx; }
 .top5-cpl { font-size: 20rpx; color: #8A93A8; }
 .top5-flag { font-size: 20rpx; color: #FF5A5A; font-weight: 600; }
-.top5-delta { font-size: 20rpx; color: #6B7280; }
+.top5-delta { font-size: 20rpx; color: #6B7280; flex-shrink: 0; margin-right: 10rpx; }
 .top5-delta.up { color: #FF5A5A; }
 .top5-delta.down { color: #2EDB8B; }
 .top5-cost { font-size: 26rpx; font-weight: 600; flex-shrink: 0; }
