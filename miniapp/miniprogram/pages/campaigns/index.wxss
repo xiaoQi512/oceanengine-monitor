@@ -38,10 +38,6 @@
 .dg-v { font-size: 26rpx; font-weight: 700; color: #FFF; }
 .dg-l { font-size: 20rpx; color: #8A93A8; margin-top: 6rpx; }
 .detail-sec-title { font-size: 24rpx; color: #8A93A8; margin: 28rpx 0 12rpx; }
-.detail-trend { display: flex; align-items: flex-end; height: 160rpx; gap: 10rpx; }
-.dt-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
-.dt-bar { width: 100%; min-height: 6rpx; border-radius: 6rpx 6rpx 0 0; background: #2A4BD8; }
-.dt-label { font-size: 18rpx; color: #5A6379; margin-top: 6rpx; }
 .detail-actions { display: flex; gap: 16rpx; margin-top: 32rpx; }
 .detail-actions .act-btn { flex: 1; }
 
@@ -99,9 +95,35 @@
   width: 100%; background: #161C34;
   border-radius: 32rpx 32rpx 0 0;
   padding: 40rpx 36rpx calc(40rpx + env(safe-area-inset-bottom));
-  max-height: 82vh;
-  overflow-y: auto;
+  box-sizing: border-box;
 }
+/* 弹层内容可滚动, 保证操作按钮可达 */
+.sheet-scroll { max-height: 72vh; }
+
+/* 详情图例 */
+.legend-dot {
+  display: inline-block; width: 14rpx; height: 14rpx;
+  border-radius: 50%; background: #F5A623; margin: 0 6rpx 0 16rpx;
+}
+.legend-line {
+  display: inline-block; width: 22rpx; height: 4rpx;
+  background: #5B8CFF; margin-right: 6rpx;
+}
+
+/* 详情趋势: 柱 + CPA 点叠加 */
+.detail-trend { display: flex; align-items: flex-end; height: 220rpx; gap: 10rpx; }
+.dt-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; }
+.dt-body { position: relative; flex: 1; width: 100%; display: flex; align-items: flex-end; justify-content: center; }
+.dt-bar { width: 100%; min-height: 6rpx; border-radius: 6rpx 6rpx 0 0; background: #2A4BD8; }
+.dt-bar.hot { background: #5B8CFF; }
+.dt-cpa {
+  position: absolute; left: 50%; transform: translate(-50%, 50%);
+  width: 16rpx; height: 16rpx; border-radius: 50%;
+  background: #F5A623; border: 3rpx solid #161C34; box-sizing: content-box;
+  z-index: 2;
+}
+.dt-label { font-size: 18rpx; color: #5A6379; margin-top: 6rpx; }
+.dt-cpa-text { font-size: 18rpx; color: #F5A623; margin-top: 2rpx; }
 .sheet-title { font-size: 32rpx; font-weight: 700; color: #FFF; }
 .sheet-camp { font-size: 26rpx; color: #A8B0C4; margin-top: 12rpx; }
 .sheet-current { font-size: 22rpx; color: #6B7280; margin-top: 6rpx; }

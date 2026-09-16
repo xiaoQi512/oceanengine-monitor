@@ -5,7 +5,7 @@ Page({
   data: {
     sourceText: '演示数据',
     searchKey: '',
-    filter: 'all',
+    filter: 'spending',   // 默认: 本场有消耗
     sortKey: 'cost',
     campaigns: [],
     shownCampaigns: [],   // 分页渲染 (默认30条, 加载更多)
@@ -50,7 +50,8 @@ Page({
       this.allCampaigns = (data || []).map(c => ({
         ...c,
         fmtCost: fmt.fmtMoney(c.cost),
-        fmtCpa: fmt.fmtMoney(c.cpa)
+        fmtCpa: fmt.fmtMoney(c.cpa),
+        budgetPct: c.budget ? Math.round(c.cost / c.budget * 100) : 0   // 整数, 不留小数
       }))
       this.setData({
         sourceText: source === 'mock' ? '演示数据' : '云端实时',
@@ -73,24 +74,18 @@ Page({
         (c.name || '').toLowerCase().includes(key) || (c.type || '').toLowerCase().includes(key)
       )
     }
-    // 状态筛选
-    if (f === '投放中' || f === '已暂停') {
-      list = list.filter(c => c.status === f)
-    } else if (f === 'spending') {
+    // 分类: 默认本场有消耗; 未启动=当日零消耗(含启用未花与已暂停)
+    if (f === 'spending') {
       list = list.filter(c => c.cost > 0)
     } else if (f === 'zero') {
       list = list.filter(c => !(c.cost > 0))
+    } else if (f === '投放中' || f === '已暂停') {
+      list = list.filter(c => c.status === f)
     }
     // 排序
     const sk = this.data.sortKey
     list = list.slice().sort((a, b) => {
       if (sk === 'cpa') return (b.cpa || 1e9) - (a.cpa || 1e9) || b.cost - a.cost
-      if (sk === 'ctr') return (b.ctr || 0) - (a.ctr || 0) || b.cost - a.cost
-      if (sk === 'budgetpct') {
-        const pa = a.budget ? a.cost / a.budget : 0
-        const pb = b.budget ? b.cost / b.budget : 0
-        return pb - pa
-      }
       return (b.cost || 0) - (a.cost || 0)
     })
     this.setData({
@@ -124,14 +119,21 @@ Page({
     const camp = this.allCampaigns.find(c => c.id === e.currentTarget.dataset.id) || {}
     const week = camp.week || []
     const wMax = Math.max(...week.map(w => w.cost), 1)
+    // CPA 折线: 有线索的日才有 CPA, 相对最大 CPA 定位
+    const cpaVals = week.filter(w => w.leads > 0).map(w => w.cost / w.leads)
+    const cpaMax = Math.max(...cpaVals, 1)
     this.setData({
       detailOpen: true,
       detailCampaign: camp,
-      detailBars: week.map((w, i) => ({
-        d: w.d, cost: w.cost,
-        pct: Math.round(w.cost / wMax * 150) + 6,
-        hot: i === week.length - 1
-      }))
+      detailBars: week.map((w, i) => {
+        const cpa = w.leads > 0 ? Math.round(w.cost / w.leads) : null
+        return {
+          d: w.d, cost: w.cost, cpa,
+          pct: Math.round(w.cost / wMax * 150) + 6,
+          cpaPct: cpa === null ? null : Math.max(4, Math.round(cpa / cpaMax * 150)),
+          hot: i === week.length - 1
+        }
+      })
     })
   },
 

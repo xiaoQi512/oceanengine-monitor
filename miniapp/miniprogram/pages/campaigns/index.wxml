@@ -9,14 +9,14 @@
     <input class="search-input" placeholder="搜索计划名称 / 形式" value="{{searchKey}}" bindinput="onSearch" confirm-type="search" />
   </view>
 
-  <!-- 状态筛选 -->
+  <!-- 分类筛选 -->
   <scroll-view scroll-x class="chips-scroll" enhanced show-scrollbar="{{false}}">
     <view class="chips">
-      <view class="chip {{filter === 'all' ? 'active' : ''}}" bindtap="setFilter" data-f="all">全部</view>
+      <view class="chip {{filter === 'spending' ? 'active' : ''}}" bindtap="setFilter" data-f="spending">本场有消耗</view>
+      <view class="chip {{filter === 'zero' ? 'active' : ''}}" bindtap="setFilter" data-f="zero">未启动</view>
       <view class="chip {{filter === '投放中' ? 'active' : ''}}" bindtap="setFilter" data-f="投放中">投放中</view>
       <view class="chip {{filter === '已暂停' ? 'active' : ''}}" bindtap="setFilter" data-f="已暂停">已暂停</view>
-      <view class="chip {{filter === 'spending' ? 'active' : ''}}" bindtap="setFilter" data-f="spending">当日有消耗</view>
-      <view class="chip {{filter === 'zero' ? 'active' : ''}}" bindtap="setFilter" data-f="zero">零消耗</view>
+      <view class="chip {{filter === 'all' ? 'active' : ''}}" bindtap="setFilter" data-f="all">全部</view>
     </view>
   </scroll-view>
 
@@ -25,8 +25,6 @@
     <view class="chips">
       <view class="chip sort-chip {{sortKey === 'cost' ? 'active' : ''}}" bindtap="setSort" data-k="cost">消耗↓</view>
       <view class="chip sort-chip {{sortKey === 'cpa' ? 'active' : ''}}" bindtap="setSort" data-k="cpa">CPA↓</view>
-      <view class="chip sort-chip {{sortKey === 'ctr' ? 'active' : ''}}" bindtap="setSort" data-k="ctr">CTR↓</view>
-      <view class="chip sort-chip {{sortKey === 'budgetpct' ? 'active' : ''}}" bindtap="setSort" data-k="budgetpct">预算%↓</view>
     </view>
   </scroll-view>
 
@@ -46,7 +44,7 @@
       </view>
       <view class="camp-budget-meta">
         <text>{{item.fmtCost}} / ¥{{item.budget}}</text>
-        <text>{{item.budget ? (item.cost / item.budget * 100) : 0}}%</text>
+        <text>{{item.budgetPct}}%</text>
       </view>
     </view>
     <view class="camp-metrics">
@@ -72,32 +70,38 @@
   <!-- 计划详情弹层 -->
   <view class="mask" wx:if="{{detailOpen}}" bindtap="closeDetail">
     <view class="sheet" catchtap="">
-      <view class="sheet-title">{{detailCampaign.name}}</view>
-      <view class="detail-tags">
-        <text class="camp-status {{detailCampaign.status === '投放中' ? 'st-on' : 'st-off'}}">{{detailCampaign.status}}</text>
-        <text class="camp-type">{{detailCampaign.type}}</text>
-      </view>
-      <view class="detail-grid">
-        <view class="dg-item"><text class="dg-v">¥{{detailCampaign.fmtCost}}</text><text class="dg-l">今日消耗</text></view>
-        <view class="dg-item"><text class="dg-v">{{detailCampaign.leads}}</text><text class="dg-l">今日线索</text></view>
-        <view class="dg-item"><text class="dg-v">¥{{detailCampaign.fmtCpa}}</text><text class="dg-l">CPA</text></view>
-        <view class="dg-item"><text class="dg-v">¥{{detailCampaign.yesterday_cost}}</text><text class="dg-l">昨日消耗</text></view>
-        <view class="dg-item"><text class="dg-v">{{detailCampaign.opens}} / {{detailCampaign.retains}}</text><text class="dg-l">开口/留资</text></view>
-        <view class="dg-item"><text class="dg-v">{{detailCampaign.ctr}}%</text><text class="dg-l">CTR</text></view>
-      </view>
-      <view class="detail-sec-title" wx:if="{{detailBars.length}}">近7日消耗</view>
-      <view class="detail-trend" wx:if="{{detailBars.length}}">
-        <view class="dt-wrap" wx:for="{{detailBars}}" wx:key="d">
-          <view class="dt-bar" style="height: {{item.pct}}rpx"></view>
-          <text class="dt-label">{{item.d}}</text>
+      <scroll-view scroll-y class="sheet-scroll">
+        <view class="sheet-title">{{detailCampaign.name}}</view>
+        <view class="detail-tags">
+          <text class="camp-status {{detailCampaign.status === '投放中' ? 'st-on' : 'st-off'}}">{{detailCampaign.status}}</text>
+          <text class="camp-type">{{detailCampaign.type}}</text>
         </view>
-      </view>
-      <view class="detail-actions">
-        <view class="act-btn {{detailCampaign.status === '投放中' ? 'act-pause' : 'act-enable'}}" catchtap="onToggle" data-id="{{detailCampaign.id}}" data-status="{{detailCampaign.status}}">
-          {{detailCampaign.status === '投放中' ? '暂停计划' : '启用计划'}}
+        <view class="detail-grid">
+          <view class="dg-item"><text class="dg-v">¥{{detailCampaign.fmtCost}}</text><text class="dg-l">今日消耗</text></view>
+          <view class="dg-item"><text class="dg-v">{{detailCampaign.leads}}</text><text class="dg-l">今日线索</text></view>
+          <view class="dg-item"><text class="dg-v">¥{{detailCampaign.fmtCpa}}</text><text class="dg-l">CPA</text></view>
+          <view class="dg-item"><text class="dg-v">¥{{detailCampaign.yesterday_cost}}</text><text class="dg-l">昨日消耗</text></view>
+          <view class="dg-item"><text class="dg-v">{{detailCampaign.opens}} / {{detailCampaign.retains}}</text><text class="dg-l">开口/留资</text></view>
+          <view class="dg-item"><text class="dg-v">{{detailCampaign.budgetPct}}%</text><text class="dg-l">预算使用</text></view>
         </view>
-        <view class="act-btn act-budget" catchtap="openBudget" data-id="{{detailCampaign.id}}">调整预算</view>
-      </view>
+        <view class="detail-sec-title" wx:if="{{detailBars.length}}">近7日消耗 <text class="legend-dot"></text>柱=消耗 <text class="legend-line"></text>点=CPA</view>
+        <view class="detail-trend" wx:if="{{detailBars.length}}">
+          <view class="dt-wrap" wx:for="{{detailBars}}" wx:key="d">
+            <view class="dt-body">
+              <view class="dt-cpa" wx:if="{{item.cpaPct !== null}}" style="bottom: {{item.cpaPct}}rpx"></view>
+              <view class="dt-bar {{item.hot ? 'hot' : ''}}" style="height: {{item.pct}}rpx"></view>
+            </view>
+            <text class="dt-label">{{item.d}}</text>
+            <text class="dt-cpa-text" wx:if="{{item.cpa}}">¥{{item.cpa}}</text>
+          </view>
+        </view>
+        <view class="detail-actions">
+          <view class="act-btn {{detailCampaign.status === '投放中' ? 'act-pause' : 'act-enable'}}" catchtap="onToggle" data-id="{{detailCampaign.id}}" data-status="{{detailCampaign.status}}">
+            {{detailCampaign.status === '投放中' ? '暂停计划' : '启用计划'}}
+          </view>
+          <view class="act-btn act-budget" catchtap="openBudget" data-id="{{detailCampaign.id}}">调整预算</view>
+        </view>
+      </scroll-view>
     </view>
   </view>
 
