@@ -27,6 +27,14 @@
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
 .live-text { font-size: 24rpx; color: #2EDB8B; }
 
+/* 未开播态 */
+.live-bar-off {
+  background: rgba(138, 147, 168, 0.08);
+  border-color: rgba(138, 147, 168, 0.2);
+}
+.live-ind-off { background: #8A93A8; animation: none; box-shadow: none; }
+.live-text-off { color: #8A93A8; }
+
 /* 消耗大卡 */
 .cost-card { padding: 36rpx 32rpx; }
 .cost-label { font-size: 24rpx; color: #8A93A8; display: flex; align-items: center; gap: 12rpx; }

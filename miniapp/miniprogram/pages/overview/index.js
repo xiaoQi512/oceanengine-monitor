@@ -89,7 +89,7 @@ Page({
         costVsYesterday: s.yesterday_cost ? costVs : '',
         cpaDelta: fmt.fmtDelta(s.cpa_delta_pct),
         last15: data.last15 || { minutes: 15, spend: 0, leads: 0, opens: 0, cpm: 0, ctr: 0, top5: [] },
-        deltas: data.last15?.deltas || null,
+        deltas: (data.last15 || {}).deltas || null,
         hourlyBars,
         weeklyBars,
         weeklyAvg: wkAvg,

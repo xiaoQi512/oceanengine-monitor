@@ -9,9 +9,9 @@
   </view>
 
   <!-- 直播状态条 -->
-  <view class="live-bar">
-    <view class="live-ind"></view>
-    <text class="live-text">{{liveStatus}} · {{liveWindowText}}</text>
+  <view class="live-bar {{liveStatus.startsWith('直播中') ? '' : 'live-bar-off'}}">
+    <view class="live-ind {{liveStatus.startsWith('直播中') ? '' : 'live-ind-off'}}"></view>
+    <text class="live-text {{liveStatus.startsWith('直播中') ? '' : 'live-text-off'}}">{{liveStatus}} · {{liveWindowText}}</text>
   </view>
 
   <!-- 消耗大卡 -->
