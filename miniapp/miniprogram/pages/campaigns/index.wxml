@@ -40,7 +40,7 @@
     </view>
     <view class="camp-budget">
       <view class="progress-track">
-        <view class="progress-fill {{item.cost / item.budget > 0.8 ? 'fill-hot' : ''}}" style="width: {{item.budget ? item.cost / item.budget * 100 : 0}}%"></view>
+        <view class="progress-fill {{item.budgetPct > 80 ? 'fill-hot' : ''}}" style="width: {{item.budgetPct}}%"></view>
       </view>
       <view class="camp-budget-meta">
         <text>{{item.fmtCost}} / ¥{{item.budget}}</text>
@@ -51,7 +51,6 @@
       <view class="camp-metric"><text class="cm-label">线索</text><text class="cm-value">{{item.leads}}</text></view>
       <view class="camp-metric"><text class="cm-label">CPA</text><text class="cm-value">{{item.fmtCpa}}</text></view>
       <view class="camp-metric"><text class="cm-label">开口</text><text class="cm-value">{{item.opens}}</text></view>
-      <view class="camp-metric"><text class="cm-label">CTR</text><text class="cm-value">{{item.ctr}}%</text></view>
       <view class="camp-metric"><text class="cm-label">CPM</text><text class="cm-value">¥{{item.cpm}}</text></view>
     </view>
     <view class="camp-actions">

@@ -51,7 +51,7 @@ Page({
         ...c,
         fmtCost: fmt.fmtMoney(c.cost),
         fmtCpa: fmt.fmtMoney(c.cpa),
-        budgetPct: c.budget ? Math.round(c.cost / c.budget * 100) : 0   // 整数, 不留小数
+        budgetPct: c.budget ? Math.min(100, Math.max(0, Math.round(c.cost / c.budget * 100))) : 0   // 整数, 钳制0-100
       }))
       this.setData({
         sourceText: source === 'mock' ? '演示数据' : '云端实时',
