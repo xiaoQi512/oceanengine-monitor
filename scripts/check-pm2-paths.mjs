@@ -42,11 +42,12 @@ for (const app of apps) {
   } else {
     assert.notStrictEqual(app.autorestart, false, `${app.name} 常驻应用应启用 autorestart`);
   }
-  if (app.out_file) {
+  // 日志目录:Windows 绝对路径仅本机可解析，跨平台(CI Linux runner)检查时跳过
+  if (app.out_file && (process.platform === 'win32' || !winAbsCwd)) {
     const logDir = path.dirname(path.resolve(cwd, app.out_file));
     assert.ok(fs.existsSync(logDir), `${app.name} 日志目录不存在: ${logDir}`);
   }
-  if (app.error_file) {
+  if (app.error_file && (process.platform === 'win32' || !winAbsCwd)) {
     const logDir = path.dirname(path.resolve(cwd, app.error_file));
     assert.ok(fs.existsSync(logDir), `${app.name} 错误日志目录不存在: ${logDir}`);
   }
