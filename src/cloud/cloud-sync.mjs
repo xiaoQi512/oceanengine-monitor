@@ -531,9 +531,20 @@ function buildPayload(snap, prev, yesterday) {
 
   const anchor = (() => { try { return getCurrentAnchorName(); } catch { return ''; } })();
 
+  // 直播状态: 按排班窗口判断, 非直播时段不再显示"直播中"
+  const inLive = nowMin >= startMin && nowMin < endMin;
+  let liveStatus;
+  if (inLive) {
+    liveStatus = `直播中 · ${anchor || '待确认班次'}`;
+  } else if (nowMin < startMin) {
+    liveStatus = `未开播 · ${liveLabel ? liveLabel.startTime : '05:30'} 开播`;
+  } else {
+    liveStatus = '未开播 · 今日已结束';
+  }
+
   return {
     updated_at: now.toISOString(),
-    live_status: `直播中 · ${anchor || '待确认班次'}`,
+    live_status: liveStatus,
     live_window: liveLabel
       ? { start: liveLabel.startTime, end: liveLabel.endTime, duration: liveLabel.durationHours }
       : null,
@@ -643,8 +654,11 @@ async function main() {
     const files = listSnapshots();
     const latest = files[files.length - 1];
     const mtime = fs.statSync(path.join(DATA_DIR, latest)).mtimeMs;
-    if (Date.now() - mtime > 40 * 60 * 1000) throw new Error(`最新快照已陈旧: ${latest}`);
+    // 非直播时段 5min 采集静默, 快照会陈旧: 仍用最后快照推送(保证"未开播"等状态实时可见),
+    // updated_at 回填快照时间, 小程序端如实显示数据停更时刻
+    const stale = Date.now() - mtime > 40 * 60 * 1000;
     const snap = JSON.parse(fs.readFileSync(path.join(DATA_DIR, latest), 'utf-8'));
+    const snapTime = new Date(mtime).toISOString();
     const bjYesterday = new Date(Date.now() + 8 * 3600000 - 86400000).toISOString().slice(0, 10);
     // 昨日: ①数据中心报表(权威) ②昨夜快照(页头口径); hourly 聚合兜底在 buildPayload 内
     const yesterday = (await yesterdayFromDataCenter(bjYesterday)) || yesterdayFromSnapshot(files);
@@ -662,15 +676,27 @@ async function main() {
     }
     const payload = buildPayload(snap, prev, yesterday);
     payload.alerts = todayAlerts();
+    if (stale) {
+      payload.updated_at = snapTime;
+      payload.stale = true;
+      console.log('[cloud-sync] 快照陈旧(非直播时段), updated_at 回填快照时间');
+    }
 
-    // 直播间场次列表 (CDP 采集直播分析页, 失败回退本地缓存)
-    try {
-      const { collectWebcastList, readWebcastCache, writeWebcastCache } = await import('../cdp/webcast-list.mjs');
-      const rooms = await collectWebcastList();
-      if (rooms.length) writeWebcastCache(rooms);
-      payload.webcast_rooms = rooms.length ? rooms : readWebcastCache();
-    } catch (e) {
-      console.warn('[cloud-sync] 直播间列表采集失败, 用缓存:', e.message);
+    // 直播间场次列表 (CDP 采集直播分析页, 非直播时段直接用缓存; 失败回退本地缓存)
+    if (!stale) {
+      try {
+        const { collectWebcastList, readWebcastCache, writeWebcastCache } = await import('../cdp/webcast-list.mjs');
+        const rooms = await collectWebcastList();
+        if (rooms.length) writeWebcastCache(rooms);
+        payload.webcast_rooms = rooms.length ? rooms : readWebcastCache();
+      } catch (e) {
+        console.warn('[cloud-sync] 直播间列表采集失败, 用缓存:', e.message);
+        try {
+          const { readWebcastCache } = await import('../cdp/webcast-list.mjs');
+          payload.webcast_rooms = readWebcastCache();
+        } catch { payload.webcast_rooms = []; }
+      }
+    } else {
       try {
         const { readWebcastCache } = await import('../cdp/webcast-list.mjs');
         payload.webcast_rooms = readWebcastCache();
