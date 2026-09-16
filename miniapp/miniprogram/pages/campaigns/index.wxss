@@ -38,6 +38,13 @@
 .dg-v { font-size: 26rpx; font-weight: 700; color: #FFF; }
 .dg-l { font-size: 20rpx; color: #8A93A8; margin-top: 6rpx; }
 .detail-sec-title { font-size: 24rpx; color: #8A93A8; margin: 28rpx 0 12rpx; }
+/* 历史区间切换 */
+.detail-chips { display: flex; gap: 12rpx; margin-top: 24rpx; }
+.detail-chips .chip { padding: 8rpx 26rpx; font-size: 22rpx; }
+.detail-sum {
+  font-size: 22rpx; color: #E5E9F2; background: #1A2138;
+  border-radius: 10rpx; padding: 14rpx 20rpx; margin-top: 16rpx;
+}
 .detail-actions { display: flex; gap: 16rpx; margin-top: 32rpx; }
 .detail-actions .act-btn { flex: 1; }
 

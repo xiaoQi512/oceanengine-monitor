@@ -15,6 +15,8 @@ Page({
     detailOpen: false,
     detailCampaign: {},
     detailBars: [],
+    detailRange: 'd7',
+    detailSum: { cost: '--', leads: 0, cpa: '--' },
     // 预算弹层
     budgetOpen: false,
     budgetCampaign: {},
@@ -133,28 +135,46 @@ Page({
     }
   },
 
-  // 计划详情弹层
+  // 计划详情弹层 (支持 昨日/近3天/近7天 历史切换)
   openDetail(e) {
     const camp = this.allCampaigns.find(c => c.id === e.currentTarget.dataset.id) || {}
-    const week = camp.week || []
-    const wMax = Math.max(...week.map(w => w.cost), 1)
-    // CPA 折线: 有线索的日才有 CPA, 相对最大 CPA 定位
-    const cpaVals = week.filter(w => w.leads > 0).map(w => w.cost / w.leads)
-    const cpaMax = Math.max(...cpaVals, 1)
+    this.setData({ detailOpen: true, detailCampaign: camp, detailRange: 'd7' })
+    this.computeDetailBars()
+    this.setTabBarHidden(true)
+  },
+
+  setDetailRange(e) {
+    this.setData({ detailRange: e.currentTarget.dataset.r })
+    this.computeDetailBars()
+  },
+
+  computeDetailBars() {
+    const camp = this.data.detailCampaign
+    const range = this.data.detailRange
+    const week = camp.week || []  // [8天前...今天]
+    // 昨日=倒数第2项; 近3天/近7天=昨日起往前的3/7天 (今日当日数据计划卡已展示)
+    const arr = range === 'y' ? week.slice(-2, -1)
+      : range === 'd3' ? week.slice(-4, -1)
+      : week.slice(-8, -1)
+    const wMax = Math.max(...arr.map(w => w.cost), 1)
+    const sumCost = arr.reduce((a, b) => a + b.cost, 0)
+    const sumLeads = arr.reduce((a, b) => a + b.leads, 0)
     this.setData({
-      detailOpen: true,
-      detailCampaign: camp,
-      detailBars: week.map((w, i) => {
+      detailBars: arr.map((w, i) => {
         const cpa = w.leads > 0 ? Math.round(w.cost / w.leads) : null
         return {
           d: w.d, cost: w.cost, cpa,
           pct: Math.round(w.cost / wMax * 150) + 6,
           cpaPct: cpa === null ? null : Math.max(4, Math.round(cpa / cpaMax * 150)),
-          hot: i === week.length - 1
+          hot: i === arr.length - 1
         }
-      })
+      }),
+      detailSum: {
+        cost: fmt.fmtMoney(sumCost),
+        leads: sumLeads,
+        cpa: sumLeads > 0 ? fmt.fmtMoney(sumCost / sumLeads) : '--'
+      }
     })
-    this.setTabBarHidden(true)
   },
 
   closeDetail() {

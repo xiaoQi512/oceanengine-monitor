@@ -495,17 +495,13 @@ function buildPayload(snap, prev, yesterday) {
       updated_at: snap.time || now.toISOString()
     };
   });
-  // 近7日趋势只附给: 消耗TOP20 + 全部在投 (控制 payload 体积)
-  const withWeek = new Set([
-    ...campaigns.slice().sort((a, b) => b.cost - a.cost).slice(0, 20).map(c => c.campaign_id),
-    ...campaigns.filter(c => c.status === '投放中').map(c => c.campaign_id)
-  ]);
+  // 近8日趋势(含今日)全量附加: 未启动计划也能看昨日/近3天/近7天历史
   for (const c of campaigns) {
-    if (!withWeek.has(c.campaign_id) || !campDaily) continue;
+    if (!campDaily) continue;
     const byDay = campDaily.get(c.campaign_id);
     if (!byDay) continue;
     c.week = [];
-    for (let i = 6; i >= 0; i--) {
+    for (let i = 7; i >= 0; i--) {
       const d = new Date(Date.now() + 8 * 3600000 - i * 86400000).toISOString().slice(0, 10);
       const v = byDay.get(d) || { cost: 0, leads: 0 };
       c.week.push({ d: d.slice(5).replace('-', '/'), cost: Math.round(v.cost), leads: v.leads });

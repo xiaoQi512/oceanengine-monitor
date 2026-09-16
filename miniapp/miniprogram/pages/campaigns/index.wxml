@@ -83,7 +83,15 @@
           <view class="dg-item"><text class="dg-v">{{detailCampaign.opens}} / {{detailCampaign.retains}}</text><text class="dg-l">开口/留资</text></view>
           <view class="dg-item"><text class="dg-v">{{detailCampaign.budgetPct}}%</text><text class="dg-l">预算使用</text></view>
         </view>
-        <view class="detail-sec-title" wx:if="{{detailBars.length}}">近7日消耗 <text class="legend-dot"></text>柱=消耗 <text class="legend-line"></text>点=CPA</view>
+        <view class="detail-chips">
+          <view class="chip {{detailRange === 'y' ? 'active' : ''}}" bindtap="setDetailRange" data-r="y">昨日</view>
+          <view class="chip {{detailRange === 'd3' ? 'active' : ''}}" bindtap="setDetailRange" data-r="d3">近3天</view>
+          <view class="chip {{detailRange === 'd7' ? 'active' : ''}}" bindtap="setDetailRange" data-r="d7">近7天</view>
+        </view>
+        <view class="detail-sum" wx:if="{{detailBars.length}}">
+          区间合计: 消耗 {{detailSum.cost}} · 线索 {{detailSum.leads}} · CPA {{detailSum.cpa}}
+        </view>
+        <view class="detail-sec-title" wx:if="{{detailBars.length}}">历史消耗 <text class="legend-dot"></text>柱=消耗 <text class="legend-line"></text>点=CPA</view>
         <view class="detail-trend" wx:if="{{detailBars.length}}">
           <view class="dt-wrap" wx:for="{{detailBars}}" wx:key="d">
             <view class="dt-body">
