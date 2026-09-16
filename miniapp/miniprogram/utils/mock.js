@@ -81,9 +81,12 @@ module.exports = {
       { time: '10:22', type: '暂停计划', name: '0909-真人直播-画面直投', detail: '状态 启用 → 暂停', status: 'success' }
     ],
     campaigns: [
-      { id: 'c1', name: '极狐-东区-阿尔法S5-直播04', status: '投放中', cost: 4820, budget: 10000, leads: 22, cpa: 216.8, cpa_delta_pct: 38.2, ctr: 6.2, cpm: 152.4 },
-      { id: 'c2', name: '极狐-南区-问道V9-直播01', status: '投放中', cost: 5310, budget: 11000, leads: 38, cpa: 139.7, cpa_delta_pct: -4.2, ctr: 5.1, cpm: 128.7 },
-      { id: 'c3', name: '极狐-北区-S5-直播03', status: '已暂停', cost: 2160, budget: 8000, leads: 9, cpa: 240.0, cpa_delta_pct: 12.0, ctr: 4.4, cpm: 161.2 }
+      { id: 'c1', name: '极狐-东区-阿尔法S5-直播04', type: '画面直投', status: '投放中', cost: 4820, budget: 10000, leads: 22, opens: 87, retains: 61, cpa: 216.8, cpa_delta_pct: 38.2, ctr: 6.2, cpm: 152.4, yesterday_cost: 3915, yesterday_leads: 18,
+        week: [{ d: '09/10', cost: 2800, leads: 25 }, { d: '09/11', cost: 3200, leads: 30 }, { d: '09/12', cost: 3500, leads: 33 }, { d: '09/13', cost: 3100, leads: 28 }, { d: '09/14', cost: 2900, leads: 26 }, { d: '09/15', cost: 3915, leads: 18 }, { d: '09/16', cost: 4820, leads: 22 }] },
+      { id: 'c2', name: '极狐-南区-问道V9-直播01', type: '短视频引流', status: '投放中', cost: 5310, budget: 11000, leads: 38, opens: 121, retains: 82, cpa: 139.7, cpa_delta_pct: -4.2, ctr: 5.1, cpm: 128.7, yesterday_cost: 5120, yesterday_leads: 41,
+        week: [{ d: '09/10', cost: 4100, leads: 36 }, { d: '09/11', cost: 4400, leads: 39 }, { d: '09/12', cost: 4900, leads: 44 }, { d: '09/13', cost: 4600, leads: 40 }, { d: '09/14', cost: 4300, leads: 38 }, { d: '09/15', cost: 5120, leads: 41 }, { d: '09/16', cost: 5310, leads: 38 }] },
+      { id: 'c3', name: '极狐-北区-S5-直播03', type: '简单投', status: '已暂停', cost: 2160, budget: 8000, leads: 9, opens: 32, retains: 21, cpa: 240.0, cpa_delta_pct: 12.0, ctr: 4.4, cpm: 161.2, yesterday_cost: 0, yesterday_leads: 0,
+        week: [{ d: '09/10', cost: 0, leads: 0 }, { d: '09/11', cost: 900, leads: 4 }, { d: '09/12', cost: 1200, leads: 6 }, { d: '09/13', cost: 700, leads: 3 }, { d: '09/14', cost: 0, leads: 0 }, { d: '09/15', cost: 0, leads: 0 }, { d: '09/16', cost: 2160, leads: 9 }] }
     ],
     alerts: [
       { id: 'a1', severity: 'high', type: 'cpa_rise', campaign: '极狐-东区-阿尔法S5-直播04', time: '19:52', message: 'CPA 环比上涨 38.2%, 当前 ¥216.8' },

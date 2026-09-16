@@ -4,12 +4,17 @@ const fmt = require('../../utils/format')
 Page({
   data: {
     sourceText: '演示数据',
+    searchKey: '',
     filter: 'all',
+    sortKey: 'cost',
     campaigns: [],
     shownCampaigns: [],   // 分页渲染 (默认30条, 加载更多)
     pageSize: 30,
-    fmtCosts: {},
-    fmtCpas: {},
+    activeCount: 0,
+    // 详情弹层
+    detailOpen: false,
+    detailCampaign: {},
+    detailBars: [],
     // 预算弹层
     budgetOpen: false,
     budgetCampaign: {},
@@ -42,15 +47,14 @@ Page({
     this._lastPull = Date.now()
     try {
       const { source, data } = await store.getCampaigns()
-      this.allCampaigns = data || []
-      const fmtCosts = {}, fmtCpas = {}
-      this.allCampaigns.forEach(c => {
-        fmtCosts[c.id] = fmt.fmtMoney(c.cost)
-        fmtCpas[c.id] = fmt.fmtMoney(c.cpa)
-      })
+      this.allCampaigns = (data || []).map(c => ({
+        ...c,
+        fmtCost: fmt.fmtMoney(c.cost),
+        fmtCpa: fmt.fmtMoney(c.cpa)
+      }))
       this.setData({
         sourceText: source === 'mock' ? '演示数据' : '云端实时',
-        fmtCosts, fmtCpas
+        activeCount: this.allCampaigns.filter(c => c.status === '投放中').length
       })
       this.applyFilter()
     } catch (e) {
@@ -61,12 +65,34 @@ Page({
 
   applyFilter() {
     const f = this.data.filter
+    const key = String(this.data.searchKey || '').trim().toLowerCase()
     let list = this.allCampaigns
+    // 搜索: 名称/形式模糊
+    if (key) {
+      list = list.filter(c =>
+        (c.name || '').toLowerCase().includes(key) || (c.type || '').toLowerCase().includes(key)
+      )
+    }
+    // 状态筛选
     if (f === '投放中' || f === '已暂停') {
       list = list.filter(c => c.status === f)
-    } else if (f === 'warn') {
-      list = list.filter(c => c.cpa_delta_pct > 20)
+    } else if (f === 'spending') {
+      list = list.filter(c => c.cost > 0)
+    } else if (f === 'zero') {
+      list = list.filter(c => !(c.cost > 0))
     }
+    // 排序
+    const sk = this.data.sortKey
+    list = list.slice().sort((a, b) => {
+      if (sk === 'cpa') return (b.cpa || 1e9) - (a.cpa || 1e9) || b.cost - a.cost
+      if (sk === 'ctr') return (b.ctr || 0) - (a.ctr || 0) || b.cost - a.cost
+      if (sk === 'budgetpct') {
+        const pa = a.budget ? a.cost / a.budget : 0
+        const pb = b.budget ? b.cost / b.budget : 0
+        return pb - pa
+      }
+      return (b.cost || 0) - (a.cost || 0)
+    })
     this.setData({
       campaigns: list,
       shownCampaigns: list.slice(0, this.data.pageSize)
@@ -78,9 +104,39 @@ Page({
     this.setData({ shownCampaigns: this.data.campaigns.slice(0, size) })
   },
 
+  onSearch(e) {
+    this.setData({ searchKey: e.detail.value })
+    this.applyFilter()
+  },
+
   setFilter(e) {
     this.setData({ filter: e.currentTarget.dataset.f })
     this.applyFilter()
+  },
+
+  setSort(e) {
+    this.setData({ sortKey: e.currentTarget.dataset.k })
+    this.applyFilter()
+  },
+
+  // 计划详情弹层
+  openDetail(e) {
+    const camp = this.allCampaigns.find(c => c.id === e.currentTarget.dataset.id) || {}
+    const week = camp.week || []
+    const wMax = Math.max(...week.map(w => w.cost), 1)
+    this.setData({
+      detailOpen: true,
+      detailCampaign: camp,
+      detailBars: week.map((w, i) => ({
+        d: w.d, cost: w.cost,
+        pct: Math.round(w.cost / wMax * 150) + 6,
+        hot: i === week.length - 1
+      }))
+    })
+  },
+
+  closeDetail() {
+    this.setData({ detailOpen: false })
   },
 
   // 暂停/启用
@@ -102,6 +158,7 @@ Page({
             action, campaign_id: camp.id, campaign_name: camp.name
           })
           wx.showToast({ title: '指令已提交', icon: 'success' })
+          this.setData({ detailOpen: false })
         } catch (err) {
           wx.showToast({ title: '提交失败, 稍后重试', icon: 'none' })
         }
@@ -154,7 +211,7 @@ Page({
         params: { budget: val, old_budget: camp.budget, delta_pct: Math.round(deltaPct) }
       }).then(() => {
         wx.showToast({ title: '指令已提交', icon: 'success' })
-        this.setData({ budgetOpen: false, budgetBusy: false })
+        this.setData({ budgetOpen: false, budgetBusy: false, detailOpen: false })
       }).catch(() => {
         wx.showToast({ title: '提交失败, 稍后重试', icon: 'none' })
         this.setData({ budgetBusy: false })

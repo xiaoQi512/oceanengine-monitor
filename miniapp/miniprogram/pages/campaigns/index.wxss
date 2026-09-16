@@ -6,8 +6,44 @@
 .header-title { font-size: 40rpx; font-weight: 700; color: #FFF; }
 .header-sub { font-size: 22rpx; color: #8A93A8; }
 
-.chips-scroll { white-space: nowrap; padding: 0 24rpx; margin-bottom: 24rpx; }
+.chips-scroll { white-space: nowrap; padding: 0 24rpx; margin-bottom: 16rpx; }
 .chips { display: inline-flex; }
+.sort-scroll { margin-bottom: 24rpx; }
+.sort-chip { font-size: 22rpx; }
+
+/* 搜索框 */
+.search-wrap { padding: 0 24rpx; margin-bottom: 16rpx; }
+.search-input {
+  background: #141A30; border-radius: 16rpx;
+  padding: 18rpx 24rpx; font-size: 26rpx; color: #FFF;
+}
+
+/* 计划形式标签 & 昨日 */
+.camp-tags { display: flex; align-items: center; gap: 16rpx; margin-top: 12rpx; }
+.camp-type {
+  font-size: 20rpx; color: #5B8CFF;
+  background: rgba(91,140,255,.12);
+  padding: 4rpx 14rpx; border-radius: 8rpx;
+}
+.camp-ypd { font-size: 20rpx; color: #6B7280; }
+
+/* 详情弹层 */
+.detail-tags { display: flex; gap: 12rpx; margin-top: 12rpx; align-items: center; }
+.detail-grid { display: flex; flex-wrap: wrap; gap: 12rpx; margin-top: 24rpx; }
+.dg-item {
+  width: calc(33.33% - 8rpx); box-sizing: border-box;
+  background: #1A2138; border-radius: 12rpx;
+  display: flex; flex-direction: column; align-items: center; padding: 18rpx 0;
+}
+.dg-v { font-size: 26rpx; font-weight: 700; color: #FFF; }
+.dg-l { font-size: 20rpx; color: #8A93A8; margin-top: 6rpx; }
+.detail-sec-title { font-size: 24rpx; color: #8A93A8; margin: 28rpx 0 12rpx; }
+.detail-trend { display: flex; align-items: flex-end; height: 160rpx; gap: 10rpx; }
+.dt-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+.dt-bar { width: 100%; min-height: 6rpx; border-radius: 6rpx 6rpx 0 0; background: #2A4BD8; }
+.dt-label { font-size: 18rpx; color: #5A6379; margin-top: 6rpx; }
+.detail-actions { display: flex; gap: 16rpx; margin-top: 32rpx; }
+.detail-actions .act-btn { flex: 1; }
 
 /* 计划卡 */
 .camp-card {

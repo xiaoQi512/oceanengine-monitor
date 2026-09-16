@@ -290,6 +290,32 @@ function yesterdayFromSnapshot(files) {
   return null;
 }
 
+// ---------- 近7日按计划×北京日聚合 (供计划详情: 昨日对比 + 周趋势) ----------
+
+function loadCampaignDaily(db, days = 8) {
+  const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const rows = db.prepare(`
+    SELECT stat_date, stat_hour, campaign_id, SUM(cost) AS cost, SUM(leads) AS leads
+    FROM hourly_stats WHERE stat_date >= ?
+    GROUP BY stat_date, stat_hour, campaign_id
+  `).all(since);
+  // key: campaignId -> { 'YYYY-MM-DD': {cost, leads} }
+  const map = new Map();
+  for (const r of rows) {
+    const uh = Number(String(r.stat_hour).split('T')[1]) || 0;
+    const bjDay = uh >= 16
+      ? new Date(new Date(r.stat_date + 'T00:00:00Z').getTime() + 86400000).toISOString().slice(0, 10)
+      : r.stat_date;
+    let byDay = map.get(r.campaign_id);
+    if (!byDay) { byDay = new Map(); map.set(r.campaign_id, byDay); }
+    const cur = byDay.get(bjDay) || { cost: 0, leads: 0 };
+    cur.cost += Number(r.cost) || 0;
+    cur.leads += Number(r.leads) || 0;
+    byDay.set(bjDay, cur);
+  }
+  return map;
+}
+
 // ---------- 主组装 ----------
 
 function buildPayload(snap, prev, yesterday) {
@@ -365,26 +391,59 @@ function buildPayload(snap, prev, yesterday) {
     }
   }
 
-  // 计划明细
+  // 计划明细 (含形式分类/昨日对比/近7日趋势)
   const campaignSource = (Array.isArray(snap.campaigns) && snap.campaigns.length) ? snap.campaigns : [];
+  let campDaily = null;
+  try {
+    const db = new Database(DB_PATH, { readonly: true });
+    campDaily = loadCampaignDaily(db, 8);
+    db.close();
+  } catch (e) {
+    console.warn('[cloud-sync] 计划历史聚合失败:', e.message);
+  }
+  const bjYesterday = new Date(Date.now() + 8 * 3600000 - 86400000).toISOString().slice(0, 10);
   const campaigns = campaignSource.slice(0, 200).map(c => {
     const cs = Number(c.spend) || 0;
     const cc = Number(c.conversions) || 0;
     const st = String(c.status || '');
+    const rule = FORMAT_RULES.find(r => r.match.test(c.name || ''));
+    const cid = String(c.id ?? '');
+    const yd = campDaily?.get(cid)?.get(bjYesterday) || { cost: 0, leads: 0 };
     return {
-      campaign_id: String(c.id ?? ''),
+      campaign_id: cid,
       name: c.name || '',
+      type: rule ? rule.key : '其他',
       status: (st === '投放中' || st === '启用') ? '投放中' : '已暂停',
       cost: cs,
       budget: Number(c.budget) || 0,
       leads: Number(c.leads) || 0,
+      opens: Number(c.privateMsgOpen) || 0,
+      retains: Number(c.privateMsgRetain) || 0,
       cpa: cc > 0 ? +(cs / cc).toFixed(2) : 0,
       cpa_delta_pct: 0,
       ctr: Number(c.ctr) > 1 ? +(Number(c.ctr)).toFixed(2) : +(Number(c.ctr) * 100).toFixed(2),
       cpm: +(Number(c.cpm) || 0).toFixed(1),
+      yesterday_cost: Math.round(yd.cost || 0),
+      yesterday_leads: yd.leads || 0,
       updated_at: snap.time || now.toISOString()
     };
   });
+  // 近7日趋势只附给: 消耗TOP20 + 全部在投 (控制 payload 体积)
+  const withWeek = new Set([
+    ...campaigns.slice().sort((a, b) => b.cost - a.cost).slice(0, 20).map(c => c.campaign_id),
+    ...campaigns.filter(c => c.status === '投放中').map(c => c.campaign_id)
+  ]);
+  for (const c of campaigns) {
+    if (!withWeek.has(c.campaign_id) || !campDaily) continue;
+    const byDay = campDaily.get(c.campaign_id);
+    if (!byDay) continue;
+    c.week = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(Date.now() + 8 * 3600000 - i * 86400000).toISOString().slice(0, 10);
+      const v = byDay.get(d) || { cost: 0, leads: 0 };
+      c.week.push({ d: d.slice(5).replace('-', '/'), cost: Math.round(v.cost), leads: v.leads });
+    }
+  }
 
   // DB 模块 (单连接复用) + 昨日三级口径
   let yesterdayCost = 0, yesterdayLeads = 0, weekly = [], shifts = [], actionLogs = [];
