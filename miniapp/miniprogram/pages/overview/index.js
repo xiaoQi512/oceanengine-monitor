@@ -26,12 +26,18 @@ Page({
   },
 
   onLoad() {
-    this.refresh()
+    // 首次加载由 onShow 统一触发刷新
   },
 
   onShow() {
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
       this.getTabBar().setData({ selected: 0 })
+    }
+    // 热启动自动刷新: 距上次拉取超过2分钟才重新拉
+    const now = Date.now()
+    if (!this._lastPull || now - this._lastPull > 120000) {
+      this._lastPull = now
+      this.refresh()
     }
   },
 
@@ -40,6 +46,7 @@ Page({
   },
 
   async refresh() {
+    this._lastPull = Date.now()
     try {
       const { source, data } = await store.getDashboard()
       const s = data.summary || {}
