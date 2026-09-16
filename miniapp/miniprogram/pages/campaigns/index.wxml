@@ -77,9 +77,9 @@
           <text class="camp-type">{{detailCampaign.type}}</text>
         </view>
         <view class="detail-grid">
-          <view class="dg-item"><text class="dg-v">¥{{detailCampaign.fmtCost}}</text><text class="dg-l">今日消耗</text></view>
+          <view class="dg-item"><text class="dg-v">{{detailCampaign.fmtCost}}</text><text class="dg-l">今日消耗</text></view>
           <view class="dg-item"><text class="dg-v">{{detailCampaign.leads}}</text><text class="dg-l">今日线索</text></view>
-          <view class="dg-item"><text class="dg-v">¥{{detailCampaign.fmtCpa}}</text><text class="dg-l">CPA</text></view>
+          <view class="dg-item"><text class="dg-v">{{detailCampaign.fmtCpa}}</text><text class="dg-l">CPA</text></view>
           <view class="dg-item"><text class="dg-v">¥{{detailCampaign.yesterday_cost}}</text><text class="dg-l">昨日消耗</text></view>
           <view class="dg-item"><text class="dg-v">{{detailCampaign.opens}} / {{detailCampaign.retains}}</text><text class="dg-l">开口/留资</text></view>
           <view class="dg-item"><text class="dg-v">{{detailCampaign.budgetPct}}%</text><text class="dg-l">预算使用</text></view>
