@@ -1,0 +1,49 @@
+{
+  "pages": [
+    "pages/overview/index",
+    "pages/campaigns/index",
+    "pages/details/index",
+    "pages/alerts/index"
+  ],
+  "window": {
+    "navigationStyle": "custom",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#0B0F1E",
+    "backgroundTextStyle": "dark"
+  },
+  "tabBar": {
+    "custom": true,
+    "color": "#6B7280",
+    "selectedColor": "#5B8CFF",
+    "backgroundColor": "#10152A",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/overview/index",
+        "text": "总览",
+        "iconPath": "assets/tab-overview.jpg",
+        "selectedIconPath": "assets/tab-overview-active.jpg"
+      },
+      {
+        "pagePath": "pages/campaigns/index",
+        "text": "计划",
+        "iconPath": "assets/tab-campaigns.jpg",
+        "selectedIconPath": "assets/tab-campaigns-active.jpg"
+      },
+      {
+        "pagePath": "pages/details/index",
+        "text": "明细",
+        "iconPath": "assets/tab-campaigns.jpg",
+        "selectedIconPath": "assets/tab-campaigns-active.jpg"
+      },
+      {
+        "pagePath": "pages/alerts/index",
+        "text": "记录",
+        "iconPath": "assets/tab-alerts.jpg",
+        "selectedIconPath": "assets/tab-alerts-active.jpg"
+      }
+    ]
+  },
+  "lazyCodeLoading": "requiredComponents",
+  "sitemapLocation": "sitemap.json"
+}

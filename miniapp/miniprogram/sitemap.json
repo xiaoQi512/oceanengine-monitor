@@ -1,0 +1,7 @@
+{
+  "desc": "自用监控工具, 不被搜索",
+  "rules": [{
+    "action": "disallow",
+    "page": "*"
+  }]
+}

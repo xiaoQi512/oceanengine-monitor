@@ -1,0 +1,83 @@
+<view class="page">
+  <view class="header">
+    <view class="header-title">计划管理</view>
+    <view class="header-sub">{{sourceText}} · 共{{campaigns.length}}个计划</view>
+  </view>
+
+  <!-- 筛选 chips -->
+  <scroll-view scroll-x class="chips-scroll" enhanced show-scrollbar="{{false}}">
+    <view class="chips">
+      <view class="chip {{filter === 'all' ? 'active' : ''}}" bindtap="setFilter" data-f="all">全部</view>
+      <view class="chip {{filter === '投放中' ? 'active' : ''}}" bindtap="setFilter" data-f="投放中">投放中</view>
+      <view class="chip {{filter === '已暂停' ? 'active' : ''}}" bindtap="setFilter" data-f="已暂停">已暂停</view>
+      <view class="chip {{filter === 'warn' ? 'active' : ''}}" bindtap="setFilter" data-f="warn">CPA异常</view>
+    </view>
+  </scroll-view>
+
+  <!-- 计划卡列表 (分页) -->
+  <view class="camp-card" wx:for="{{shownCampaigns}}" wx:key="id">
+    <view class="camp-head">
+      <view class="camp-name">{{item.name}}</view>
+      <view class="camp-status {{item.status === '投放中' ? 'st-on' : 'st-off'}}">{{item.status}}</view>
+    </view>
+    <view class="camp-budget">
+      <view class="progress-track">
+        <view class="progress-fill {{item.cost / item.budget > 0.8 ? 'fill-hot' : ''}}" style="width: {{item.budget ? item.cost / item.budget * 100 : 0}}%"></view>
+      </view>
+      <view class="camp-budget-meta">
+        <text>{{fmtCosts[item.id]}} / ¥{{item.budget}}</text>
+        <text>{{item.budget ? (item.cost / item.budget * 100) : 0}}%</text>
+      </view>
+    </view>
+    <view class="camp-metrics">
+      <view class="camp-metric">
+        <text class="cm-label">线索</text>
+        <text class="cm-value">{{item.leads}}</text>
+      </view>
+      <view class="camp-metric">
+        <text class="cm-label">CPA</text>
+        <text class="cm-value {{item.cpa_delta_pct > 20 ? 'up' : item.cpa_delta_pct < 0 ? 'down' : ''}}">{{fmtCpas[item.id]}} <text wx:if="{{item.cpa_delta_pct > 0.5}}" class="up cm-delta">+{{item.cpa_delta_pct}}%</text><text wx:elif="{{item.cpa_delta_pct < -0.5}}" class="down cm-delta">{{item.cpa_delta_pct}}%</text></text>
+      </view>
+      <view class="camp-metric">
+        <text class="cm-label">CTR</text>
+        <text class="cm-value">{{item.ctr}}%</text>
+      </view>
+      <view class="camp-metric">
+        <text class="cm-label">CPM</text>
+        <text class="cm-value">¥{{item.cpm}}</text>
+      </view>
+    </view>
+    <view class="camp-actions">
+      <view class="act-btn {{item.status === '投放中' ? 'act-pause' : 'act-enable'}}" bindtap="onToggle" data-id="{{item.id}}" data-status="{{item.status}}">
+        {{item.status === '投放中' ? '暂停' : '启用'}}
+      </view>
+      <view class="act-btn act-budget" bindtap="openBudget" data-id="{{item.id}}">调整预算</view>
+    </view>
+  </view>
+
+  <view wx:if="{{!campaigns.length}}" class="empty">无匹配计划</view>
+  <view wx:if="{{shownCampaigns.length < campaigns.length}}" class="load-more" bindtap="loadMore">
+    加载更多 ({{shownCampaigns.length}}/{{campaigns.length}})
+  </view>
+
+  <!-- 调整预算底部弹层 -->
+  <view class="mask" wx:if="{{budgetOpen}}" bindtap="closeBudget">
+    <view class="sheet" catchtap="">
+      <view class="sheet-title">调整预算</view>
+      <view class="sheet-camp">{{budgetCampaign.name}}</view>
+      <view class="sheet-current">当前预算 ¥{{budgetCampaign.budget}}</view>
+      <view class="quick-row">
+        <view class="quick-btn" bindtap="quickAdd" data-v="500">+500</view>
+        <view class="quick-btn" bindtap="quickAdd" data-v="1000">+1,000</view>
+        <view class="quick-btn" bindtap="quickAdd" data-v="2000">+2,000</view>
+      </view>
+      <view class="sheet-input-wrap">
+        <text class="sheet-input-label">新预算</text>
+        <input class="sheet-input" type="digit" value="{{budgetValue}}" bindinput="onBudgetInput" />
+      </view>
+      <view class="sheet-confirm {{budgetBusy ? 'busy' : ''}}" bindtap="confirmBudget">
+        {{budgetBusy ? '提交中...' : '确认调整'}}
+      </view>
+    </view>
+  </view>
+</view>

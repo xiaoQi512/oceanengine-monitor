@@ -1,0 +1,61 @@
+.tab-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  background: #10152A;
+  border-top: 1rpx solid #1E2540;
+  padding-bottom: env(safe-area-inset-bottom);
+  z-index: 999;
+}
+
+.tab-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 14rpx 0 10rpx;
+}
+
+.ico {
+  height: 44rpx;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+/* 默认色 */
+.ico .b, .ico .l, .ico .dome, .ico .clap, .ico .bar { background: #6B7280; }
+.label { color: #6B7280; font-size: 20rpx; margin-top: 4rpx; }
+
+/* 选中色 */
+.active .b, .active .l, .active .dome, .active .clap, .active .bar { background: #5B8CFF; }
+.active .label { color: #5B8CFF; font-weight: 600; }
+
+/* 总览: 四宫格 */
+.ov { display: grid; grid-template-columns: 20rpx 20rpx; gap: 6rpx; }
+.ov .b { width: 20rpx; height: 20rpx; border-radius: 5rpx; }
+
+/* 计划: 三行列表 */
+.cp { gap: 8rpx; }
+.cp .l { width: 44rpx; height: 9rpx; border-radius: 5rpx; }
+
+/* 明细: 递增柱 */
+.dt { flex-direction: row; align-items: flex-end; gap: 6rpx; }
+.dt .bar { width: 10rpx; border-radius: 4rpx; }
+.dt .b1 { height: 16rpx; }
+.dt .b2 { height: 26rpx; }
+.dt .b3 { height: 36rpx; }
+
+/* 告警: 铃铛 */
+.al { gap: 3rpx; }
+.al .dome {
+  width: 38rpx; height: 30rpx;
+  border-radius: 19rpx 19rpx 6rpx 6rpx;
+}
+.al .clap {
+  width: 12rpx; height: 7rpx;
+  border-radius: 0 0 6rpx 6rpx;
+}

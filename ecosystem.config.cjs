@@ -4,8 +4,20 @@
 //       pm2 start ecosystem.config.cjs --only pm2-15min  (仅启动15分钟)
 const MONITOR_DIR = process.env.MONITOR_DIR || __dirname;
 const LOG_DIR = `${MONITOR_DIR}\\monitor-data`;
-// ⚠️ 2026-08-29: WorkBuddy 将 node 版本目录 22.22.2 → 22.22.2-2（current 指向已更新）
-const NODE = process.env.NODE_EXE || "C:\\Users\\HTF2026\\.workbuddy\\binaries\\node\\versions\\22.22.2-2\\node.exe";
+// node 路径自动跟随 WorkBuddy 的 versions/current 指针，避免版本目录改名后进程变幽灵
+// （2026-08-29: 22.22.2 → 22.22.2-2；2026-09-11: → 22.22.2-3，均为同一问题）
+const fs = require("fs");
+const path = require("path");
+const VERSIONS_DIR = "C:\\Users\\HTF2026\\.workbuddy\\binaries\\node\\versions";
+function resolveNode() {
+  try {
+    const v = fs.readFileSync(path.join(VERSIONS_DIR, "current"), "utf-8").trim();
+    const p = path.join(VERSIONS_DIR, v, "node.exe");
+    if (fs.existsSync(p)) return p;
+  } catch {}
+  return path.join(VERSIONS_DIR, "22.22.2-3", "node.exe"); // 兜底
+}
+const NODE = process.env.NODE_EXE || resolveNode();
 
 module.exports = {
   apps: [
@@ -208,7 +220,7 @@ module.exports = {
       time: true,
     },
 
-    // ====== AI区域号汇总 21:30（cron 触发，跑完即退）======
+    // ====== AI区域号汇总 21:33（cron 触发，跑完即退）======
     {
       name: "pm2-ai-regions",
       script: "src/services/cron-ai-regions-cli.mjs",
@@ -220,7 +232,7 @@ module.exports = {
       autorestart: false,
       max_restarts: 0,
       kill_timeout: 120000,
-      cron_restart: "30 21 * * *",
+      cron_restart: "33 21 * * *",
       out_file: `${LOG_DIR}\\pm2-ai-regions-out.log`,
       error_file: `${LOG_DIR}\\pm2-ai-regions-err.log`,
       merge_logs: true,
@@ -265,6 +277,27 @@ module.exports = {
       max_memory_restart: "256M",
       out_file: `${LOG_DIR}\\pm2-chrome-guard-out.log`,
       error_file: `${LOG_DIR}\\pm2-chrome-guard-err.log`,
+      merge_logs: true,
+      time: true,
+    },
+
+    // ====== AD监控软件-飞书命令监听 常驻 (V1.5: 注册账户/采集/登录群命令; 必须用户会话——
+    //        LocalSystem 下 lark-cli OAuth 无法认证 code 20140, 故挂 PM2 而非 WinSW 服务) ======
+    {
+      name: "admp-feishu-listener",
+      script: "E:\\炼丹炉\\WorkBuddy\\ad-monitor-win\\src\\feishu\\command-listener.mjs",
+      cwd: "E:\\炼丹炉\\WorkBuddy\\ad-monitor-win",
+      exec_mode: "fork",
+      interpreter: NODE,
+      env: { NODE_ENV: "production" },
+      instances: 1,
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 5000,
+      kill_timeout: 10000,
+      max_memory_restart: "150M",
+      out_file: "E:\\炼丹炉\\WorkBuddy\\ad-monitor-win\\logs\\pm2-listener-out.log",
+      error_file: "E:\\炼丹炉\\WorkBuddy\\ad-monitor-win\\logs\\pm2-listener-err.log",
       merge_logs: true,
       time: true,
     },
@@ -341,6 +374,44 @@ module.exports = {
       cron_restart: "*/5 * * * *",
       out_file: `${LOG_DIR}\\pm2-watchdog-out.log`,
       error_file: `${LOG_DIR}\\pm2-watchdog-err.log`,
+      merge_logs: true,
+      time: true,
+    },
+
+    // ====== 小程序云同步 (每15min, 在15min监控落盘2分钟后推送快照上云) ======
+    {
+      name: "pm2-cloud-sync",
+      script: "src/cloud/cloud-sync.mjs",
+      cwd: MONITOR_DIR,
+      exec_mode: "fork",
+      interpreter: NODE,
+      env: { NODE_ENV: "production", OEC_SILENT: "1" },
+      instances: 1,
+      autorestart: false,
+      max_restarts: 0,
+      kill_timeout: 30000,
+      cron_restart: "2-59/15 * * * *",
+      out_file: `${LOG_DIR}\\pm2-cloud-sync-out.log`,
+      error_file: `${LOG_DIR}\\pm2-cloud-sync-err.log`,
+      merge_logs: true,
+      time: true,
+    },
+
+    // ====== 小程序云端指令轮询 (每2min, 拉取小程序操作指令→本地队列执行→回写结果) ======
+    {
+      name: "pm2-cloud-action-poller",
+      script: "src/cloud/cloud-action-poller.mjs",
+      cwd: MONITOR_DIR,
+      exec_mode: "fork",
+      interpreter: NODE,
+      env: { NODE_ENV: "production", OEC_SILENT: "1" },
+      instances: 1,
+      autorestart: false,
+      max_restarts: 0,
+      kill_timeout: 120000,
+      cron_restart: "*/2 * * * *",
+      out_file: `${LOG_DIR}\\pm2-cloud-poller-out.log`,
+      error_file: `${LOG_DIR}\\pm2-cloud-poller-err.log`,
       merge_logs: true,
       time: true,
     },

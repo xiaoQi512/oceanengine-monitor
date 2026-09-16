@@ -1,0 +1,56 @@
+/* 全局深色主题 - 对齐 Ardot 设计稿《巨量引擎监控小程序-重设计》 */
+page {
+  background: #0B0F1E;
+  color: #E5E9F2;
+  font-size: 28rpx;
+  font-family: -apple-system, "PingFang SC", "Noto Sans SC", sans-serif;
+}
+
+/* 通用卡片 */
+.card {
+  background: #141A30;
+  border-radius: 24rpx;
+  padding: 28rpx;
+  margin: 0 24rpx 24rpx;
+}
+
+.card-title {
+  font-size: 26rpx;
+  color: #8A93A8;
+  margin-bottom: 20rpx;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* 状态色 - 中国市场口径: 涨红跌绿 */
+.up { color: #FF5A5A; }
+.down { color: #2EDB8B; }
+.neutral { color: #8A93A8; }
+
+/* 通用chip */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 10rpx 24rpx;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  color: #8A93A8;
+  background: #1A2138;
+  margin-right: 16rpx;
+}
+.chip.active {
+  color: #FFFFFF;
+  background: #2A4BD8;
+}
+
+/* 空态 */
+.empty {
+  text-align: center;
+  color: #5A6379;
+  padding: 80rpx 0;
+  font-size: 26rpx;
+}
+
+/* 自定义 tabBar 底部占位 */
+.page { padding-bottom: 200rpx !important; }

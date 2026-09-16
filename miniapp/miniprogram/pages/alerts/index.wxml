@@ -1,0 +1,20 @@
+<view class="page">
+  <view class="header">
+    <view class="header-title">执行记录</view>
+    <view class="header-sub">{{sourceText}} · 近20条计划调整</view>
+  </view>
+
+  <view class="log-card" wx:for="{{logs}}" wx:key="index">
+    <view class="log-head">
+      <view class="log-type {{item.type === '暂停计划' ? 'lt-pause' : item.type === '启用计划' ? 'lt-enable' : 'lt-budget'}}">
+        {{item.type}}
+      </view>
+      <text class="log-time">{{item.time}}</text>
+    </view>
+    <view class="log-name">{{item.name}}</view>
+    <view class="log-detail" wx:if="{{item.detail}}">{{item.detail}}</view>
+    <view class="log-status ok">{{item.status === 'success' || item.status === 'executed' ? '✓ 已执行' : item.status}}</view>
+  </view>
+
+  <view wx:if="{{!logs.length}}" class="empty">暂无执行记录</view>
+</view>

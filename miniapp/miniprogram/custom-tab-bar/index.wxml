@@ -1,0 +1,28 @@
+<view class="tab-bar">
+  <view
+    wx:for="{{list}}"
+    wx:key="index"
+    class="tab-item {{selected === index ? 'active' : ''}}"
+    data-path="{{item.pagePath}}"
+    data-index="{{index}}"
+    bindtap="switchTab"
+  >
+    <!-- 总览: 四宫格 -->
+    <view wx:if="{{item.type === 'ov'}}" class="ico ov">
+      <view class="b"></view><view class="b"></view><view class="b"></view><view class="b"></view>
+    </view>
+    <!-- 计划: 三行列表 -->
+    <view wx:elif="{{item.type === 'cp'}}" class="ico cp">
+      <view class="l"></view><view class="l"></view><view class="l"></view>
+    </view>
+    <!-- 明细: 递增柱 -->
+    <view wx:elif="{{item.type === 'dt'}}" class="ico dt">
+      <view class="bar b1"></view><view class="bar b2"></view><view class="bar b3"></view>
+    </view>
+    <!-- 告警: 铃铛 -->
+    <view wx:elif="{{item.type === 'al'}}" class="ico al">
+      <view class="dome"></view><view class="clap"></view>
+    </view>
+    <text class="label">{{item.text}}</text>
+  </view>
+</view>

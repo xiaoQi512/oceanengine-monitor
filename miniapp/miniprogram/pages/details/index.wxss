@@ -1,0 +1,68 @@
+.page { padding-bottom: 40rpx; }
+.header {
+  padding: 100rpx 32rpx 20rpx;
+  display: flex; justify-content: space-between; align-items: flex-end;
+}
+.header-title { font-size: 40rpx; font-weight: 700; color: #FFF; }
+.header-sub { font-size: 22rpx; color: #8A93A8; }
+
+.card-title {
+  font-size: 26rpx; color: #8A93A8; margin-bottom: 20rpx;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.card-more { color: #5A6379; font-size: 22rpx; }
+.card {
+  background: #141A30; border-radius: 24rpx;
+  padding: 28rpx; margin: 0 24rpx 24rpx;
+}
+
+/* 漏斗 */
+.funnel-item { margin-bottom: 24rpx; }
+.funnel-item:last-child { margin-bottom: 0; }
+.funnel-row { display: flex; align-items: baseline; margin-bottom: 10rpx; }
+.funnel-label { font-size: 24rpx; color: #8A93A8; width: 140rpx; }
+.funnel-value { font-size: 28rpx; font-weight: 700; color: #FFF; flex: 1; }
+.funnel-rate { font-size: 20rpx; color: #5B8CFF; }
+.funnel-track { height: 12rpx; background: #1E2540; border-radius: 999rpx; overflow: hidden; }
+.funnel-bar {
+  height: 100%; border-radius: 999rpx;
+  background: linear-gradient(90deg, #2A4BD8, #5B8CFF);
+}
+
+/* 三格行 */
+.m3-row { display: flex; gap: 16rpx; }
+.m3-item {
+  flex: 1; background: #1A2138; border-radius: 14rpx;
+  display: flex; flex-direction: column; align-items: center; padding: 24rpx 0;
+}
+.m3-v { font-size: 34rpx; font-weight: 700; color: #FFF; }
+.m3-l { font-size: 20rpx; color: #8A93A8; margin-top: 8rpx; }
+
+/* 两格 */
+.grid { display: flex; gap: 16rpx; margin: 0 24rpx 24rpx; }
+.g-cell { flex: 1; background: #141A30; border-radius: 20rpx; padding: 24rpx; }
+.g-label { font-size: 22rpx; color: #8A93A8; }
+.g-value { font-size: 38rpx; font-weight: 700; color: #FFF; margin-top: 10rpx; }
+.g-sub { font-size: 20rpx; color: #6B7280; margin-top: 8rpx; }
+
+/* 表格 */
+.table-head {
+  display: flex; padding: 8rpx 0; border-bottom: 1rpx solid #1E2540;
+  font-size: 20rpx; color: #5A6379;
+}
+.th { flex: 1; text-align: right; }
+.th-shift { flex: 2.2; text-align: left; }
+.table-row { display: flex; align-items: center; padding: 18rpx 0; border-bottom: 1rpx solid #1A2138; }
+.table-row:last-child { border-bottom: none; }
+.tr-shift { display: block; font-size: 24rpx; color: #E5E9F2; }
+.tr-anchor { display: block; font-size: 20rpx; color: #5B8CFF; margin-top: 4rpx; }
+.tr-v { flex: 1; text-align: right; font-size: 24rpx; color: #E5E9F2; }
+
+/* 直播中标记 */
+.live-chip {
+  font-size: 18rpx; color: #2EDB8B;
+  background: rgba(46,219,139,.12);
+  padding: 2rpx 10rpx; border-radius: 999rpx;
+}
+
+.empty { text-align: center; color: #5A6379; padding: 60rpx 0; font-size: 24rpx; }

@@ -1,0 +1,27 @@
+.page { padding-bottom: 60rpx; }
+.header {
+  padding: 100rpx 32rpx 20rpx;
+  display: flex; justify-content: space-between; align-items: flex-end;
+}
+.header-title { font-size: 40rpx; font-weight: 700; color: #FFF; }
+.header-sub { font-size: 22rpx; color: #8A93A8; }
+
+/* 执行记录卡 */
+.log-card {
+  background: #141A30; border-radius: 20rpx;
+  padding: 26rpx; margin: 0 24rpx 20rpx;
+}
+.log-head { display: flex; justify-content: space-between; align-items: center; }
+.log-type {
+  font-size: 22rpx; font-weight: 600;
+  padding: 6rpx 18rpx; border-radius: 999rpx;
+}
+.lt-pause { background: rgba(255,90,90,.14); color: #FF5A5A; }
+.lt-enable { background: rgba(46,219,139,.14); color: #2EDB8B; }
+.lt-budget { background: rgba(91,140,255,.14); color: #5B8CFF; }
+.log-time { font-size: 22rpx; color: #6B7280; }
+
+.log-name { font-size: 26rpx; color: #A8B0C4; margin-top: 16rpx; font-weight: 600; }
+.log-detail { font-size: 24rpx; color: #E5E9F2; margin-top: 10rpx; }
+.log-status { font-size: 22rpx; margin-top: 14rpx; }
+.log-status.ok { color: #2EDB8B; }

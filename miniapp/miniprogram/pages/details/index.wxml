@@ -1,0 +1,99 @@
+<view class="page">
+  <view class="header">
+    <view class="header-title">整场明细</view>
+    <view class="header-sub">{{sourceText}} · {{updatedText}}</view>
+  </view>
+
+  <!-- 转化漏斗 -->
+  <view class="card">
+    <view class="card-title"><text>转化漏斗</text><text class="card-more">消耗 → 线索</text></view>
+    <view class="funnel-item" wx:for="{{funnel}}" wx:key="label">
+      <view class="funnel-row">
+        <text class="funnel-label">{{item.label}}</text>
+        <text class="funnel-value">{{item.value}}</text>
+        <text class="funnel-rate" wx:if="{{item.rate}}">{{item.rate}}</text>
+      </view>
+      <view class="funnel-track">
+        <view class="funnel-bar" style="width: {{item.pct}}%"></view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 直播互动 -->
+  <view class="card">
+    <view class="card-title"><text>直播互动</text></view>
+    <view class="m3-row">
+      <view class="m3-item"><text class="m3-v">{{s.live_views}}</text><text class="m3-l">观看人次</text></view>
+      <view class="m3-item"><text class="m3-v">{{s.live_1min}}</text><text class="m3-l">超1分钟</text></view>
+      <view class="m3-item"><text class="m3-v">{{s.comments}}</text><text class="m3-l">评论数</text></view>
+    </view>
+  </view>
+
+  <!-- 曝光与账户 -->
+  <view class="grid">
+    <view class="g-cell">
+      <view class="g-label">曝光量</view>
+      <view class="g-value">{{s.impressions}}</view>
+      <view class="g-sub">CPM ¥{{s.cpm}} · CTR {{s.ctr}}%</view>
+    </view>
+    <view class="g-cell">
+      <view class="g-label">账户余额</view>
+      <view class="g-value">¥{{s.balance}}</view>
+      <view class="g-sub">投放中 {{s.spending_count}} 个计划</view>
+    </view>
+  </view>
+
+  <!-- 直播间场次 -->
+  <view class="card">
+    <view class="card-title"><text>直播间场次</text><text class="card-more">近7场</text></view>
+    <view class="table-head">
+      <text class="th th-shift">开播/名称</text><text class="th">观看</text><text class="th">停留</text><text class="th">评论</text><text class="th">CTR</text>
+    </view>
+    <view class="table-row" wx:for="{{webcast}}" wx:key="room_id">
+      <view class="th-shift">
+        <text class="tr-shift">
+          {{item.time_start}} <text wx:if="{{item.status === '直播中'}}" class="live-chip">直播中</text>
+        </text>
+        <text class="tr-anchor">{{item.name}}</text>
+      </view>
+      <text class="tr-v">{{item.views}}</text>
+      <text class="tr-v">{{item.avg_stay_sec}}s</text>
+      <text class="tr-v">{{item.comments}}</text>
+      <text class="tr-v">{{item.ctr}}%</text>
+    </view>
+    <view wx:if="{{!webcast.length}}" class="empty">暂无场次数据</view>
+  </view>
+
+  <!-- 主播班次明细 -->
+  <view class="card">
+    <view class="card-title"><text>主播班次明细</text></view>
+    <view class="table-head">
+      <text class="th th-shift">班次/主播</text><text class="th">消耗</text><text class="th">线索</text><text class="th">CPL</text>
+    </view>
+    <view class="table-row" wx:for="{{shifts}}" wx:key="label">
+      <view class="th-shift">
+        <text class="tr-shift">{{item.label}}</text>
+        <text class="tr-anchor">{{item.anchor}}</text>
+      </view>
+      <text class="tr-v">¥{{item.spend}}</text>
+      <text class="tr-v">{{item.leads}}</text>
+      <text class="tr-v">¥{{item.cpl}}</text>
+    </view>
+    <view wx:if="{{!shifts.length}}" class="empty">暂无班次数据</view>
+  </view>
+
+  <!-- 投放形式明细 -->
+  <view class="card">
+    <view class="card-title"><text>投放形式明细</text></view>
+    <view class="table-head">
+      <text class="th th-shift">形式</text><text class="th">计划数</text><text class="th">消耗</text><text class="th">CPL</text>
+    </view>
+    <view class="table-row" wx:for="{{formats}}" wx:key="name">
+      <view class="th-shift"><text class="tr-shift">{{item.name}}</text></view>
+      <text class="tr-v">{{item.count}}</text>
+      <text class="tr-v">¥{{item.cost}}</text>
+      <text class="tr-v">¥{{item.cpl}}</text>
+    </view>
+    <view wx:if="{{!formats.length}}" class="empty">暂无数据</view>
+  </view>
+</view>
