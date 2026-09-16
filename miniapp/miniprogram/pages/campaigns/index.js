@@ -85,7 +85,14 @@ Page({
     // 排序
     const sk = this.data.sortKey
     list = list.slice().sort((a, b) => {
-      if (sk === 'cpa') return (b.cpa || 1e9) - (a.cpa || 1e9) || b.cost - a.cost
+      if (sk === 'cpa') {
+        // 有转化的按 CPA 降序在前; 无转化(CPA=0)垫底按消耗降序
+        const aValid = a.cpa > 0, bValid = b.cpa > 0
+        if (aValid && bValid) return b.cpa - a.cpa || b.cost - a.cost
+        if (aValid) return -1
+        if (bValid) return 1
+        return b.cost - a.cost
+      }
       return (b.cost || 0) - (a.cost || 0)
     })
     this.setData({
