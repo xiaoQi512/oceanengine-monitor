@@ -47,12 +47,17 @@ Page({
     this._lastPull = Date.now()
     try {
       const { source, data } = await store.getCampaigns()
-      this.allCampaigns = (data || []).map(c => ({
-        ...c,
-        fmtCost: fmt.fmtMoney(c.cost),
-        fmtCpa: fmt.fmtMoney(c.cpa),
-        budgetPct: c.budget ? Math.min(100, Math.max(0, Math.round(c.cost / c.budget * 100))) : 0   // 整数, 钳制0-100
-      }))
+      this.allCampaigns = (data || []).map(c => {
+        const pct = c.budget ? Math.min(100, Math.max(0, Math.round(c.cost / c.budget * 100))) : 0
+        return {
+          ...c,
+          fmtCost: fmt.fmtMoney(c.cost),
+          fmtCpa: fmt.fmtMoney(c.cpa),
+          budgetPct: pct,
+          // 档位类替代内联 style (真机求值不可靠): w0~w100 每10%一档
+          fillCls: 'w' + Math.round(pct / 10) * 10
+        }
+      })
       this.setData({
         sourceText: source === 'mock' ? '演示数据' : '云端实时',
         activeCount: this.allCampaigns.filter(c => c.status === '投放中').length

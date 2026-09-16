@@ -87,6 +87,8 @@ function last15Module(snaps) {
     opens: sum(newest, 'privateMsgOpen') - sum(oldest, 'privateMsgOpen'),
     retains: sum(newest, 'privateMsgRetain') - sum(oldest, 'privateMsgRetain'),
     forms: sum(newest, 'formSubmit') - sum(oldest, 'formSubmit'),
+    // 15分钟 CPM = 增量消耗 / 增量曝光 × 1000
+    impr: num(newest, 'impressions') - num(oldest, 'impressions'),
     speed_1h: +(hourSpend / (hourMs / 60000)).toFixed(1),
     top5
   };
@@ -341,6 +343,7 @@ function buildPayload(snap, prev, yesterday) {
   const files = listSnapshots();
   const snaps = readRecentSnaps(files, 13);
   const last15 = last15Module(snaps);
+  last15.cpm15 = last15.impr > 0 ? +((last15.spend / last15.impr) * 1000).toFixed(1) : 0;
   const hourlyTrend = hourlyTrendModule(snaps);
   const speed15 = last15.minutes > 0 ? +(last15.spend / last15.minutes).toFixed(1) : 0;
   const elapsedMin = Math.max(1, nowMin - startMin);

@@ -40,7 +40,7 @@
     </view>
     <view class="camp-budget">
       <view class="progress-track">
-        <view class="progress-fill {{item.budgetPct > 80 ? 'fill-hot' : ''}}" style="width: {{item.budgetPct}}%"></view>
+        <view class="progress-fill {{item.fillCls}} {{item.budgetPct > 80 ? 'fill-hot' : ''}}"></view>
       </view>
       <view class="camp-budget-meta">
         <text>{{item.fmtCost}} / ¥{{item.budget}}</text>

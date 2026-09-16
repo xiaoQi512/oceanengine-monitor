@@ -54,8 +54,14 @@
 
 .camp-budget { margin: 24rpx 0 8rpx; }
 .progress-track { height: 12rpx; background: #1E2540; border-radius: 999rpx; overflow: hidden; }
-.progress-fill { height: 100%; border-radius: 999rpx; background: linear-gradient(90rdeg, #2A4BD8, #5B8CFF); }
-.fill-hot { background: linear-gradient(90rdeg, #D84A2A, #FF5A5A); }
+.progress-fill { height: 100%; border-radius: 999rpx; background: linear-gradient(90deg, #2A4BD8, #5B8CFF); }
+/* 档位宽度类 w0~w100 (每10%一档), 替代内联 style */
+.w0 { width: 2%; }
+.w10 { width: 10%; } .w20 { width: 20%; } .w30 { width: 30%; } .w40 { width: 40%; }
+.w50 { width: 50%; } .w60 { width: 60%; } .w70 { width: 70%; } .w80 { width: 80%; }
+.w90 { width: 90%; } .w100 { width: 100%; }
+.fill-hot { background: linear-gradient(90deg, #D84A2A, #FF5A5A); }
+.fill-hot { background: linear-gradient(90deg, #D84A2A, #FF5A5A); }
 .camp-budget-meta {
   display: flex; justify-content: space-between;
   font-size: 22rpx; color: #6B7280; margin-top: 10rpx;
@@ -150,7 +156,7 @@
 
 .sheet-confirm {
   text-align: center; padding: 26rpx 0;
-  background: linear-gradient(90rdeg, #2A4BD8, #5B8CFF);
+  background: linear-gradient(90deg, #2A4BD8, #5B8CFF);
   border-radius: 18rpx; color: #FFF; font-size: 30rpx; font-weight: 600;
 }
 .sheet-confirm.busy { opacity: .6; }

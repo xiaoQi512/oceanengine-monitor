@@ -65,12 +65,15 @@
 .g-sub { font-size: 20rpx; color: #6B7280; margin-top: 8rpx; }
 
 /* 近15分钟 */
-.m15-row { display: flex; gap: 16rpx; }
+.m15-row { display: flex; gap: 12rpx; }
 .m15-item {
   flex: 1; background: #1A2138; border-radius: 14rpx;
   display: flex; flex-direction: column; align-items: center; padding: 20rpx 0;
+  min-width: 0;
 }
-.m15-v { font-size: 32rpx; font-weight: 700; color: #FFF; }
+/* 消耗格加宽: 容纳 4 位整数+2 位小数 */
+.m15-wide { flex: 1.6; }
+.m15-v { font-size: 30rpx; font-weight: 700; color: #FFF; max-width: 100%; }
 .m15-l { font-size: 20rpx; color: #8A93A8; margin-top: 6rpx; }
 .top5-title { font-size: 24rpx; color: #8A93A8; margin: 24rpx 0 8rpx; }
 .top5-item { display: flex; align-items: center; padding: 14rpx 0; border-bottom: 1rpx solid #1A2138; }

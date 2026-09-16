@@ -77,11 +77,11 @@
       <text class="card-more">速度 ¥{{summary.speed_15m}}/分 · 近1小时 ¥{{last15.speed_1h}}/分</text>
     </view>
     <view class="m15-row">
-      <view class="m15-item"><text class="m15-v">¥{{last15.spend}}</text><text class="m15-l">消耗</text></view>
+      <view class="m15-item m15-wide"><text class="m15-v">¥{{last15.spend}}</text><text class="m15-l">消耗</text></view>
       <view class="m15-item"><text class="m15-v">{{last15.leads}}</text><text class="m15-l">线索</text></view>
       <view class="m15-item"><text class="m15-v">{{last15.opens}}</text><text class="m15-l">开口</text></view>
-      <view class="m15-item"><text class="m15-v">{{last15.retains}}</text><text class="m15-l">留资</text></view>
-      <view class="m15-item"><text class="m15-v">{{last15.forms}}</text><text class="m15-l">表单</text></view>
+      <view class="m15-item"><text class="m15-v">¥{{last15.cpm15}}</text><text class="m15-l">CPM</text></view>
+      <view class="m15-item"><text class="m15-v">{{summary.speed_15m}}</text><text class="m15-l">速度/分</text></view>
     </view>
     <view class="top5-title">新增消耗 TOP5</view>
     <view class="top5-item {{item.warn ? 'top5-warn' : ''}}" wx:for="{{last15.top5}}" wx:key="name">
