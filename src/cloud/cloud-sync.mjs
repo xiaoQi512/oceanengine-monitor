@@ -106,21 +106,34 @@ function last15Module(snaps) {
   const hourMs = Math.max(1, snaps[0].mtime - snaps[hIdx].mtime);
   const hourSpend = (Number(snaps[0].data.accountSpend) || 0) - (Number(snaps[hIdx].data.accountSpend) || 0);
 
-  // 计划级增量 TOP5 (桶内需有明细): 消耗/线索增量 + CPL + 无转化预警(消耗≥300且0线索)
+  // 计划级增量 TOP5 (桶内需有明细): 消耗/线索增量 + CPL + 无转化预警(消耗≥300且0线索) + 与上一轮窗口环比
   const top5 = [];
   const newC = Array.isArray(snaps[0].data.campaigns) && snaps[0].data.campaigns.length ? snaps[0].data.campaigns : null;
   const oldC = Array.isArray(snaps[idx].data.campaigns) && snaps[idx].data.campaigns.length ? snaps[idx].data.campaigns : null;
+  // 上一轮窗口两端快照的计划明细 (环比同口径: 本轮15m增量 vs 上轮15m增量)
+  const hasPrevWin = snaps.length >= 6;
+  const prevNewC = hasPrevWin && Array.isArray(snaps[3].data.campaigns) && snaps[3].data.campaigns.length ? snaps[3].data.campaigns : null;
+  const prevOldC = hasPrevWin && Array.isArray(snaps[5].data.campaigns) && snaps[5].data.campaigns.length ? snaps[5].data.campaigns : null;
   if (newC && oldC) {
     const oldMap = new Map(oldC.map(c => [String(c.id), c]));
+    const prevNewMap = prevNewC && prevOldC ? new Map(prevNewC.map(c => [String(c.id), Number(c.spend) || 0])) : null;
+    const prevOldMap = prevNewC && prevOldC ? new Map(prevOldC.map(c => [String(c.id), Number(c.spend) || 0])) : null;
     top5.push(...newC
       .map(c => {
         const oc = oldMap.get(String(c.id));
         const cost = +(((Number(c.spend) || 0) - (Number(oc?.spend) || 0)).toFixed(2));
         const leads = (Number(c.leads) || 0) - (Number(oc?.leads) || 0);
+        // 计划消耗环比: 本轮增量 vs 上轮增量 (上轮有该计划数据且>0 才算)
+        let delta = null;
+        if (prevNewMap && prevNewMap.has(String(c.id))) {
+          const prevCost = +((prevNewMap.get(String(c.id)) - (prevOldMap.get(String(c.id)) ?? 0)).toFixed(2));
+          if (prevCost > 0) delta = +(((cost - prevCost) / prevCost) * 100).toFixed(1);
+        }
         return {
           name: c.name || '',
           cost,
           leads,
+          delta,
           cpl: leads > 0 ? +(cost / leads).toFixed(0) : null, // 无转化不显示
           warn: cost >= 300 && leads <= 0
         };
