@@ -81,11 +81,11 @@ Page({
         (c.name || '').toLowerCase().includes(key) || (c.type || '').toLowerCase().includes(key)
       )
     }
-    // 分类: 默认本场有消耗; 未启动=当日零消耗(含启用未花与已暂停)
+    // 分类: 默认本场有消耗; 未启动=当日零消耗且近7日跑过(纯存量死计划只在"全部"可见)
     if (f === 'spending') {
       list = list.filter(c => c.cost > 0)
     } else if (f === 'zero') {
-      list = list.filter(c => !(c.cost > 0))
+      list = list.filter(c => !(c.cost > 0) && (c.week || []).slice(-7).some(w => w.cost > 0))
     } else if (f === '投放中' || f === '已暂停') {
       list = list.filter(c => c.status === f)
     }
