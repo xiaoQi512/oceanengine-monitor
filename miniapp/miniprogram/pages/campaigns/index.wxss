@@ -99,6 +99,8 @@
   width: 100%; background: #161C34;
   border-radius: 32rpx 32rpx 0 0;
   padding: 40rpx 36rpx calc(40rpx + env(safe-area-inset-bottom));
+  max-height: 82vh;
+  overflow-y: auto;
 }
 .sheet-title { font-size: 32rpx; font-weight: 700; color: #FFF; }
 .sheet-camp { font-size: 26rpx; color: #A8B0C4; margin-top: 12rpx; }
