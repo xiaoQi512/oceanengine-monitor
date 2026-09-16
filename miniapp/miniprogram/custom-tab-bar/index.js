@@ -2,6 +2,7 @@
 Component({
   data: {
     selected: 0,
+    hidden: false,   // 弹层打开时由页面控制隐藏, 避免遮挡底部按钮
     list: [
       { pagePath: '/pages/overview/index', text: '总览', type: 'ov' },
       { pagePath: '/pages/campaigns/index', text: '计划', type: 'cp' },

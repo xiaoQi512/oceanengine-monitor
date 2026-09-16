@@ -91,8 +91,8 @@
               <view class="dt-cpa" wx:if="{{item.cpaPct !== null}}" style="bottom: {{item.cpaPct}}rpx"></view>
               <view class="dt-bar {{item.hot ? 'hot' : ''}}" style="height: {{item.pct}}rpx"></view>
             </view>
+            <text class="dt-cpa-text">{{item.cpa ? '¥' + item.cpa : ' '}}</text>
             <text class="dt-label">{{item.d}}</text>
-            <text class="dt-cpa-text" wx:if="{{item.cpa}}">¥{{item.cpa}}</text>
           </view>
         </view>
         <view class="detail-actions">

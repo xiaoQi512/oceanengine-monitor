@@ -84,11 +84,11 @@
 }
 .act-budget:active { opacity: .85; }
 
-/* 底部弹层 */
+/* 弹层遮罩: 盖过自定义 tabBar(z-index 999) */
 .mask {
   position: fixed; inset: 0;
-  background: rgba(0,0,0,.55);
-  z-index: 100;
+  background: rgba(0,0,0,.65);
+  z-index: 2000;
   display: flex; align-items: flex-end;
 }
 .sheet {
@@ -122,8 +122,12 @@
   background: #F5A623; border: 3rpx solid #161C34; box-sizing: content-box;
   z-index: 2;
 }
-.dt-label { font-size: 18rpx; color: #5A6379; margin-top: 6rpx; }
-.dt-cpa-text { font-size: 18rpx; color: #F5A623; margin-top: 2rpx; }
+.dt-label { font-size: 18rpx; color: #5A6379; }
+/* CPA 金额固定行, 无值用空格占位保证 x 轴对齐 */
+.dt-cpa-text {
+  display: block; height: 26rpx; line-height: 26rpx;
+  font-size: 18rpx; color: #F5A623; text-align: center;
+}
 .sheet-title { font-size: 32rpx; font-weight: 700; color: #FFF; }
 .sheet-camp { font-size: 26rpx; color: #A8B0C4; margin-top: 12rpx; }
 .sheet-current { font-size: 22rpx; color: #6B7280; margin-top: 6rpx; }

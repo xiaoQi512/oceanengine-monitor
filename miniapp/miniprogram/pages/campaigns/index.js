@@ -121,6 +121,13 @@ Page({
     this.applyFilter()
   },
 
+  // tabBar 显示控制 (弹层打开时隐藏, 防止遮挡底部按钮)
+  setTabBarHidden(hidden) {
+    if (typeof this.getTabBar === 'function' && this.getTabBar()) {
+      this.getTabBar().setData({ hidden })
+    }
+  },
+
   // 计划详情弹层
   openDetail(e) {
     const camp = this.allCampaigns.find(c => c.id === e.currentTarget.dataset.id) || {}
@@ -142,10 +149,12 @@ Page({
         }
       })
     })
+    this.setTabBarHidden(true)
   },
 
   closeDetail() {
     this.setData({ detailOpen: false })
+    this.setTabBarHidden(false)
   },
 
   // 暂停/启用
@@ -183,11 +192,13 @@ Page({
       budgetCampaign: camp,
       budgetValue: camp.budget || 0
     })
+    this.setTabBarHidden(true)
   },
 
   closeBudget() {
     if (this.data.budgetBusy) return
     this.setData({ budgetOpen: false })
+    this.setTabBarHidden(false)
   },
 
   quickAdd(e) {
