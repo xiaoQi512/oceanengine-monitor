@@ -495,11 +495,10 @@ function buildPayload(snap, prev, yesterday) {
       updated_at: snap.time || now.toISOString()
     };
   });
-  // 近8日趋势(含今日)全量附加: 未启动计划也能看昨日/近3天/近7天历史
+  // 近8日趋势(含今日)全量附加: 未启动计划也能看昨日/近3天/近7天历史 (无记录的计划补全 0)
   for (const c of campaigns) {
     if (!campDaily) continue;
-    const byDay = campDaily.get(c.campaign_id);
-    if (!byDay) continue;
+    const byDay = campDaily.get(c.campaign_id) || new Map();
     c.week = [];
     for (let i = 7; i >= 0; i--) {
       const d = new Date(Date.now() + 8 * 3600000 - i * 86400000).toISOString().slice(0, 10);
