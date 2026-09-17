@@ -378,7 +378,7 @@ module.exports = {
       time: true,
     },
 
-    // ====== 小程序云同步 (每15min, 在15min监控落盘2分钟后推送快照上云) ======
+    // ====== 小程序云同步 (每5min, 在5min快照落盘2分钟后推送上云; 2026-09-18 由15min提速, 消耗高峰期小程序滞后从~15min降到~5min) ======
     {
       name: "pm2-cloud-sync",
       script: "src/cloud/cloud-sync.mjs",
@@ -390,7 +390,7 @@ module.exports = {
       autorestart: false,
       max_restarts: 0,
       kill_timeout: 30000,
-      cron_restart: "2-59/15 * * * *",
+      cron_restart: "2-59/5 * * * *",
       out_file: `${LOG_DIR}\\pm2-cloud-sync-out.log`,
       error_file: `${LOG_DIR}\\pm2-cloud-sync-err.log`,
       merge_logs: true,

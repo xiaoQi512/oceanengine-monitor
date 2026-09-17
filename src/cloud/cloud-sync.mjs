@@ -682,6 +682,18 @@ async function main() {
       console.log('[cloud-sync] 快照陈旧(非直播时段), updated_at 回填快照时间');
     }
 
+    // 跨日清零: 最后快照属于昨日(北京)时(凌晨未开播窗口), 其"当日累计"是昨天的消耗,
+    // 必须把今日消耗/线索/进度归零, 否则小程序大卡把昨日累计显示成今日消耗 (2026-09-18 修复)
+    const bjSnapDay = new Date(mtime + 8 * 3600000).toISOString().slice(0, 10);
+    const bjToday = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+    if (bjSnapDay !== bjToday) {
+      payload.summary.cost = 0;
+      payload.summary.cost_progress = 0;
+      payload.summary.leads = 0;
+      payload.cross_day = true;
+      console.log(`[cloud-sync] 跨日: 快照属昨日(${bjSnapDay}), 今日消耗/线索清零显示`);
+    }
+
     // 直播间场次列表 (CDP 采集直播分析页, 非直播时段直接用缓存; 失败回退本地缓存)
     if (!stale) {
       try {
