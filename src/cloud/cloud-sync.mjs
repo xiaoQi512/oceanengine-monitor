@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR, getCurrentAnchorName, getTodayShiftWindow, getLiveWindowLabel } from '../utils/monitor-utils.mjs';
 import { httpPost, getCookieData, buildStatQueryBody, API_BASE } from '../services/ai-regions-api.mjs';
+import { buildShiftData } from '../services/http-routes/api-live-data.mjs';
 import Database from 'better-sqlite3';
 
 const CLOUDRUN_URL = (process.env.CLOUDRUN_URL || '').replace(/\/+$/, '');
@@ -201,46 +202,55 @@ function loadHourlyBuckets(db, days = 9, bjToday = null) {
   return { byBjHour, byBjDate };
 }
 
-// ---------- 主播班次明细 (排班表班次 × 今日小时桶) ----------
+// ---------- 主播班次明细 ----------
+// v2 (2026-09-19): 复用 api-live-data 的 buildShiftData（快照差值+链式基线+override 校准）,
+// 与仪表盘/飞书换班推送同源同算法, 消除三端口径差（原小时桶分摊为近似值且进行中班次缺最新段）
 
 function shiftsModule(db, bjToday) {
   try {
     if (!bjToday) return [];
-    const cacheFile = path.join(DATA_DIR, `shifts-${bjToday}.json`);
-    if (!fs.existsSync(cacheFile)) return [];
-    const cached = JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
-    const { byBjHour } = loadHourlyBuckets(db, 2, bjToday);
-    return (cached.shifts || []).map(s => {
-      // 班次与小时桶按分钟重叠权重分摊, 避免边界桶(如 7 点桶被 5:30-7:30 与 7:30-9:30 重复计入)
-      const parts = (s.label || '').split('-');
-      const p0 = (parts[0] || '').split(':').map(Number);
-      const p1 = (parts[1] || '').split(':').map(Number);
-      const s0 = (p0[0] || 0) * 60 + (p0[1] || 0);
-      const s1 = (p1[0] || 0) * 60 + (p1[1] || 0);
-      let cost = 0, leads = 0;
-      for (const h of (s.hours || [])) {
-        const b0 = h * 60, b1 = b0 + 60;
-        const ov = Math.max(0, Math.min(s1, b1) - Math.max(s0, b0));
-        if (ov <= 0) continue;
-        const v = byBjHour.get(String(h));
-        if (v) { cost += v.cost * (ov / 60); leads += v.leads * (ov / 60); }
-      }
-      return {
-        label: s.label || '',
-        anchor: s.anchorName || '',
-        spend: +cost.toFixed(0),
-        leads: Math.round(leads),
-        cpl: leads > 0 ? +(cost / leads).toFixed(1) : 0
-      };
-    });
+    return buildShiftData(bjToday, DATA_DIR, DB_PATH).map(s => ({
+      label: s.label,
+      anchor: s.anchor,
+      spend: Math.round(Number(s.spend) || 0),
+      leads: Math.round(Number(s.leads) || 0),
+      cpl: s.cpl || 0,
+      carModel: s.carModel || '',
+      progress: s.progress || 0,
+      pushed: !!s.pushed,
+    }));
   } catch (e) {
     console.warn('[cloud-sync] 班次聚合失败:', e.message);
     return [];
   }
 }
 
-// ---------- 投放形式明细 (按计划名关键词分组) ----------
+// ---------- 投放形式明细 ----------
+// v2 (2026-09-19): 改调本地 8899 /api/campaigns/grouped（巨量 API 全量计划 + classifyDeliveryType 分组）,
+// 与仪表盘同源同规则; 原"最新快照 Top100 + FORMAT_RULES 顺序匹配"存在截断漏计划与归类差异, 保留为兜底
 
+const toNumV = v => Math.round(Number(v)) || 0;
+
+async function formatsModuleViaApi() {
+  const res = await fetch('http://127.0.0.1:8899/api/campaigns/grouped', { signal: AbortSignal.timeout(4000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const j = await res.json();
+  const groups = j?.session?.groups || j?.spending?.groups || {};
+  const out = Object.entries(groups)
+    .filter(([, g]) => g?.summary && (g.summary.spend > 0 || (g.summary.total || 0) > 0))
+    .map(([name, g]) => ({
+      name,
+      count: (g.plans || []).length,
+      cost: toNumV(g.summary?.spend || 0),
+      leads: Math.round(Number(g.summary?.leads) || 0),
+      cpl: Number(g.summary?.leads) > 0 ? +((Number(g.summary?.spend) || 0) / Number(g.summary?.leads)).toFixed(1) : 0,
+    }))
+    .sort((a, b) => b.cost - a.cost);
+  if (!out.length) throw new Error('grouped 为空');
+  return out;
+}
+
+// 兜底: 快照 Top100 分组(FORMAT_RULES 顺序匹配, 仅在 8899 grouped API 不可用时使用)
 const FORMAT_RULES = [
   { key: '画面直投', match: /画面直投/ },
   { key: '短视频引流', match: /短引直|短视频/ },
@@ -680,6 +690,14 @@ async function main() {
       payload.updated_at = snapTime;
       payload.stale = true;
       console.log('[cloud-sync] 快照陈旧(非直播时段), updated_at 回填快照时间');
+    }
+
+    // 投放形式: 优先 8899 grouped API(巨量全量+同分组规则, 与仪表盘一致), 失败回退快照分组
+    try {
+      payload.formats = await formatsModuleViaApi();
+    } catch (e) {
+      console.warn('[cloud-sync] 投放形式 API 失败, 回退快照分组:', e.message);
+      payload.formats = formatsModule(snap.campaigns || []);
     }
 
     // 跨日清零: 最后快照属于昨日(北京)时(凌晨未开播窗口), 其"当日累计"是昨天的消耗,
