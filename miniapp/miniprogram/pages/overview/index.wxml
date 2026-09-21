@@ -24,7 +24,7 @@
     <view class="cost-value">{{fmtCost}}</view>
     <view class="cost-progress">
       <view class="progress-track">
-        <view class="progress-fill" style="width: {{summary.cost_progress}}%"></view>
+        <view class="progress-fill" style="width: {{summary.cost_progress}}%;"></view>
       </view>
       <view class="progress-meta">
         <text>日预算 {{summary.cost_progress}}%</text>
