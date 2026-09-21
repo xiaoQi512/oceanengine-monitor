@@ -18,6 +18,7 @@ Page({
     detailRange: 'd7',
     detailSum: { cost: '--', leads: 0, cpa: '--' },
     // 预算弹层
+    buildTag: '20260921-a',
     budgetOpen: false,
     budgetCampaign: {},
     budgetValue: 0,
@@ -240,15 +241,19 @@ Page({
 
   // 调整预算弹层
   openBudget(e) {
-    if (!this.allCampaigns) this.allCampaigns = []
-    const camp = this.allCampaigns.find(c => c.id === e.currentTarget.dataset.id) || {}
-    if (!camp.id) { wx.showToast({ title: '计划数据未加载, 请下拉刷新', icon: 'none' }); return; }
-    this.setData({
-      budgetOpen: true,
-      budgetCampaign: camp,
-      budgetValue: camp.budget || 0
-    })
-    this.setTabBarHidden(true)
+    try {
+      if (!this.allCampaigns) this.allCampaigns = []
+      const camp = this.allCampaigns.find(c => c.id === e.currentTarget.dataset.id) || {}
+      if (!camp.id) { wx.showToast({ title: '计划数据未加载, 请下拉刷新', icon: 'none' }); return; }
+      this.setData({
+        budgetOpen: true,
+        budgetCampaign: camp,
+        budgetValue: camp.budget || 0
+      })
+      this.setTabBarHidden(true)
+    } catch (err) {
+      wx.showModal({ title: '预算弹窗异常', content: String((err && err.message) || err), showCancel: false })
+    }
   },
 
   closeBudget() {

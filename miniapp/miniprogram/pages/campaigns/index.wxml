@@ -1,7 +1,7 @@
 <view class="page">
   <view class="header">
     <view class="header-title">计划管理</view>
-    <view class="header-sub">{{sourceText}} · 共{{campaigns.length}}个 · 在投{{activeCount}}</view>
+    <view class="header-sub">{{sourceText}} · 共{{campaigns.length}}个 · 在投{{activeCount}} · [B-a]</view>
   </view>
 
   <!-- 搜索框 -->
