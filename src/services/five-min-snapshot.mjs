@@ -23,6 +23,8 @@ export function loadRecent5minSnapshots(limit = 3, { dataDir = DATA_DIR, getLoca
   } catch { return []; }
 }
 
+import { writeAccountSnapshot } from './db-writer.mjs';
+
 export function saveFiveMinSnapshot({
   data,
   rolling,
@@ -43,6 +45,10 @@ export function saveFiveMinSnapshot({
   }
 
   try {
+    // 统一数据层: 账户页头落库 (UPSERT 幂等)
+    try {
+      writeAccountSnapshot({ account_id: process.env.OEC_ACCOUNT_ID || '1842681352509635', snapshot_time: nowISO(), data });
+    } catch (e) { console.warn('  ⚠ 账户页头落库失败:', e.message); }
     const r = dualInsertSnapshot(snapData);
     if (r.ok && r.rows > 0) {
       sqliteRows = r.rows;

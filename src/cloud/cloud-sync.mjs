@@ -8,6 +8,7 @@ import path from 'node:path';
 import { DATA_DIR, getCurrentAnchorName, getTodayShiftWindow, getLiveWindowLabel } from '../utils/monitor-utils.mjs';
 import { httpPost, getCookieData, buildStatQueryBody, API_BASE } from '../services/ai-regions-api.mjs';
 import { buildShiftData } from '../services/http-routes/api-live-data.mjs';
+import { writeLiveRooms, writeOfficialDaily, writePromotionDaily } from '../services/db-writer.mjs';
 import Database from 'better-sqlite3';
 
 const CLOUDRUN_URL = (process.env.CLOUDRUN_URL || '').replace(/\/+$/, '');
@@ -554,6 +555,10 @@ function buildPayload(snap, prev, yesterday) {
     })();
     yesterdayCost = yd.cost; yesterdayLeads = yd.leads;
     console.log(`[cloud-sync] 昨日口径: ${yd.source} 消耗¥${yd.cost} 线索${yd.leads}`);
+    if (yd.source === 'datacenter') {
+      const ydDate = new Date(Date.now() + 8 * 3600000 - 86400000).toISOString().slice(0, 10);
+      writeOfficialDaily({ account_id: '1842681352509635', cst_date: ydDate, cost: yd.cost, leads: yd.leads });
+    }
     weekly = weeklyModule(byBjDate);
     shifts = shiftsModule(db, bjToday);
     actionLogs = actionLogsModule(db);
@@ -715,6 +720,9 @@ async function main() {
       console.log('[cloud-sync] 快照陈旧(非直播时段), updated_at 回填快照时间');
     }
 
+    // 计划×日汇总落库 (最新快照计划, 幂等)
+    try { writePromotionDaily({ account_id: '1842681352509635', campaigns: snap.campaigns || [] }); } catch (e) { console.warn('[cloud-sync] promotion_daily 落库失败:', e.message); }
+
     // 投放形式: 优先 8899 grouped API(巨量全量+同分组规则, 与仪表盘一致), 失败回退快照分组
     try {
       payload.formats = await formatsModuleViaApi();
@@ -742,6 +750,7 @@ async function main() {
         const rooms = await collectWebcastList();
         if (rooms.length) writeWebcastCache(rooms);
         payload.webcast_rooms = rooms.length ? rooms : readWebcastCache();
+        if (rooms.length) writeLiveRooms({ account_id: '1842681352509635', rooms });
       } catch (e) {
         console.warn('[cloud-sync] 直播间列表采集失败, 用缓存:', e.message);
         try {
