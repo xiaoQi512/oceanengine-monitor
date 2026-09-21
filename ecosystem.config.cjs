@@ -163,6 +163,25 @@ module.exports = {
       time: true,
     },
 
+    // ====== 核算引擎（统一数据层, cron 触发，跑完即退）======
+    {
+      name: "calc-engine",
+      script: "src/services/calc-engine.mjs",
+      cwd: MONITOR_DIR,
+      exec_mode: "fork",
+      interpreter: NODE,
+      env: { NODE_ENV: "production" },
+      instances: 1,
+      autorestart: false,
+      max_restarts: 100,
+      kill_timeout: 30000,
+      cron_restart: "1-56/5 * * * *",
+      out_file: `${LOG_DIR}\\pm2-calc-out.log`,
+      error_file: `${LOG_DIR}\\pm2-calc-err.log`,
+      merge_logs: true,
+      time: true,
+    },
+
     // ====== 5分钟速报（cron 触发，跑完即退）======
     {
       name: "pm2-5min",

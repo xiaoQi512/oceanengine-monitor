@@ -720,6 +720,43 @@ async function main() {
       console.log('[cloud-sync] 快照陈旧(非直播时段), updated_at 回填快照时间');
     }
 
+    // ===== 核算表优先 (统一数据层): last15/shifts/webcast/昨日/今日页头 =====
+    try {
+      const dbU = new Database(DATA_DIR + '/oceanengine.db', { readonly: true });
+      // last15 ← agg_15min 最新桶
+      const buckets = dbU.prepare('SELECT bucket_end_cst, minutes, spend, conv FROM agg_15min WHERE account_id=? AND bucket_end_cst>=? ORDER BY bucket_end_cst DESC LIMIT 2').all('1842681352509635', new Date(Date.now() + 8 * 3600000 - 40 * 60000).toISOString().slice(0, 16).replace('T', ' '));
+      if (buckets.length && buckets[0].spend > 0) {
+        payload.last15 = {
+          minutes: buckets[0].minutes || 15, spend: Math.round(buckets[0].spend), leads: buckets[0].conv || 0,
+          opens: 0, cpm: 0, ctr: 0, impr: 0, clicks: 0, speed_1h: payload.last15?.speed_1h || 0,
+          deltas: buckets[1] && buckets[1].spend > 0 ? { spend: Math.round((buckets[0].spend / buckets[1].spend - 1) * 100), leads: null, opens: null, cpm: null, ctr: null } : null,
+          top5: payload.last15?.top5 || [],
+        };
+        payload.summary.speed_15m = +(buckets[0].spend / (buckets[0].minutes || 15)).toFixed(1);
+      }
+      // shifts ← agg_shift 当日
+      const todayCst = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+      const shiftsAgg = dbU.prepare('SELECT * FROM agg_shift WHERE cst_date=? AND account_id=? ORDER BY shift_label').all(todayCst, '1842681352509635');
+      if (shiftsAgg.length) {
+        payload.shifts = shiftsAgg.map(s => ({
+          label: s.shift_label, anchor: s.anchor || '', spend: Math.round(s.spend || 0),
+          leads: Math.round(s.leads || 0), cpl: s.cpl || 0, carModel: s.car_model || '',
+          progress: s.progress || 0, pushed: false,
+        }));
+      }
+      // webcast ← live_rooms 当日
+      const lr = dbU.prepare('SELECT room_id, title, start_time, end_time, cost, leads, status FROM live_rooms WHERE cst_date=? AND account_id=?').all(todayCst, '1842681352509635');
+      if (lr.length) payload.webcast_rooms = lr.map(x => ({ room_id: x.room_id, title: x.title, start_time: x.start_time, end_time: x.end_time, cost: x.cost, leads: x.leads, status: x.status }));
+      // 昨日 ← official_daily
+      const off = dbU.prepare('SELECT cost, leads FROM official_daily WHERE account_id=? ORDER BY cst_date DESC LIMIT 1').get('1842681352509635');
+      if (off && payload.summary) { payload.summary.yesterday_cost = Math.round(off.cost); payload.summary.yesterday_leads = off.leads; }
+      // 今日页头 ← account_snapshots 最新
+      const as = dbU.prepare('SELECT spend, cst_date FROM account_snapshots WHERE account_id=? ORDER BY snapshot_time DESC LIMIT 1').get('1842681352509635');
+      if (as && as.cst_date === todayCst && payload.summary) payload.summary.spend = Math.round(as.spend);
+      dbU.close();
+      console.log('[cloud-sync] ✅ 核算表数据已并入 payload');
+    } catch (e) { console.warn('[cloud-sync] 核算表读取失败, 保持旧链路:', e.message); }
+
     // 计划×日汇总落库 (最新快照计划, 幂等)
     try { writePromotionDaily({ account_id: '1842681352509635', campaigns: snap.campaigns || [] }); } catch (e) { console.warn('[cloud-sync] promotion_daily 落库失败:', e.message); }
 

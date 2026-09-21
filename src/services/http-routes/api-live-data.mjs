@@ -30,6 +30,23 @@ function loadShiftOverrides(DATA_DIR, dateStr) {
 }
 
 export function buildShiftData(dateStr, DATA_DIR, DB_PATH) {
+  // agg_shift 优先: 10 分钟内有核算结果则直接返回表数据 (统一数据层)
+  try {
+    const dbPre = new Database(DB_PATH, { readonly: true, fileMustExist: true });
+    const fresh = dbPre.prepare("SELECT computed_at FROM agg_shift WHERE cst_date=? ORDER BY computed_at DESC LIMIT 1").get(dateStr);
+    if (fresh && (Date.now() - new Date(fresh.computed_at.replace(' ', 'T') + 'Z').getTime()) < 600000) {
+      const rows = dbPre.prepare('SELECT * FROM agg_shift WHERE cst_date=? ORDER BY shift_label').all(dateStr);
+      dbPre.close();
+      if (rows.length) return rows.map(x => ({
+        start: x.shift_label.split('-')[0], end: x.shift_label.split('-')[1], label: x.shift_label,
+        anchor: x.anchor || '待定', carModel: x.car_model || '', spend: x.spend || 0, leads: x.leads || 0,
+        cpl: x.cpl || 0, cpm: x.cpm || 0, ctr: x.ctr || 0, progress: x.progress || 0,
+        conversions: x.leads || 0, open: 0, pushed: !!x.corrected, corrected: !!x.corrected,
+      }));
+    }
+    dbPre.close();
+  } catch {}
+
   const result = [];
   if (!dateStr || !DATA_DIR) return result;
 
@@ -115,7 +132,15 @@ export function buildShiftData(dateStr, DATA_DIR, DB_PATH) {
       const now = new Date();
       const nowTotal = now.getHours() * 60 + now.getMinutes();
 
-      for (const s of shiftList) {
+      // 🔧 2026-09-08: 班次链式累计基线
+      // 已完成班次的账户累计(终点快照值或 起点基线+校准后spend)随链推进；
+      // 当后继班次起点快照不可靠(缺失/偏差>10min)时，用链式累计做起点基线，
+      // 保证 override 校准值能传导到后继班次（如 14:30 基线 = 12:30累计9593.06 + 薇薇校准3608.33）。
+      let chainCum = null;
+      let chainLeads = null;
+
+      for (let idx = 0; idx < shiftList.length; idx++) {
+        const s = shiftList[idx];
         const lbl = s.label || '';
         const [start, end] = lbl.split('-').map(x => x.trim());
         if (!start || !end) continue;
@@ -127,10 +152,36 @@ export function buildShiftData(dateStr, DATA_DIR, DB_PATH) {
         // 而 DB snapshots 表在 0 消耗时不写行，MAX-MIN 会漏算首班次起点。
         const startUtc = cstToUtc(dateStr, start);
         const endUtc = cstToUtc(dateStr, end);
+        // 场次起止分钟数（提前计算，供进行中判断与进度共用）
+        const [sh, sm] = start.split(':').map(Number);
+        const [eh, em] = end.split(':').map(Number);
+        const stTotal = sh * 60 + sm;
+        const etTotal = eh * 60 + em;
+        // 🔧 2026-09-08: 进行中的场次 end 边界改用"当前时刻"找最近快照
+        // （原逻辑用固定班次结束时间，未来时刻必然无快照 → 场次进行中永远走 MAX-MIN 兜底）
+        const nowDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        const nowHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+        const isOngoing = nowTotal >= stTotal && nowTotal < etTotal;
+        const endLookup = isOngoing
+          ? cstToUtc(nowDateStr, nowHHMM)
+          : endUtc;
+        const endLookupCst = isOngoing ? nowHHMM : end;
         const startSnap = getSnapshotAt(startUtc.utcDate, startUtc.utcHHMM, dateStr, start);
-        const endSnap = getSnapshotAt(endUtc.utcDate, endUtc.utcHHMM, dateStr, end);
-        const snapSpend = (startSnap && endSnap) ? Number((endSnap.totalSpend - startSnap.totalSpend).toFixed(2)) : null;
-        const snapLeads = (startSnap && endSnap) ? Math.max(0, endSnap.totalLeads - startSnap.totalLeads) : null;
+        const endSnap = getSnapshotAt(endLookup.utcDate, endLookup.utcHHMM, dateStr, endLookupCst);
+        // 🔧 2026-09-08: 起点基线三级决策
+        // ① 精确文件快照(偏差≤10min) ② 链式累计(前序班次校准值之和, 快照缺失/偏差大时)
+        // ③ 首场零基线(账户日累计 00:00 归零) / 原快照兜底
+        const startReliable = startSnap && startSnap._diffMin != null && startSnap._diffMin <= 10;
+        let startBaseline;
+        if (startReliable) {
+          startBaseline = startSnap;
+        } else if (chainCum != null) {
+          startBaseline = { totalSpend: chainCum, totalLeads: chainLeads || 0 };
+        } else {
+          startBaseline = startSnap || (idx === 0 ? { totalSpend: 0, totalLeads: 0 } : null);
+        }
+        const snapSpend = (startBaseline && endSnap) ? Number((endSnap.totalSpend - startBaseline.totalSpend).toFixed(2)) : null;
+        const snapLeads = (startBaseline && endSnap) ? Math.max(0, endSnap.totalLeads - startBaseline.totalLeads) : null;
         let spend = 0, leads = 0, openCount = 0, wCpmNum = 0, wCpmDen = 0, wCtrNum = 0, wCtrDen = 0;
         for (const p of planRows) {
           const dCost = Math.max(0, (p.max_cost || 0) - (p.min_cost || 0));
@@ -167,11 +218,19 @@ export function buildShiftData(dateStr, DATA_DIR, DB_PATH) {
           ? Number((finalSpend / finalLeads).toFixed(2))
           : cpl;
 
-        // 进度计算
-        const [sh, sm] = start.split(':').map(Number);
-        const [eh, em] = end.split(':').map(Number);
-        const stTotal = sh * 60 + sm;
-        const etTotal = eh * 60 + em;
+        // 已下播班次 → 推进链式累计（终点快照可靠用快照值，否则用 起点基线+本场校准值）
+        if (!isOngoing && nowTotal >= etTotal) {
+          const endReliable = endSnap && endSnap._diffMin != null && endSnap._diffMin <= 10;
+          if (endReliable) {
+            chainCum = endSnap.totalSpend;
+            chainLeads = endSnap.totalLeads;
+          } else if (startBaseline) {
+            chainCum = startBaseline.totalSpend + finalSpend;
+            chainLeads = (startBaseline.totalLeads || 0) + finalLeads;
+          }
+        }
+
+        // 进度计算（sh/sm/eh/em/stTotal/etTotal 已在班次起点快照查找前定义）
         let progress = 0;
         if (nowTotal >= etTotal) progress = 100;
         else if (nowTotal > stTotal) progress = Math.round((nowTotal - stTotal) / (etTotal - stTotal) * 100);
