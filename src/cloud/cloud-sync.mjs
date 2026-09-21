@@ -76,20 +76,43 @@ function windowDiff(a, b) {
 
 const deltaPct = (cur, prev) => (prev > 0 && cur >= 0) ? +(((cur - prev) / prev) * 100).toFixed(1) : null;
 
-// ---------- 近15分钟 (铁律: 最近3个5分钟桶, 速率按真实分钟) + 上一轮窗口环比 ----------
+// ---------- 近15分钟 (口径 v3 2026-09-21: 锚定整5分钟刻度, 当前窗口=[t-15,t] 两刻度页头差, 环比=[t-30,t-15]) ----------
 
 function last15Module(snaps) {
   if (snaps.length < 2) {
     return { minutes: 0, spend: 0, leads: 0, opens: 0, cpm: 0, ctr: 0, impr: 0, clicks: 0, speed_1h: 0, deltas: null, top5: [] };
   }
-  const idx = Math.min(2, snaps.length - 1);
-  const minutes = Math.max(1, Math.round((snaps[0].mtime - snaps[idx].mtime) / 60000));
+  // 刻度化: 快照 mtime → 整5分钟刻度(ms); 同刻度保留最新
+  const FIVE = 5 * 60000;
+  const tickOf = (mt) => Math.floor(mt / FIVE) * FIVE;
+  const byTick = new Map();
+  for (const s of snaps) {
+    const tk = tickOf(s.mtime);
+    if (!byTick.has(tk)) byTick.set(tk, s);
+  }
+  const newest = snaps[0];
+  const t0 = tickOf(newest.mtime);
+  // 刻度查找: 优先精确刻度, 缺失则向前找最近可用快照(窗口如实拉长, minutes 按真实差)
+  const snapAtOrBefore = (tick) => {
+    for (let k = 0; k < 7; k++) {
+      const s = byTick.get(tick - k * FIVE);
+      if (s) return s;
+    }
+    return null;
+  };
+  const s0 = byTick.get(t0) || newest;          // t (如 10:30)
+  const s15 = snapAtOrBefore(t0 - 3 * FIVE);    // t-15 (如 10:15)
+  const s30 = snapAtOrBefore(t0 - 6 * FIVE);    // t-30 (如 10:00)
+  if (!s15) {
+    return { minutes: 0, spend: 0, leads: 0, opens: 0, cpm: 0, ctr: 0, impr: 0, clicks: 0, speed_1h: 0, deltas: null, top5: [] };
+  }
+  const minutes = Math.max(1, Math.round((s0.mtime - s15.mtime) / 60000));
 
-  // 本轮窗口: snaps[0] - snaps[2]; 上一轮窗口: snaps[3] - snaps[5] (用于环比)
-  const cur = windowDiff(snaps[0].data, snaps[idx].data);
+  // 本轮窗口: [t-15, t]; 环比窗口: [t-30, t-15]
+  const cur = windowDiff(s0.data, s15.data);
   let prev = null, deltas = null;
-  if (snaps.length >= 6) {
-    const p = windowDiff(snaps[3].data, snaps[5].data);
+  if (s30) {
+    const p = windowDiff(s15.data, s30.data);
     if (p.spend > 0 || p.leads > 0 || p.opens > 0) {
       prev = p;
       deltas = {
@@ -110,11 +133,11 @@ function last15Module(snaps) {
   // 计划级增量 TOP5 (桶内需有明细): 消耗/线索增量 + CPL + 无转化预警(消耗≥300且0线索) + 与上一轮窗口环比
   const top5 = [];
   const newC = Array.isArray(snaps[0].data.campaigns) && snaps[0].data.campaigns.length ? snaps[0].data.campaigns : null;
-  const oldC = Array.isArray(snaps[idx].data.campaigns) && snaps[idx].data.campaigns.length ? snaps[idx].data.campaigns : null;
+  const oldC = Array.isArray(s15.data.campaigns) && s15.data.campaigns.length ? s15.data.campaigns : null;
   // 上一轮窗口两端快照的计划明细 (环比同口径: 本轮15m增量 vs 上轮15m增量)
-  const hasPrevWin = snaps.length >= 6;
-  const prevNewC = hasPrevWin && Array.isArray(snaps[3].data.campaigns) && snaps[3].data.campaigns.length ? snaps[3].data.campaigns : null;
-  const prevOldC = hasPrevWin && Array.isArray(snaps[5].data.campaigns) && snaps[5].data.campaigns.length ? snaps[5].data.campaigns : null;
+  const hasPrevWin = !!s30;
+  const prevNewC = hasPrevWin && Array.isArray(s15.data.campaigns) && s15.data.campaigns.length ? s15.data.campaigns : null;
+  const prevOldC = hasPrevWin && Array.isArray(s30.data.campaigns) && s30.data.campaigns.length ? s30.data.campaigns : null;
   if (newC && oldC) {
     const oldMap = new Map(oldC.map(c => [String(c.id), c]));
     const prevNewMap = prevNewC && prevOldC ? new Map(prevNewC.map(c => [String(c.id), Number(c.spend) || 0])) : null;
