@@ -125,7 +125,7 @@
     <view class="card-title"><text>过去1小时 · 5分钟增量</text></view>
     <view class="trend">
       <view class="trend-bar-wrap" wx:for="{{hourlyBars}}" wx:key="t">
-        <view class="trend-bar {{item.hot ? 'trend-bar-hot' : ''}}" style="height: {{item.pct}}rpx"></view>
+        <view class="trend-bar {{item.hot ? 'trend-bar-hot' : ''}}" style="height: {{item.pct}}rpx;"></view>
         <text class="trend-hour" wx:if="{{item.showLabel}}">{{item.t}}</text>
         <text class="trend-hour trend-hour-blank" wx:else></text>
       </view>
@@ -137,7 +137,7 @@
     <view class="card-title"><text>近7日消耗</text><text class="card-more">日均 ¥{{weeklyAvg}}</text></view>
     <view class="trend">
       <view class="trend-bar-wrap" wx:for="{{weeklyBars}}" wx:key="date">
-        <view class="trend-bar {{item.hot ? 'trend-bar-hot' : ''}}" style="height: {{item.pct}}rpx"></view>
+        <view class="trend-bar {{item.hot ? 'trend-bar-hot' : ''}}" style="height: {{item.pct}}rpx;"></view>
         <text class="trend-hour">{{item.date}}</text>
       </view>
     </view>

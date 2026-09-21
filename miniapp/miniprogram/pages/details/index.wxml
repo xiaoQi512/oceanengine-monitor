@@ -14,7 +14,7 @@
         <text class="funnel-rate" wx:if="{{item.rate}}">{{item.rate}}</text>
       </view>
       <view class="funnel-track">
-        <view class="funnel-bar" style="width: {{item.pct}}%"></view>
+        <view class="funnel-bar" style="width: {{item.pct}}%;"></view>
       </view>
     </view>
   </view>
