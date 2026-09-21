@@ -240,6 +240,8 @@ Page({
   },
 
   // 调整预算弹层
+  noop() {},
+
   openBudget(e) {
     try {
       if (!this.allCampaigns) this.allCampaigns = []

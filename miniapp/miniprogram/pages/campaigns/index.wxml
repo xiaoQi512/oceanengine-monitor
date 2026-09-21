@@ -87,7 +87,7 @@
 
   <!-- 计划详情弹层 -->
   <view class="mask" wx:if="{{detailOpen}}" bindtap="closeDetail">
-    <view class="sheet" catchtap="">
+    <view class="sheet" catchtap="noop">
       <scroll-view scroll-y class="sheet-scroll">
         <view class="sheet-title">{{detailCampaign.name}}</view>
         <view class="detail-tags">
@@ -133,7 +133,7 @@
 
   <!-- 调整预算底部弹层 -->
   <view class="mask" wx:if="{{budgetOpen}}" bindtap="closeBudget">
-    <view class="sheet" catchtap="">
+    <view class="sheet" catchtap="noop">
       <view class="sheet-title">调整预算</view>
       <view class="sheet-camp">{{budgetCampaign.name}}</view>
       <view class="sheet-current">当前预算 ¥{{budgetCampaign.budget}}</view>
