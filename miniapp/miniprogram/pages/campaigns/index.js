@@ -53,8 +53,8 @@ Page({
         const pct = c.budget ? Math.min(100, Math.max(0, Math.round(c.cost / c.budget * 100))) : 0
         // 近7日历史聚合 (week 8项, 前7项为历史, 不含今日)
         const hist = (c.week || []).slice(0, 7)
-        const w7Cost = hist.reduce((a, b) => a + b.cost, 0)
-        const w7Leads = hist.reduce((a, b) => a + b.leads, 0)
+        const w7Cost = hist.reduce((a, b) => a + (Number(b.cost) || 0), 0)
+        const w7Leads = hist.reduce((a, b) => a + (Number(b.leads) || 0), 0)
         return {
           ...c,
           fmtCost: fmt.fmtMoney(c.cost),
@@ -240,7 +240,9 @@ Page({
 
   // 调整预算弹层
   openBudget(e) {
+    if (!this.allCampaigns) this.allCampaigns = []
     const camp = this.allCampaigns.find(c => c.id === e.currentTarget.dataset.id) || {}
+    if (!camp.id) { wx.showToast({ title: '计划数据未加载, 请下拉刷新', icon: 'none' }); return; }
     this.setData({
       budgetOpen: true,
       budgetCampaign: camp,
@@ -275,14 +277,15 @@ Page({
       wx.showToast({ title: '预算未变化', icon: 'none' })
       return
     }
-    const deltaPct = Math.abs(val - camp.budget) / camp.budget * 100
+    const baseBudget = Number(camp.budget) || 0
+    const deltaPct = baseBudget > 0 ? Math.abs(val - baseBudget) / baseBudget * 100 : 100
     const doSubmit = () => {
       this.setData({ budgetBusy: true })
       store.submitCommand({
         action: 'update_budget',
         campaign_id: camp.id,
         campaign_name: camp.name,
-        params: { budget: val, old_budget: camp.budget, delta_pct: Math.round(deltaPct) }
+        params: { budget: val, old_budget: baseBudget, delta_pct: Math.round(deltaPct) }
       }).then(() => {
         wx.showToast({ title: '指令已提交', icon: 'success' })
         this.setData({ budgetOpen: false, budgetBusy: false, detailOpen: false })
@@ -295,7 +298,7 @@ Page({
     if (deltaPct > 20) {
       wx.showModal({
         title: '高风险操作确认',
-        content: `预算变动 ${Math.round(deltaPct)}% (¥${camp.budget} → ¥${val}), 确认执行?`,
+        content: `预算变动 ${Math.round(deltaPct)}% (¥${baseBudget} → ¥${val}), 确认执行?`,
         confirmColor: '#FF5A5A',
         success: (r) => { if (r.confirm) doSubmit() }
       })
