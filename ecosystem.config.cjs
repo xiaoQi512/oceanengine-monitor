@@ -182,6 +182,25 @@ module.exports = {
       time: true,
     },
 
+    // ====== 每日车型消耗同步飞书 (5:05 首跑, 出数延迟时逐小时重试到 11 点) ======
+    {
+      name: "model-daily-sync",
+      script: "src/services/sync-model-daily-feishu.mjs",
+      cwd: MONITOR_DIR,
+      exec_mode: "fork",
+      interpreter: NODE,
+      env: { NODE_ENV: "production", OEC_SILENT: "1" },
+      instances: 1,
+      autorestart: false,
+      max_restarts: 100,
+      kill_timeout: 30000,
+      cron_restart: "5 5-11 * * *",
+      out_file: `${LOG_DIR}\\pm2-model-sync-out.log`,
+      error_file: `${LOG_DIR}\\pm2-model-sync-err.log`,
+      merge_logs: true,
+      time: true,
+    },
+
     // ====== 5分钟速报（cron 触发，跑完即退）======
     {
       name: "pm2-5min",
