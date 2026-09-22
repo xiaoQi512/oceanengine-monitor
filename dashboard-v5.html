@@ -819,7 +819,7 @@ tbody tr.budget-warn { background: linear-gradient(90deg, rgba(251, 191, 36, 0.0
             <section class="panel">
               <div class="panel-head">
                 <h2>15分钟新增数据</h2>
-                <span class="muted">近 3 个 5 分钟格点增量</span>
+                <span class="muted" id="fifteenWindow">…</span>
               </div>
               <div class="fifteen-grid">
                 <div class="side-stat">
@@ -1499,6 +1499,8 @@ function normalizeKpi(liveData, snap5) {
     totalMsgOpen: num(k.totalMsgOpen || s.totalMsgOpen),
     totalMsgLead: num(k.totalMsgLead || s.totalMsgLead),
     speedPer5min: num(s._rolling?.last5min || 0),
+    todayWindows: num(s.todayWindows || 0),
+    yesterdayWindows: num(s.yesterdayWindows || 0),
     cpm: num(k.cpm || s._recentCPM || s.cpm || 0),
     ctr,
     budget: budget ? Math.round((spend / budget) * 100) : 0,
@@ -1718,6 +1720,7 @@ async function loadData(showToast = true) {
     data.kpi = { ...data.kpi, ...normalizeKpi(liveData, snap5) };
     // 以下无条件赋值：normalize 函数对 null 参数均安全返回空数组/空对象，避免 API 失败时残留演示 mock
     data.kpi.compares = buildCompare(kpiCompare);
+    data.kpi.compareRaw = kpiCompare || {}; // 供 renderKpis 取真实 5min 窗口数(整场均速分母)
     data.shifts = normalizeShifts(liveData);
     data.trend = { ...data.trend, ...normalizeTrend(trendData) };
     data.kpi.spark = buildSpark(data.trend, data.kpi);
@@ -1816,14 +1819,26 @@ function renderKpis() {
   const k = data.kpi;
   const open = num(k.totalMsgOpen);
   const openCost = open ? fmtMoney(num(k.totalSpend) / open) : "暂无开口成本";
-  // 整场截止目前的每5分钟平均消耗速度 = 今日累计消耗 / 今日已过的5分钟个数
+  // 当前消耗速度 = 最新 5min 快照的真实增量(_rolling.last5min)，与飞书速报口径一致
+  const curSpeed = num(k.speed);
   const now = new Date();
-  const minutesToday = now.getHours() * 60 + now.getMinutes();
-  const intervals = Math.max(1, Math.ceil(minutesToday / 5));
+  // 整场平均速度 = 今日累计消耗 / 今日真实已过的 5min 桶数。
+  // 优先使用与 totalSpend 同源的 snap5.latest.todayWindows,确保 15s 刷新窗口内不自相矛盾;
+  // 再退而用 kpi/compare 接口返回的窗口数;最后兜底按 now 反推
+  const approxIntervals = Math.max(1, Math.ceil((now.getHours() * 60 + now.getMinutes()) / 5));
+  const todayWindows = num(k.todayWindows) > 0
+    ? num(k.todayWindows)
+    : (num(data.kpi.compareRaw?.windows?.today) || approxIntervals);
+  const intervals = todayWindows > 0 ? todayWindows : approxIntervals;
   const avg5minSpeed = num(k.totalSpend) / intervals;
+  // 主值展示当前速度；rolling 缺失(15min 源无 delta)时退化为整场均速
+  const speedValue = curSpeed > 0 ? curSpeed : avg5minSpeed;
+  const speedSub = curSpeed > 0
+    ? "整场均速 ¥" + avg5minSpeed.toFixed(2) + "/5min"
+    : "暂无近5min快照，显示整场均速";
   const cards = [
     { key: "spend", metricId: "spend_total", label: "今日消耗", value: fmtMoney(k.totalSpend ?? k.spend), sub: "预算使用 " + k.budget + "%", spark: k.spark.spend, color: "#38bdf8" },
-    { key: "speed", metricId: "speed_current", label: "消耗速度", value: "¥" + avg5minSpeed.toFixed(2) + "/5min", sub: "近5分钟 ¥" + num(k.speed).toFixed(2), spark: k.spark.speed, color: "#34d399" },
+    { key: "speed", metricId: "speed_current", label: "消耗速度", value: "¥" + speedValue.toFixed(2) + "/5min", sub: speedSub, spark: k.spark.speed, color: "#34d399" },
     { key: "leads", metricId: "leads_total", label: "线索数", value: k.leads + " 条", sub: "私信留资 + 表单提交", spark: k.spark.leads, color: "#a78bfa" },
     { key: "cpl", metricId: "cpl_total", label: "CPL", value: "¥" + k.avgCpl.toFixed(2), sub: openCost, spark: k.spark.cpl, color: "#f472b6" },
     { key: "cpm", metricId: "cpm", label: "千展成本", value: "¥" + k.cpm.toFixed(2), sub: "点击率 " + k.ctr.toFixed(2) + "%", spark: k.spark.cpm, color: "#fbbf24" },
@@ -1953,11 +1968,34 @@ function renderChart() {
   renderTrendSide();
 }
 
+// 实际统计周期: 末尾 3 个有效 delta 覆盖的时间范围 (与 sumLastN 取数语义精确一致)
+function fifteenWindowLabel() {
+  const t = data.trend;
+  const arr = (t.deltaSpend || []).map(v => (v === null || v === undefined || v === "") ? NaN : Number(v));
+  const idxs = [];
+  for (let i = arr.length - 1; i >= 0 && idxs.length < 3; i--) if (Number.isFinite(arr[i])) idxs.push(i);
+  if (!idxs.length) return "";
+  const j0 = idxs[idxs.length - 1]; // 最早参与求和的 delta 索引
+  const pEnd = idxs[0];             // 终点 = 最新参与求和的 delta 当前点
+  const spend = (t.totalSpend || []).map(v => (v === null || v === undefined || v === "") ? NaN : Number(v));
+  let p0 = j0; // delta[j0] 起点 = j0 前最近的有限累计点 (j0===0 即基线点, 用第0点时间近似)
+  for (let j = j0 - 1; j >= 0; j--) if (Number.isFinite(spend[j])) { p0 = j; break; }
+  if (pEnd < 0) return "";
+  const fmt = i => {
+    const ts = t.timestamps && t.timestamps[i];
+    if (ts) { const d = new Date(ts); if (!isNaN(d.getTime())) return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }); }
+    return (t.labels && t.labels[i]) || "";
+  };
+  return fmt(p0) + "-" + fmt(pEnd);
+}
+
 function renderTrendSide() {
   const el = document.getElementById("sideStatLines");
   if (!el) return;
+  const winEl = document.getElementById("fifteenWindow");
+  if (winEl) winEl.textContent = fifteenWindowLabel() || "统计周期未知";
   const sumLastN = (arr, n) => (arr || []).filter(v => Number.isFinite(v)).slice(-n).reduce((s, v) => s + v, 0);
-  // 近15分钟 = 最近3个5分钟格点增量之和(与趋势图 deltaSpend 同源同口径)
+  // 近15分钟 = 最近3个5分钟格点增量之和(与趋势图 deltaSpend 同源同口径); 窗口时间范围见 fifteenWindowLabel()
   const spend15 = sumLastN(data.trend.deltaSpend, 3);
   const leads15 = sumLastN(data.trend.deltaConversions, 3);
   const impDelta = trendDelta(data.trend.impressions || [], data.trend.baseImpressions);
