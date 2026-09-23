@@ -4,7 +4,7 @@
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
-import { DATA_DIR, ACCOUNT_ID } from '../utils/monitor-utils.mjs';
+import { DATA_DIR, ACCOUNT_ID, VIDEO_ACCOUNT_ID } from '../utils/monitor-utils.mjs';
 import { buildShiftData } from './http-routes/api-live-data.mjs';
 import { getCookieData, buildStatQueryBody, API_BASE } from './ai-regions-api.mjs';
 
@@ -127,24 +127,49 @@ async function calcDailyModel() {
       cost=excluded.cost, leads=excluded.leads, session_count=excluded.session_count, computed_at=excluded.computed_at
   `);
 
-  // -- 福利号: promotion_daily 按 model_rules 聚合 (fallback αT7)
-  const plans = d.prepare('SELECT campaign_name, cost, leads FROM promotion_daily WHERE cst_date=? AND account_id=?').all(today, FU_LI_ACC);
+  // -- 福利号: 直播+短视频 双账户 customize_report 平台口径 (fallback: promotion_daily 快照聚合)
   const fuAgg = Object.fromEntries(MODELS.map(m => [m, { cost: 0, leads: 0 }]));
-  for (const p of plans) {
-    const m = classifyByRules(p.campaign_name, 'αT7');
-    if (fuAgg[m]) { fuAgg[m].cost += Number(p.cost) || 0; fuAgg[m].leads += Number(p.leads) || 0; }
-  }
-  for (const m of MODELS) {
-    up.run({ cst_date: today, account_id: FU_LI_ACC, model: m, cost: fuAgg[m].cost, leads: fuAgg[m].leads, session_count: 0, computed_at: now });
-  }
-
-  // -- AI区域号: statQuery 今日消耗 × 场次数占比
   let cookieData;
   try { cookieData = await getCookieData(); } catch (e) { console.warn('[calc] cookie 失败:', e.message); return; }
   const headers = { ...cookieData.headers, 'Content-Type': 'application/json', Referer: 'https://ad.oceanengine.com/' };
   headers['Cookie'] = headers['Cookie'].replace(/[^\x20-\x7E]/g, '');
   const csrf = headers['Cookie'].match(/passport_csrf_token=([^;]+)/)?.[1];
   if (csrf && !/csrftoken=/.test(headers['Cookie'])) headers['Cookie'] += '; csrftoken=' + csrf;
+
+  const fuAccounts = [FU_LI_ACC, VIDEO_ACCOUNT_ID].filter(Boolean);
+  let platformOk = false;
+  try {
+    const vbody = {
+      dimensions: ['cdp_promotion_name'], filters: [], metrics: ['stat_cost', 'convert_cnt'],
+      startTime: String(Date.parse(today + 'T00:00:00+08:00')),
+      endTime: String(Date.parse(today + 'T23:59:59+08:00') - 1),
+      orderBy: [{ field: 'stat_cost', type: 1 }], page: { offset: 0, limit: 100 },
+      dataTopic: 'basic_ad_data', platform: 1,
+    };
+    for (const acc of fuAccounts) {
+      const vres = await fetch(API_BASE + '/report/api/statistic/customize_report/data?aadvid=' + acc, { method: 'POST', headers, body: JSON.stringify(vbody) });
+      const vj = await vres.json().catch(() => null);
+      if (vj?.code !== 0 && vj?.code !== undefined) throw new Error(`customize_report code=${vj.code}`);
+      for (const r of (vj?.data?.rows || [])) {
+        const m = classifyByRules(r.dimensions?.cdp_promotion_name || '', 'αT7');
+        if (fuAgg[m]) { fuAgg[m].cost += Number(r.metrics?.stat_cost) || 0; fuAgg[m].leads += Number(r.metrics?.convert_cnt) || 0; }
+      }
+    }
+    platformOk = true;
+    console.log('[calc] 福利号平台口径(直播+短视频):', MODELS.filter(m => fuAgg[m].cost > 0).map(m => `${m}=${Math.round(fuAgg[m].cost)}`).join(' ') || '(0)');
+  } catch (e) { console.warn('[calc] 平台口径拉取失败, 回退快照聚合:', e.message); }
+
+  if (!platformOk) {
+    const plans = d.prepare('SELECT campaign_name, cost, leads FROM promotion_daily WHERE cst_date=? AND account_id=?').all(today, FU_LI_ACC);
+    for (const p of plans) {
+      const m = classifyByRules(p.campaign_name, 'αT7');
+      if (fuAgg[m]) { fuAgg[m].cost += Number(p.cost) || 0; fuAgg[m].leads += Number(p.leads) || 0; }
+    }
+  }
+  for (const m of MODELS) {
+    up.run({ cst_date: today, account_id: FU_LI_ACC, model: m, cost: fuAgg[m].cost, leads: fuAgg[m].leads, session_count: 0, computed_at: now });
+  }
+  // -- AI区域号: statQuery 今日消耗 × 场次数占比
   for (const [name, acc] of REGIONS) {
     const body = {
       DataSetKey: 'basic_ad_data', Dimensions: ['stat_time_day'],

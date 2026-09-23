@@ -189,7 +189,7 @@ module.exports = {
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { NODE_ENV: "production", OEC_SILENT: "1" },
+      env: { NODE_ENV: "production", OEC_SILENT: "1", HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "", http_proxy: "", https_proxy: "", all_proxy: "" },
       instances: 1,
       autorestart: false,
       max_restarts: 100,
