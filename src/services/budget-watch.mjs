@@ -169,12 +169,38 @@ async function fastTick() {
       const h2 = await statLast2h(acc);
       const cpl = h2.leads > 0 ? Math.round(h2.cost / h2.leads) : 0;
       if (cpl > 0 && cpl >= CPL_GATE) { log(`${name} CPL ${cpl} ≥ ${CPL_GATE}, 不报`); continue; }
+      // 开播时长: 今日首个消耗>100 的小时桶 = 场次近似开始
+      const nowCst = new Date(Date.now() + 8 * 3600000);
+      const hb = {
+        DataSetKey: 'basic_ad_data', Dimensions: ['stat_time_hour'],
+        EndTime: nowCst.toISOString().slice(0, 19).replace('T', ' '),
+        Filters: { ConditionRelationshipType: 1, Conditions: [{ Field: 'advertiser_id', Operator: 7, Values: [acc] }] },
+        IsDownload: false, Metrics: ['stat_cost'], PageParams: { Limit: 24, Offset: 0 },
+        StartTime: `${todayCst()} 00:00:00`, Extra: { is_fill_zero: 'true', refer: '' },
+      };
+      const resH = await fetch('https://ad.oceanengine.com/report/api/tool/agw/statistics_sophonx/statQuery?aadvid=' + acc, { method: 'POST', headers: await apiHeaders(), body: JSON.stringify(hb) });
+      const jjH = await resH.json().catch(() => null);
+      let sessionStart = null;
+      for (const r of (jjH?.data?.StatsData?.Rows || [])) {
+        if (num(r.Metrics?.stat_cost?.Value ?? r.Metrics?.stat_cost?.ValueStr) > 100) {
+          sessionStart = String(r.Dimensions?.stat_time_hour?.ValueStr || '');
+          break;
+        }
+      }
+      let sessionMin = null;
+      if (sessionStart) {
+        sessionMin = Math.round((nowCst - new Date(sessionStart.replace(' ', 'T') + '+08:00')) / 60000);
+      }
+      const over90 = sessionMin != null && sessionMin > 90;
+      const budgetAdvice = over90
+        ? `⏱ 本场已开播约 ${Math.round(sessionMin / 6) / 10} 小时（超 1.5h），达到日预算上限属正常收量，不建议再加预算`
+        : `✅ 量效达标（CPL<${CPL_GATE}），建议立即为该账户增加预算 500 元（投放管理页页头预算编辑）`;
       const msg = [
         `⚠️【预算预警】${name} 预算使用率 ${(ratio * 100).toFixed(1)}%（预算 ${budget.toLocaleString()}）`,
         `今日已消耗 ${Math.round(day.cost).toLocaleString()}，线索 ${Math.round(day.leads)} 条`,
         `— 近 2 小时 —`,
         `消耗 ${Math.round(h2.cost).toLocaleString()} 元，线索 ${Math.round(h2.leads)} 条，线索成本 ${cpl > 0 ? cpl + ' 元/条' : '暂无线索'}`,
-        `✅ 量效达标（CPL<${CPL_GATE}），建议立即为该账户增加预算 500 元（投放管理页页头预算编辑）`,
+        budgetAdvice,
       ].join('\n');
       const ok = await pushToLark(msg, { chatId: MONITOR_CHAT });
       if (ok) { state.lastAlert[name] = new Date().toISOString(); log(`${name} 已报警 (使用率${(ratio * 100).toFixed(1)}% CPL${cpl})`); }
