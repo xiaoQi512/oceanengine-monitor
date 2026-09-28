@@ -187,14 +187,18 @@ export async function serveAiRegionsSessions(url, req, res) {
           s.carModel = m?.car_model || '';
           s.sessionNo = m?.session_no ?? null;
         }
-        // 当场预算(口径 2026-09-28 二次定稿): 当前账户总预算 − 当日已播场次总消耗(本场之前, 按开播顺序累积)
+        // 当场预算(恒定标准 2026-09-28): 使用率最高 100%, 消耗>预算 = 预算基数异常(平台中途加过预算, state 基数过时)
+        // 基数校准: budgetBase = max(state 日预算, 当日已播场次总消耗) — 平台日预算必然 ≥ 当日已消耗
+        // 当场预算_i = budgetBase − 已播场次消耗(本场之前); 数学保证 usage_i ≤ 100%
+        // state 无预算记录(dayBudget=0)时基数无效 → usage=null, 不显示假使用率
+        const dayTotal = sessions.reduce((a, s) => a + s.cost, 0);
+        const budgetBase = dayBudget > 0 ? Math.max(dayBudget, dayTotal) : 0;
         let accBefore = 0;
         for (const s of sessions) {
-          s.budget = dayBudget > 0 ? Math.round((dayBudget - accBefore) * 100) / 100 : 0;
-          s.usage = s.budget > 0 ? Math.round(s.cost / s.budget * 1000) / 10 : null;
+          s.budget = budgetBase > 0 ? Math.round((budgetBase - accBefore) * 100) / 100 : 0;
+          s.usage = s.budget > 0 ? Math.min(100, Math.round(s.cost / s.budget * 1000) / 10) : null;
           accBefore += s.cost;
         }
-        const dayTotal = sessions.reduce((a, s) => a + s.cost, 0);
         // 待开播: 排班中尚未开播的时段 (结束分钟 > 已开播覆盖, 且当前时间未过)
         const playedMin = sessions.filter(s => s.status === 'live' || s.finish).map(s => {
           const p = plan.find(x => x.session_no === s.sessionNo);
@@ -207,7 +211,7 @@ export async function serveAiRegionsSessions(url, req, res) {
         }).map(p => ({ sessionNo: p.session_no, start: hhmm(p.start_min), end: hhmm(p.end_min), carModel: p.car_model || '' }));
         const liveLeads = sessions.reduce((a, s) => a + s.leads, 0);
         return {
-          name, aadvid: rg.aadvid, dayBudget,
+          name, aadvid: rg.aadvid, dayBudget: Math.round(budgetBase * 100) / 100, budgetRaw: dayBudget,
           dayCost: Math.round(dayTotal * 100) / 100,
           dayLeads: liveLeads,
           dayCpl: liveLeads > 0 ? Math.round(dayTotal / liveLeads * 100) / 100 : 0,
