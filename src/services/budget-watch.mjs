@@ -190,13 +190,11 @@ async function fastTick() {
     }
     const canAdd = cpl > 0 && cpl < CPL_GATE && st.adds < MAX_ADDS;
     const now = Date.now();
-    const cdOk = st.lastAt === 0 || now - st.lastAt > 15 * 60000;
-    log(`${displayName} 触发判定: usage=${(usage * 100).toFixed(1)}% cpl=${Math.round(cpl)} canAdd=${canAdd} cdOk=${cdOk}`);
-    if (!cdOk) continue;
-    st.alerts++;
-    st.lastAt = now;
+    // 使用率 ≥80% 后每轮(5min)都判定; CPL<110 → 加预算(15min 冷却); CPL≥110 → 提醒降频 60min, 降穿后下轮自动加
+    if (canAdd && !(st.lastAt === 0 || now - st.lastAt > 15 * 60000)) continue;
     let tail;
     if (canAdd) {
+      st.lastAt = now;
       const adj = await adjustAccountBudget(rg.aadvid, 500);
       if (adj.ok) {
         st.adds++;
@@ -206,9 +204,14 @@ async function fastTick() {
         tail = `❌ 自动加预算失败（${adj.err}），请立即手动为该账户增加预算 500 元`;
       }
     } else if (st.adds >= MAX_ADDS) {
+      if (st.lastAt && now - st.lastAt < 60 * 60000) continue;
+      st.lastAt = now;
       tail = `本场已加预算 ${st.adds} 次（共 ${st.adds * 500} 元），达到单场上限，不再自动加预算`;
     } else {
-      tail = `⚠️ 当场线索成本 ${Math.round(cpl)} 元 ≥ ${CPL_GATE}，量效不达标，不建议加预算，请人工关注`;
+      // CPL ≥ 门控: 提醒降频 60min; CPL 降穿 110 后下一轮(≤5min)自动触发加预算
+      if (st.lastUnfitAt && now - st.lastUnfitAt < 60 * 60000) continue;
+      st.lastUnfitAt = now;
+      tail = `⚠️ 当场线索成本 ${Math.round(cpl)} 元 ≥ ${CPL_GATE}，量效不达标，暂不加预算（转化仍在增长，CPL 降至 ${CPL_GATE} 以下将自动加预算）`;
     }
     const priorCost = (rg.sessions || []).filter(s => s.roomId !== live.roomId).reduce((a, s2) => a + (s2.cost || 0), 0);
     const msg = [
