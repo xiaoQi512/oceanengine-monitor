@@ -32,8 +32,11 @@ Page({
     this.setData({ loading: true })
     try {
       const { source, data: rawData } = await store.getRegions()
-      // 兼容多种返回形态: 递归找 regions 数组(接口包装层/云数据库文档/字符串化等各种情况)
+      // 兼容多种返回形态: 顶层数组/递归找 regions 数组(接口包装层/云数据库文档/字符串化等)
       let data = rawData
+      if (Array.isArray(data) && data.length && data[0] && 'sessions' in data[0]) {
+        data = { regions: data } // store 直接返回 regions 数组的兜底
+      }
       if (data && typeof data.regions === 'string') {
         try { data.regions = JSON.parse(data.regions) } catch (e) {}
       }

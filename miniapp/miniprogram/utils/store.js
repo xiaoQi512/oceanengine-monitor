@@ -88,7 +88,10 @@ module.exports = { getDashboard, getCampaigns, getAlerts, getRegions, submitComm
 async function getRegions() {
   try {
     const data = await callCloud('/regions')
-    if (data && data.regions) return { source: 'cloud', data: data.regions }
+    // /regions 已展平: data = {date, nowMin, regions:[数组], errors, updatedAt}
+    if (data && Array.isArray(data.regions)) return { source: 'cloud', data }
+    // 兼容旧嵌套: {regions: payload对象} → 展平
+    if (data && data.regions && Array.isArray(data.regions.regions)) return { source: 'cloud', data: data.regions }
     throw new Error('empty')
   } catch (e1) {
     try {
