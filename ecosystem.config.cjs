@@ -201,6 +201,25 @@ module.exports = {
       time: true,
     },
 
+    // ====== AI 大区预算使用率监控 (≥80% 首次跨过报监控群, 近2h消耗/线索成本) ======
+    {
+      name: "budget-watch",
+      script: "src/services/budget-watch.mjs",
+      cwd: MONITOR_DIR,
+      exec_mode: "fork",
+      interpreter: NODE,
+      env: { NODE_ENV: "production", OEC_SILENT: "1", HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "", http_proxy: "", https_proxy: "", all_proxy: "" },
+      instances: 1,
+      autorestart: false,
+      max_restarts: 100,
+      kill_timeout: 30000,
+      cron_restart: "*/30 * * * *",
+      out_file: `${LOG_DIR}\\pm2-budget-out.log`,
+      error_file: `${LOG_DIR}\\pm2-budget-err.log`,
+      merge_logs: true,
+      time: true,
+    },
+
     // ====== 5分钟速报（cron 触发，跑完即退）======
     {
       name: "pm2-5min",
