@@ -180,12 +180,19 @@ export async function serveAiRegionsSessions(url, req, res) {
           console.log('[regions-sessions]', name, '采集失败:', e.message.slice(0, 160));
         }
         const dayBudget = Number(bw.budgets?.[name + 'AI直播'] ?? bw.budgets?.[name] ?? bw.budgets?.[regionName] ?? 0);
-        // 车型匹配: 真实场次开播时间落在排班时段内 → 车型
+        // 场次-排班匹配: 取时间重叠最大的排班段 (修复 14:00 整点场被吸到上一段的错配)
+        // 在播场区间 = [开播, now]; 无重叠 → 计划外真实场次(unscheduled)
         for (const s of sessions) {
-          const startMin = Math.floor(((s.startEpoch + 8 * 3600) % 86400) / 60); // BJ 当日分钟
-          const m = plan.find(p => startMin >= p.start_min - 45 && startMin < p.end_min + 30);
-          s.carModel = m?.car_model || '';
-          s.sessionNo = m?.session_no ?? null;
+          const stMin = Math.floor(((s.startEpoch + 8 * 3600) % 86400) / 60);
+          const enMin = s.status === 'live' ? Math.max(stMin + 1, nowMin) : (s.finishEpoch ? Math.floor(((s.finishEpoch + 8 * 3600) % 86400) / 60) : stMin + 1);
+          let best = null, bestOv = 0;
+          for (const p of plan) {
+            const ov = Math.min(enMin, p.end_min) - Math.max(stMin, p.start_min);
+            if (ov > bestOv) { bestOv = ov; best = p; }
+          }
+          s.carModel = best?.car_model || '';
+          s.sessionNo = best?.session_no ?? null;
+          s.unscheduled = !best;
         }
         // 当场预算(恒定标准 2026-09-28): 使用率最高 100%, 消耗>预算 = 预算基数异常(平台中途加过预算, state 基数过时)
         // 基数校准: budgetBase = max(state 日预算, 当日已播场次总消耗) — 平台日预算必然 ≥ 当日已消耗
@@ -207,6 +214,8 @@ export async function serveAiRegionsSessions(url, req, res) {
         const planned = plan.filter(p => {
           const covered = sessions.some(s => s.sessionNo === p.session_no || (s.startEpoch && Math.floor(((s.startEpoch + 8 * 3600) % 86400) / 60) >= p.start_min - 30 && Math.floor(((s.startEpoch + 8 * 3600) % 86400) / 60) < p.end_min + 30));
           if (covered) return false;
+          // 在播房已进行到该时段(nowMin 落在时段内且有直播间在播) → 该时段正在被覆盖, 不算待开播
+          if (nowMin >= p.start_min && nowMin < p.end_min && sessions.some(s => s.status === 'live')) return false;
           return p.end_min > nowMin; // 未播完的时段
         }).map(p => ({ sessionNo: p.session_no, start: hhmm(p.start_min), end: hhmm(p.end_min), carModel: p.car_model || '' }));
         const liveLeads = sessions.reduce((a, s) => a + s.leads, 0);

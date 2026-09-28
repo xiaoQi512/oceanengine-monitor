@@ -1810,10 +1810,11 @@ async function loadSessions() {
     for (const rg of (j.regions || [])) {
       const rows = [];
       for (const s of (rg.sessions || [])) {
+        const carTxt = s.carModel || (s.unscheduled ? '⚠ 计划外' : '—');
         rows.push('<tr>' + [
           td(s.start + ' - ' + (s.finish || '直播中')),
           td('<span style="color:' + (ST[s.status] || [s.status, '#ccc'])[1] + '">' + (ST[s.status] || [s.status])[0] + '</span>'),
-          td(s.carModel || '—'),
+          td(carTxt),
           td(s.budget > 0 ? '¥' + Math.round(s.budget).toLocaleString() : '—'),
           td('<b>¥' + (s.cost || 0).toLocaleString() + '</b>'),
           td('<b>' + (s.leads || 0) + '</b>'),
