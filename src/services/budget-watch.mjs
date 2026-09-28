@@ -320,7 +320,7 @@ async function newSessionBudgetTick() {
 log('budget-watch v3 启动 (按场切割口径; 慢30min/快5min)');
 setInterval(() => fastTick().catch(e => log('fastTick err ' + String(e).slice(0, 60))), 5 * 60000);
 setInterval(() => slowTick().catch(e => log('slowTick err ' + String(e).slice(0, 60))), 30 * 60000);
-setInterval(() => newSessionBudgetTick().catch(e => log('newSession err ' + String(e).slice(0, 60))), 60 * 1000);
+setInterval(() => newSessionBudgetTick().catch(e => log('newSession err ' + String(e).slice(0, 60))), 5 * 60000);
 setTimeout(() => fastTick().catch(e => log('first fast err ' + String(e).slice(0, 60))), 5000);
 setTimeout(() => slowTick().catch(e => log('first slow err ' + String(e).slice(0, 60))), 90000);
 setTimeout(() => newSessionBudgetTick().catch(e => log('first newSession err ' + String(e).slice(0, 60))), 20000);
