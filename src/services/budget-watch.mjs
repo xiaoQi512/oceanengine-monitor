@@ -67,13 +67,13 @@ async function statDay(acc) {
     DataSetKey: 'basic_ad_data', Dimensions: ['stat_time_day'],
     EndTime: `${todayCst()} 23:59:59`,
     Filters: { ConditionRelationshipType: 1, Conditions: [{ Field: 'advertiser_id', Operator: 7, Values: [acc] }] },
-    IsDownload: false, Metrics: ['stat_cost', 'convert_cnt'], PageParams: { Limit: 5, Offset: 0 },
+    IsDownload: false, Metrics: ['stat_cost', 'clue_message_count'], PageParams: { Limit: 5, Offset: 0 },
     StartTime: `${todayCst()} 00:00:00`, Extra: { is_fill_zero: 'true', refer: '' },
   };
   const res = await fetch('https://ad.oceanengine.com/report/api/tool/agw/statistics_sophonx/statQuery?aadvid=' + acc, { method: 'POST', headers: h, body: JSON.stringify(body) });
   const jj = await res.json().catch(() => null);
   const rows = jj?.data?.StatsData?.Rows || [];
-  return rows.reduce((a, r) => ({ cost: a.cost + num(r.Metrics?.stat_cost?.Value ?? r.Metrics?.stat_cost?.ValueStr), leads: a.leads + num(r.Metrics?.convert_cnt?.Value ?? r.Metrics?.convert_cnt?.ValueStr) }), { cost: 0, leads: 0 });
+  return rows.reduce((a, r) => ({ cost: a.cost + num(r.Metrics?.stat_cost?.Value ?? r.Metrics?.stat_cost?.ValueStr), leads: a.leads + num(r.Metrics?.clue_message_count?.Value ?? r.Metrics?.clue_message_count?.ValueStr) }), { cost: 0, leads: 0 });
 }
 async function statLast2h(acc) {
   const h = await apiHeaders();
@@ -82,14 +82,14 @@ async function statLast2h(acc) {
     DataSetKey: 'basic_ad_data', Dimensions: ['stat_time_hour'],
     EndTime: nowCst.toISOString().slice(0, 19).replace('T', ' '),
     Filters: { ConditionRelationshipType: 1, Conditions: [{ Field: 'advertiser_id', Operator: 7, Values: [acc] }] },
-    IsDownload: false, Metrics: ['stat_cost', 'convert_cnt'], PageParams: { Limit: 10, Offset: 0 },
+    IsDownload: false, Metrics: ['stat_cost', 'clue_message_count'], PageParams: { Limit: 10, Offset: 0 },
     StartTime: new Date(nowCst - 2 * 3600000).toISOString().slice(0, 19).replace('T', ' '),
     Extra: { is_fill_zero: 'true', refer: '' },
   };
   const res = await fetch('https://ad.oceanengine.com/report/api/tool/agw/statistics_sophonx/statQuery?aadvid=' + acc, { method: 'POST', headers: h, body: JSON.stringify(body) });
   const jj = await res.json().catch(() => null);
   const rows = jj?.data?.StatsData?.Rows || [];
-  return rows.reduce((a, r) => ({ cost: a.cost + num(r.Metrics?.stat_cost?.Value ?? r.Metrics?.stat_cost?.ValueStr), leads: a.leads + num(r.Metrics?.convert_cnt?.Value ?? r.Metrics?.convert_cnt?.ValueStr) }), { cost: 0, leads: 0 });
+  return rows.reduce((a, r) => ({ cost: a.cost + num(r.Metrics?.stat_cost?.Value ?? r.Metrics?.stat_cost?.ValueStr), leads: a.leads + num(r.Metrics?.clue_message_count?.Value ?? r.Metrics?.clue_message_count?.ValueStr) }), { cost: 0, leads: 0 });
 }
 
 // ===== CDP 读页头预算+消耗 =====
