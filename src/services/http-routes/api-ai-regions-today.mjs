@@ -59,3 +59,21 @@ export async function serveAiRegionsToday(url, req, res) {
   }
   return true;
 }
+
+// 后台预热: 启动 2s 后首采 + 每 60s 刷新 (避免用户打开页面现等 15s 冷启动)
+let _warmupStarted = false;
+function startWarmup() {
+  if (_warmupStarted) return;
+  _warmupStarted = true;
+  setTimeout(async () => {
+    for (;;) {
+      try {
+        if (Date.now() - _cache.at > 60000) {
+          await serveAiRegionsToday({ pathname: '/api/ai-regions-today' }, { method: 'GET' }, { writeHead: () => {}, end: () => {} });
+        }
+      } catch (e) { console.log('[ai-regions-today] 预热失败:', e.message.slice(0, 120)); }
+      await new Promise(r => setTimeout(r, 60000));
+    }
+  }, 2000);
+}
+startWarmup();

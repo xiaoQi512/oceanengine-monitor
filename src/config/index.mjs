@@ -70,13 +70,18 @@ export const SHIFT_SHEET_ID = process.env.SHIFT_SHEET_ID || '';
 export const SHIFT_BASE_DATE = new Date(2026, 5, 26);
 export const SHIFT_BASE_ROW = 200;
 
+// 五大区 AI 直播账户 (aadvid + 授权抖音 anchor_id, 后者供直播分析 ad_live_* DataSet 过滤)
+// anchor_id 2026-09-28 自各区直播分析页抓包校准; 可用 env REGION_ANCHOR_<区名> 覆盖
 export const AI_REGIONS = [
-  { name: '东区', aadvid: '1842681994872135', reportId: '299497419' },
-  { name: '西区', aadvid: '1842681830951944', reportId: '299491275' },
-  { name: '中区', aadvid: '1842663909080452', reportId: '298926513' },
-  { name: '南区', aadvid: '1842682454270468', reportId: '299530471' },
-  { name: '北区', aadvid: '1842683071403332', reportId: '299540674' },
+  { name: '东区', aadvid: '1842681994872135', reportId: '299497419', anchor: process.env.REGION_ANCHOR_东区 || '4176362377060778' },
+  { name: '西区', aadvid: '1842681830951944', reportId: '299491275', anchor: process.env.REGION_ANCHOR_西区 || '1920226939646621' },
+  { name: '中区', aadvid: '1842663909080452', reportId: '298926513', anchor: process.env.REGION_ANCHOR_中区 || '1618955370763726' },
+  { name: '南区', aadvid: '1842682454270468', reportId: '299530471', anchor: process.env.REGION_ANCHOR_南区 || '147752555393596' },
+  { name: '北区', aadvid: '1842683071403332', reportId: '299540674', anchor: process.env.REGION_ANCHOR_北区 || '4299507679114156' },
 ];
+
+// 福利号授权抖音 anchor_id (直播分析页过滤用)
+export const FULI_LIVE_ANCHOR = process.env.LIVE_ANCHOR_ID || '3976296223736590';
 
 export const CDP_PORT = Number(process.env.CDP_PORT || '9222');
 export const CDP_PROXY_PORT = 3456;

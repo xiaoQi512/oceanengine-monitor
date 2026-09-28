@@ -1039,17 +1039,18 @@ tbody tr.budget-warn { background: linear-gradient(90deg, rgba(251, 191, 36, 0.0
         </section>
         <section class="panel">
           <div class="panel-head">
-            <h2>真人福利号排期（今日及未来）</h2>
-            <span class="muted">真人在福利号直播间的开播计划 · 来自排期表</span>
+            <h2>五大区直播场次（在播 / 已播 / 待开播）</h2>
+            <span class="muted" id="sessionsUpdatedAt">…</span>
           </div>
-          <div id="fuliPlanTable"><p class="muted">正在加载福利号排期…</p></div>
+          <div id="sessionsSummary"></div>
+          <div id="sessionsTable"><p class="muted">正在加载场次明细…</p></div>
         </section>
         <section class="panel">
           <div class="panel-head">
-            <h2>场次明细（历史 / 在播）</h2>
-            <span class="muted" id="sessionsUpdatedAt">…</span>
+            <h2>真人福利号直播与排期（今日及未来）</h2>
+            <span class="muted">真人在福利号直播间的开播计划 · 来自排期表</span>
           </div>
-          <div id="sessionsTable"><p class="muted">正在加载场次明细…</p></div>
+          <div id="fuliPlanTable"><p class="muted">正在加载福利号排期…</p></div>
         </section>
       </section>
     </main>
@@ -1778,7 +1779,7 @@ function switchView(view) {
   document.querySelectorAll(".nav-item").forEach(n => n.classList.toggle("active", n.dataset.view === view));
   const titles = { overview: "实时总览", plans: "投放计划", ops: "操作中心", ai: "AI 建议", regions: "五大区今日直播统计" };
   document.getElementById("pageTitle").textContent = titles[view];
-  if (view === "regions") loadRegionsToday();
+  if (view === "regions") { loadRegionsToday(); loadSessions(); }
 }
 
 let _regionsTimer = null;
@@ -1787,53 +1788,84 @@ async function loadSessions() {
   try {
     const res = await fetch('/api/ai-regions-sessions', { cache: 'no-store' });
     const j = await res.json();
-    document.getElementById('sessionsUpdatedAt').textContent = '更新于 ' + (j.regions && j.regions[0] ? j.regions[0].updatedAt : '—') + ' · 自动 60s';
-    const ST = { live: ['🔴 在播', '#ff5c5c'], done: ['✓ 已结束', '#8ea0bf'], planned: ['🕐 待开播', '#4da3ff'] };
+    document.getElementById('sessionsUpdatedAt').textContent = '更新于 ' + (j.updatedAt || '—') + ' · 自动 60s · 数据源: 直播分析实时报表';
+    const ST = { live: ['🔴 在播', '#ff5c5c'], done: ['✓ 已结束', '#8ea0bf'], planned: ['🕐 待开播', '#4da3ff'], orphan: ['⚠ 未排班', '#e0b040'] };
+    const th = (cols) => '<thead><tr>' + cols.map(h => '<th style="text-align:left;padding:5px 8px;color:#8ea0bf;border-bottom:1px solid #22304a;font-size:12px;white-space:nowrap">' + h + '</th>').join('') + '</tr></thead><tbody>';
+    const td = (c, extra = '') => '<td style="padding:5px 8px;border-bottom:1px solid #1a2436;white-space:nowrap;' + extra + '">' + c + '</td>';
+    const usageCell = (u) => {
+      if (u == null) return td('—');
+      const col = u >= 100 ? '#ff5c5c' : u >= 80 ? '#e0b040' : '#34d399';
+      return td('<b style="color:' + col + '">' + (u > 999 ? '>999%' : u + '%') + '</b>');
+    };
+    // 汇总条
+    const totC = (j.regions || []).reduce((a, r) => a + (r.dayCost || 0), 0);
+    const totL = (j.regions || []).reduce((a, r) => a + (r.dayLeads || 0), 0);
+    const liveCnt = (j.regions || []).filter(r => (r.sessions || []).some(s => s.status === 'live')).length;
+    const sumEl = document.getElementById('sessionsSummary');
+    if (sumEl) {
+      sumEl.innerHTML = '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">' + [
+        ['今日总消耗', '¥' + Math.round(totC).toLocaleString()],
+        ['今日总线索', Math.round(totL) + ' 条'],
+        ['平均线索成本', totL > 0 ? '¥' + Math.round(totC / totL) : '—'],
+        ['在播区数', liveCnt + ' / ' + (j.regions || []).length],
+      ].map(([k, v]) => '<div style="flex:1;min-width:130px;padding:8px 12px;border:1px solid #22304a;border-radius:8px;background:#0d1522"><div style="font-size:11px;color:#8ea0bf">' + k + '</div><div style="font-size:17px;font-weight:700;margin-top:3px">' + v + '</div></div>').join('') + '</div>';
+    }
+    // 每区场次块
     let html = '';
     for (const rg of (j.regions || [])) {
-      html += '<div style="margin-bottom:14px"><div style="font-weight:600;margin-bottom:6px">' + rg.name + ' · 日预算 ¥' + (rg.dayBudget || 0).toLocaleString() + '</div><table style="width:100%;border-collapse:collapse">';
-      html += '<thead><tr>' + ['场次', '时段', '状态', '车型', '消耗', '线索', 'CPL', '当场预算使用率'].map(h => '<th style="text-align:left;padding:5px 8px;color:#8ea0bf;border-bottom:1px solid #22304a;font-size:12px">' + h + '</th>').join('') + '</tr></thead><tbody>';
       const rows = [];
-      for (const it of (rg.items || [])) {
-        const st = ST[it.status] || [it.status, '#ccc'];
+      for (const s of (rg.sessions || [])) {
         rows.push('<tr>' + [
-          it.status === 'planned' ? '计划' : (it.status === 'live' ? '本场' : '已播'),
-          it.start + ' - ' + it.end,
-          '<span style="color:' + st[1] + '">' + st[0] + '</span>',
-          it.carModel || '—',
-          it.status === 'planned' ? '—' : '¥' + (it.cost || 0).toLocaleString(),
-          it.status === 'planned' ? '—' : (it.leads || 0),
-          it.status === 'planned' ? '—' : (it.cpl > 0 ? '¥' + it.cpl.toLocaleString() : '—'),
-          it.usage != null ? '<b>' + it.usage + '%</b>' : '—',
-        ].map(c => '<td style="padding:5px 8px;border-bottom:1px solid #1a2436">' + c + '</td>').join('') + '</tr>');
+          td(s.start + ' - ' + (s.finish || '直播中')),
+          td('<span style="color:' + (ST[s.status] || [s.status, '#ccc'])[1] + '">' + (ST[s.status] || [s.status])[0] + '</span>'),
+          td(s.carModel || '—'),
+          td(s.budget > 0 ? '¥' + Math.round(s.budget).toLocaleString() : '—'),
+          td('<b>¥' + (s.cost || 0).toLocaleString() + '</b>'),
+          td('<b>' + (s.leads || 0) + '</b>'),
+          td(s.cpl > 0 ? '¥' + (Math.round(s.cpl * 10) / 10).toLocaleString() : '—'),
+          usageCell(s.usage),
+        ].join('') + '</tr>');
       }
-      html += rows.join('') + '</tbody></table></div>';
+      for (const p of (rg.planned || [])) {
+        rows.push('<tr style="opacity:.75">' + [
+          td(p.start + ' - ' + p.end),
+          td('<span style="color:' + ST.planned[1] + '">' + ST.planned[0] + '</span>'),
+          td(p.carModel || '—'),
+          td('—'), td('—'), td('—'), td('—'), td('—'),
+        ].join('') + '</tr>');
+      }
+      const regionTotal = '<span style="color:#8ea0bf;font-weight:400;font-size:12px">　日预算 ¥' + (rg.dayBudget || 0).toLocaleString() + ' · 今日 ¥' + (rg.dayCost || 0).toLocaleString() + ' / ' + (rg.dayLeads || 0) + ' 线索' + (rg.dayCpl > 0 ? ' · CPL ¥' + rg.dayCpl : '') + '</span>';
+      html += '<div style="margin-bottom:16px"><div style="font-weight:700;margin-bottom:6px">' + rg.name + '区' + regionTotal + '</div>';
+      html += rows.length
+        ? '<table style="width:100%;border-collapse:collapse">' + th(['开播时段', '状态', '车型', '当场预算', '消耗', '线索量', '线索成本', '预算使用率']) + rows.join('') + '</tbody></table>'
+        : '<p class="muted">今日暂无场次数据' + (j.errors && j.errors[rg.name] ? '（' + j.errors[rg.name] + '）' : '') + '</p>';
+      html += '</div>';
     }
     document.getElementById('sessionsTable').innerHTML = html || '<p class=muted>今日暂无场次数据</p>';
-    // 真人福利号: 完整时间线（已完成/在播，含主播名与实际数据）
+    // 真人福利号: 今日场次 + 未来排期
     const fu = j.fuli || { items: [], dayLiveCost: 0, dayLiveLeads: 0 };
     const fEl = document.getElementById('fuliPlanTable');
     if (fEl) {
-      const ST = { live: ['🔴 在播', '#ff5c5c'], done: ['✓ 已结束', '#8ea0bf'], planned: ['🕐 待开播', '#4da3ff'], orphan: ['⚠ 未排班', '#e0b040'] };
       let fh = '<p class=muted style=margin-bottom:6px>今日真人出镜直播合计：消耗 ¥' + (fu.dayLiveCost || 0).toLocaleString() + ' · 线索 ' + (fu.dayLiveLeads || 0) + ' 条</p>';
       fh += '<table style="width:100%;border-collapse:collapse"><thead><tr>' + ['实际开播', '状态', '主播', '车型', '消耗', '线索', 'CPL'].map(h => '<th style="text-align:left;padding:5px 8px;color:#8ea0bf;border-bottom:1px solid #22304a;font-size:12px">' + h + '</th>').join('') + '</tr></thead><tbody>';
       fh += (fu.items || []).map(it => {
         const st = ST[it.status] || [it.status, '#ccc'];
         return '<tr>' + [
-          it.start + ' - ' + it.end,
-          '<span style="color:' + st[1] + '">' + st[0] + '</span>',
-          it.anchor || '—',
-          it.carModel || '—',
-          it.status === 'planned' ? '—' : '¥' + (it.cost || 0).toLocaleString(),
-          it.leads || 0,
-          it.cpl > 0 ? '¥' + it.cpl.toLocaleString() : '—'
-        ].map(c => '<td style="padding:5px 8px;border-bottom:1px solid #1a2436">' + c + '</td>').join('') + '</tr>';
+          td(it.start + ' - ' + it.end),
+          td('<span style="color:' + st[1] + '">' + st[0] + '</span>'),
+          td(it.anchor || '—'),
+          td(it.carModel || '—'),
+          td(it.status === 'planned' ? '—' : '<b>¥' + (it.cost || 0).toLocaleString() + '</b>'),
+          td(it.status === 'planned' ? '—' : '<b>' + (it.leads || 0) + '</b>'),
+          td(it.cpl > 0 ? '¥' + it.cpl.toLocaleString() : '—'),
+        ].join('') + '</tr>';
       }).join('') + '</tbody></table>';
       if (!(fu.items || []).length) fh += '<p class=muted>今日暂无已开播场次</p>';
-      const fp = j.fuliPlan || [];
+      const fp = (j.fuliPlanFuture || []).slice(0, 8);
       if (fp.length) {
-        fh += '<p class=muted style=margin-top:10px;margin-bottom:4px>待开播（排期）</p>';
-        fh += '<table style="width:100%;border-collapse:collapse"><tbody>' + fp.map(p => '<tr><td style="padding:5px 8px;border-bottom:1px solid #1a2436">' + p.date + '</td><td style="padding:5px 8px;border-bottom:1px solid #1a2436">' + p.start + ' - ' + p.end + '</td><td style="padding:5px 8px;border-bottom:1px solid #1a2436">' + (p.carModel || '—') + '</td></tr>').join('') + '</tbody></table>';
+        fh += '<p class=muted style=margin-top:12px;margin-bottom:4px>未来排期（来自排期表）</p>';
+        fh += '<table style="width:100%;border-collapse:collapse"><thead><tr>' + ['日期', '时段', '主播', '车型'].map(h => '<th style="text-align:left;padding:5px 8px;color:#8ea0bf;border-bottom:1px solid #22304a;font-size:12px">' + h + '</th>').join('') + '</tr></thead><tbody>';
+        fh += fp.map(p => '<tr style="opacity:.75">' + [td(p.date), td(p.start + ' - ' + p.end), td(p.anchor || '—'), td(p.carModel || '—')].join('') + '</tr>').join('') + '</tbody></table>';
       }
       fEl.innerHTML = fh;
     }
