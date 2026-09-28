@@ -125,6 +125,60 @@ async function rotateBudgetRead() {
   } catch (e) { log(`CDP 读 ${name} 失败: ${String(e).slice(0, 60)}`); }
 }
 
+// ===== CDP 账户预算 +N (元素级 dispatch, 2026-09-28 实测通过: 西区 2000→2500) =====
+let _adjusting = false;
+async function adjustAccountBudget(aadvid, add) {
+  if (_adjusting) return { ok: false, err: '调整中(互斥)' };
+  _adjusting = true;
+  try {
+    const tabs = await httpGet(CDP + '/json');
+    const tab = tabs.find(t => t.type === 'page' && /oceanengine/.test(t.url));
+    if (!tab) return { ok: false, err: 'NO_TAB' };
+    const sock = new WebSocket(tab.webSocketDebuggerUrl);
+    await new Promise((r, j) => { sock.on('open', r); sock.on('error', j); });
+    let id = 0;
+    const pending = new Map();
+    sock.on('message', m => { const d = JSON.parse(m); if (d.id && pending.has(d.id)) { pending.get(d.id)(d); pending.delete(d.id); } });
+    const call = (method, params = {}) => new Promise(resolve => { const i = ++id; pending.set(i, resolve); sock.send(JSON.stringify({ id: i, method, params })); });
+    const evl = async (expression) => (await call('Runtime.evaluate', { expression, returnByValue: true })).result?.result?.value;
+
+    await call('Page.enable', {});
+    await call('Page.navigate', { url: `https://ad.oceanengine.com/promotion/promote-manage?aadvid=${aadvid}` });
+    await new Promise(r => setTimeout(r, 12000));
+    await evl(`(() => { const els = [...document.querySelectorAll('button,span,div')].filter(e => e.offsetParent !== null && (e.textContent || '').trim() === '取消'); const e = els[els.length - 1]; if (e) e.dispatchEvent(new MouseEvent('click', { bubbles: true })); return 1; })()`);
+    await new Promise(r => setTimeout(r, 1200));
+    const rb = await evl(`(() => { const t = document.body.innerText || ''; const m = t.match(/日预算[^\\d]{0,20}([\\d,\\.]+)/); return m ? m[1] : null; })()`);
+    const cur = Number(String(rb).replace(/,/g, ''));
+    if (!cur) { sock.close(); return { ok: false, err: '页面无预算值' }; }
+    const newBudget = cur + add;
+    await evl(`(() => { const vis = (e) => e && e.offsetParent !== null; const kv = [...document.querySelectorAll('[class*="tool-bar-key-value"]')].filter(vis).find(e => /日预算/.test(e.textContent || '')); if (!kv) return; const r = kv.getBoundingClientRect(); kv.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); kv.parentElement.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); return r; })()`);
+    const hovX = await evl(`(() => { const vis = (e) => e && e.offsetParent !== null; const kv = [...document.querySelectorAll('[class*="tool-bar-key-value"]')].filter(vis).find(e => /日预算/.test(e.textContent || '')); const r = kv.getBoundingClientRect(); return Math.round(r.x + 60); })()`);
+    await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: Number(hovX) || 250, y: 184 });
+    await new Promise(r => setTimeout(r, 1000));
+    const rc = await evl(`(() => { const vis = (e) => e && e.offsetParent !== null; const wrap = [...document.querySelectorAll('.account-wallet-edit-icon-wrapper')].filter(vis)[0]; if (!wrap) return 'NO_WRAP'; wrap.dispatchEvent(new MouseEvent('click', { bubbles: true })); const icon = wrap.querySelector('iconpark-icon'); if (icon) icon.dispatchEvent(new MouseEvent('click', { bubbles: true })); return 'CLICKED'; })()`);
+    await new Promise(r => setTimeout(r, 2500));
+    const rSet = await evl(`(() => {
+      const vis = (e) => e && e.offsetParent !== null;
+      const inp = [...document.querySelectorAll('input')].filter(vis).find(e => e.type === 'number' || /^[\\d,\\.]+$/.test(String(e.value)) || /预算/.test(e.placeholder || ''));
+      if (!inp) return 'NO_INPUT';
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      setter.call(inp, '${newBudget}');
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+      inp.dispatchEvent(new Event('change', { bubbles: true }));
+      return 'SET:' + inp.value;
+    })()`);
+    if (!String(rSet).startsWith('SET')) { sock.close(); return { ok: false, err: '填值失败 ' + rSet }; }
+    await new Promise(r => setTimeout(r, 800));
+    const rBtn = await evl(`(() => { const els = [...document.querySelectorAll('button')].filter(e => e.offsetParent !== null && /^(确定|保存)$/.test((e.textContent || '').trim())); const e = els[els.length - 1]; if (!e) return 'NO'; e.dispatchEvent(new MouseEvent('click', { bubbles: true })); return 'CLICKED'; })()`);
+    await new Promise(r => setTimeout(r, 3500));
+    const rb2 = await evl(`(() => { const t = document.body.innerText || ''; const m = t.match(/日预算[^\\d]{0,20}([\\d,\\.]+)/); return m ? m[1] : null; })()`);
+    sock.close();
+    const final = Number(String(rb2).replace(/,/g, ''));
+    if (final === newBudget) return { ok: true, oldBudget: cur, newBudget: final };
+    return { ok: false, err: `预算未生效 (期望 ${newBudget} 实际 ${rb2})` };
+  } finally { _adjusting = false; }
+}
+
 // ===== 主循环 =====
 let lastSlow = 0, lastFast = 0;
 async function slowTick() {
@@ -192,18 +246,32 @@ async function fastTick() {
         sessionMin = Math.round((nowCst - new Date(sessionStart.replace(' ', 'T') + '+08:00')) / 60000);
       }
       const over90 = sessionMin != null && sessionMin > 90;
-      const budgetAdvice = over90
-        ? `⏱ 本场已开播约 ${Math.round(sessionMin / 6) / 10} 小时（超 1.5h），达到日预算上限属正常收量，不建议再加预算`
-        : `✅ 量效达标（CPL<${CPL_GATE}），建议立即为该账户增加预算 500 元（投放管理页页头预算编辑）`;
-      const msg = [
+      const baseMsg = [
         `⚠️【预算预警】${name} 预算使用率 ${(ratio * 100).toFixed(1)}%（预算 ${budget.toLocaleString()}）`,
         `今日已消耗 ${Math.round(day.cost).toLocaleString()}，线索 ${Math.round(day.leads)} 条`,
         `— 近 2 小时 —`,
         `消耗 ${Math.round(h2.cost).toLocaleString()} 元，线索 ${Math.round(h2.leads)} 条，线索成本 ${cpl > 0 ? cpl + ' 元/条' : '暂无线索'}`,
-        budgetAdvice,
-      ].join('\n');
-      const ok = await pushToLark(msg, { chatId: MONITOR_CHAT });
-      if (ok) { state.lastAlert[name] = new Date().toISOString(); log(`${name} 已报警 (使用率${(ratio * 100).toFixed(1)}% CPL${cpl})`); }
+      ];
+      let ok = false;
+      if (over90) {
+        const msg = [...baseMsg, `⏱ 本场已开播约 ${Math.round(sessionMin / 6) / 10} 小时（超 1.5h），达到日预算上限属正常收量，不建议再加预算`].join('\n');
+        ok = await pushToLark(msg, { chatId: MONITOR_CHAT });
+        if (ok) log(`${name} 已报警 (超时建议不加预算)`);
+      } else {
+        // 自动加预算 500 (CDP 元素级 dispatch, 2026-09-28 实测通过)
+        const adj = await adjustAccountBudget(acc, 500);
+        if (adj.ok) {
+          state.budgets[name] = adj.newBudget;
+          const msg = [...baseMsg, `✅ 已自动增加预算 500 元：${adj.oldBudget.toLocaleString()} → ${adj.newBudget.toLocaleString()}（量效达标 CPL<${CPL_GATE}）`].join('\n');
+          ok = await pushToLark(msg, { chatId: MONITOR_CHAT });
+          log(`${name} 自动加预算 ${adj.oldBudget}→${adj.newBudget} 推送${ok ? '成功' : '失败(已入队)'}`);
+        } else {
+          const msg = [...baseMsg, `❌ 自动加预算失败（${adj.err}），请立即手动为该账户增加预算 500 元（页头铅笔编辑）`].join('\n');
+          ok = await pushToLark(msg, { chatId: MONITOR_CHAT });
+          log(`${name} 自动加预算失败(${adj.err}) 已推送手动提醒`);
+        }
+      }
+      if (ok) { state.lastAlert[name] = new Date().toISOString(); }
     } catch (e) { log(`${name} fastTick 失败: ${String(e).slice(0, 50)}`); }
     await new Promise(r => setTimeout(r, 800));
   }
