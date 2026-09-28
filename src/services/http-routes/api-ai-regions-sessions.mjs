@@ -187,18 +187,12 @@ export async function serveAiRegionsSessions(url, req, res) {
           s.carModel = m?.car_model || '';
           s.sessionNo = m?.session_no ?? null;
         }
-        // 当场预算(用户定稿 2026-09-28): 当前账户总预算 − 该场开播时刻的账户累计消耗(固定时点, 不随后续场次变动)
-        // 开播时账户消耗 = 直播小时桶累计至开播分钟(整点桶全计, 开播所在桶按分钟比例)
+        // 当场预算(口径 2026-09-28 二次定稿): 当前账户总预算 − 当日已播场次总消耗(本场之前, 按开播顺序累积)
+        let accBefore = 0;
         for (const s of sessions) {
-          const startMin = Math.floor(((s.startEpoch + 8 * 3600) % 86400) / 60); // BJ 当日分钟
-          let accBefore = 0;
-          for (const [hh, v] of Object.entries(hourly.hourly || {})) {
-            const bStart = Number(hh) * 60;
-            if (bStart + 60 <= startMin) accBefore += v.cost;
-            else if (bStart <= startMin) accBefore += v.cost * ((startMin - bStart) / 60);
-          }
           s.budget = dayBudget > 0 ? Math.round((dayBudget - accBefore) * 100) / 100 : 0;
           s.usage = s.budget > 0 ? Math.round(s.cost / s.budget * 1000) / 10 : null;
+          accBefore += s.cost;
         }
         const dayTotal = sessions.reduce((a, s) => a + s.cost, 0);
         // 待开播: 排班中尚未开播的时段 (结束分钟 > 已开播覆盖, 且当前时间未过)
