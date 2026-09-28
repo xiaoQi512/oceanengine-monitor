@@ -31,7 +31,13 @@ Page({
   async refresh() {
     this.setData({ loading: true })
     try {
-      const { source, data } = await store.getRegions()
+      const { source, data: rawData } = await store.getRegions()
+      // 兼容两种返回结构: {regions: payload对象}(旧/regions 接口) 或 payload 已展平(mock/db直读)
+      let data = rawData
+      if (data && data.regions && !Array.isArray(data.regions) && Array.isArray(data.regions.regions)) {
+        data = { ...data, ...data.regions }
+      }
+      if (!data || !Array.isArray(data.regions)) throw new Error('数据结构异常')
       const regions = data.regions || []
       const nowMin = data.nowMin || 0
       // 在播直播间(最多 2 个, 按消耗排序) — 对齐仪表盘在播展示窗

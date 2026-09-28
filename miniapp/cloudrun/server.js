@@ -144,11 +144,13 @@ app.get('/alerts', requireAuth, async (req, res) => {
 });
 
 // 五大区直播场次快照(小程序"五区直播"页): 监控端每 5min 经 /push 覆盖写入 regions_live
+// 返回展开 payload 顶层(date/nowMin/regions数组/errors/updatedAt), 与小程序 mock 同构
 app.get('/regions', requireAuth, async (req, res) => {
   try {
     const r = await db().collection('regions_live').orderBy('updated_at', 'desc').limit(1).get();
     if (!r.data.length) return res.status(404).json({ error: 'no data' });
-    res.json({ ok: true, updated_at: r.data[0].updated_at, regions: r.data[0].payload });
+    const payload = r.data[0].payload || {};
+    res.json({ ok: true, updated_at: r.data[0].updated_at, ...payload });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
