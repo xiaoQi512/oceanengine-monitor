@@ -171,8 +171,9 @@ export async function serveAiRegionsSessions(url, req, res) {
         const regionName = name + '营销中心';
         const plan = db.prepare('SELECT session_no, start_min, end_min, car_model FROM shift_schedule WHERE cst_date=? AND account_id=? ORDER BY session_no').all(today, rg.aadvid);
         let sessions = [];
+        let hourly = { hourly: {} };
         try {
-          const hourly = await statHourlyLive(rg.aadvid, headers);
+          hourly = await statHourlyLive(rg.aadvid, headers);
           sessions = await fetchLiveSessions(rg.aadvid, rg.anchor, headers, today, hourly.hourly, nowMin);
         } catch (e) {
           errors[name] = e.message.slice(0, 160);
@@ -186,12 +187,18 @@ export async function serveAiRegionsSessions(url, req, res) {
           s.carModel = m?.car_model || '';
           s.sessionNo = m?.session_no ?? null;
         }
-        // 当场预算: 账户日预算 − 该场之前场次的消耗 (v3 budget-watch 口径)
-        let accCost = 0;
+        // 当场预算(用户定稿 2026-09-28): 当前账户总预算 − 该场开播时刻的账户累计消耗(固定时点, 不随后续场次变动)
+        // 开播时账户消耗 = 直播小时桶累计至开播分钟(整点桶全计, 开播所在桶按分钟比例)
         for (const s of sessions) {
-          s.budget = dayBudget > 0 ? Math.round((dayBudget - accCost) * 100) / 100 : 0;
+          const startMin = Math.floor(((s.startEpoch + 8 * 3600) % 86400) / 60); // BJ 当日分钟
+          let accBefore = 0;
+          for (const [hh, v] of Object.entries(hourly.hourly || {})) {
+            const bStart = Number(hh) * 60;
+            if (bStart + 60 <= startMin) accBefore += v.cost;
+            else if (bStart <= startMin) accBefore += v.cost * ((startMin - bStart) / 60);
+          }
+          s.budget = dayBudget > 0 ? Math.round((dayBudget - accBefore) * 100) / 100 : 0;
           s.usage = s.budget > 0 ? Math.round(s.cost / s.budget * 1000) / 10 : null;
-          accCost += s.cost;
         }
         const dayTotal = sessions.reduce((a, s) => a + s.cost, 0);
         // 待开播: 排班中尚未开播的时段 (结束分钟 > 已开播覆盖, 且当前时间未过)
