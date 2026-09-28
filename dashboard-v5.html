@@ -743,6 +743,7 @@ tbody tr.budget-warn { background: linear-gradient(90deg, rgba(251, 191, 36, 0.0
   .page-title { font-size: 16px; }
   .btn.primary { min-height: 30px; padding: 0 10px; }
 }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 </style>
 </head>
 <body>
@@ -1030,6 +1031,7 @@ tbody tr.budget-warn { background: linear-gradient(90deg, rgba(251, 191, 36, 0.0
           </div>
           <button class="btn primary" onclick="loadRegionsToday(true)">立即刷新</button>
         </div>
+        <div id="liveShowcase"><p class="muted">正在加载在播直播间…</p></div>
         <section class="panel">
           <div class="panel-head">
             <h2>今日直播投放</h2>
@@ -1044,13 +1046,6 @@ tbody tr.budget-warn { background: linear-gradient(90deg, rgba(251, 191, 36, 0.0
           </div>
           <div id="sessionsSummary"></div>
           <div id="sessionsTable"><p class="muted">正在加载场次明细…</p></div>
-        </section>
-        <section class="panel">
-          <div class="panel-head">
-            <h2>真人福利号直播与排期（今日及未来）</h2>
-            <span class="muted">真人在福利号直播间的开播计划 · 来自排期表</span>
-          </div>
-          <div id="fuliPlanTable"><p class="muted">正在加载福利号排期…</p></div>
         </section>
       </section>
     </main>
@@ -1842,32 +1837,39 @@ async function loadSessions() {
       html += '</div>';
     }
     document.getElementById('sessionsTable').innerHTML = html || '<p class=muted>今日暂无场次数据</p>';
-    // 真人福利号: 今日场次 + 未来排期
-    const fu = j.fuli || { items: [], dayLiveCost: 0, dayLiveLeads: 0 };
-    const fEl = document.getElementById('fuliPlanTable');
-    if (fEl) {
-      let fh = '<p class=muted style=margin-bottom:6px>今日真人出镜直播合计：消耗 ¥' + (fu.dayLiveCost || 0).toLocaleString() + ' · 线索 ' + (fu.dayLiveLeads || 0) + ' 条</p>';
-      fh += '<table style="width:100%;border-collapse:collapse"><thead><tr>' + ['实际开播', '状态', '主播', '车型', '消耗', '线索', 'CPL'].map(h => '<th style="text-align:left;padding:5px 8px;color:#8ea0bf;border-bottom:1px solid #22304a;font-size:12px">' + h + '</th>').join('') + '</tr></thead><tbody>';
-      fh += (fu.items || []).map(it => {
-        const st = ST[it.status] || [it.status, '#ccc'];
-        return '<tr>' + [
-          td(it.start + ' - ' + it.end),
-          td('<span style="color:' + st[1] + '">' + st[0] + '</span>'),
-          td(it.anchor || '—'),
-          td(it.carModel || '—'),
-          td(it.status === 'planned' ? '—' : '<b>¥' + (it.cost || 0).toLocaleString() + '</b>'),
-          td(it.status === 'planned' ? '—' : '<b>' + (it.leads || 0) + '</b>'),
-          td(it.cpl > 0 ? '¥' + it.cpl.toLocaleString() : '—'),
-        ].join('') + '</tr>';
-      }).join('') + '</tbody></table>';
-      if (!(fu.items || []).length) fh += '<p class=muted>今日暂无已开播场次</p>';
-      const fp = (j.fuliPlanFuture || []).slice(0, 8);
-      if (fp.length) {
-        fh += '<p class=muted style=margin-top:12px;margin-bottom:4px>未来排期（来自排期表）</p>';
-        fh += '<table style="width:100%;border-collapse:collapse"><thead><tr>' + ['日期', '时段', '主播', '车型'].map(h => '<th style="text-align:left;padding:5px 8px;color:#8ea0bf;border-bottom:1px solid #22304a;font-size:12px">' + h + '</th>').join('') + '</tr></thead><tbody>';
-        fh += fp.map(p => '<tr style="opacity:.75">' + [td(p.date), td(p.start + ' - ' + p.end), td(p.anchor || '—'), td(p.carModel || '—')].join('') + '</tr>').join('') + '</tbody></table>';
+    // 顶部在播直播间展示窗: 最多 2 个在播场次大卡片
+    const showEl = document.getElementById('liveShowcase');
+    if (showEl) {
+      const lives = [];
+      for (const rg of (j.regions || [])) for (const s of (rg.sessions || [])) if (s.status === 'live') lives.push({ rg, s });
+      lives.sort((a, b) => (b.s.cost || 0) - (a.s.cost || 0));
+      const top = lives.slice(0, 2);
+      if (!top.length) {
+        showEl.innerHTML = '<div style="padding:16px;border:1px dashed #22304a;border-radius:10px;color:#8ea0bf;font-size:13px;text-align:center">当前无在播直播间 · AI 直播一般 2 个直播间同时开播, 开播后此处实时展示</div>';
+      } else {
+        showEl.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px;margin-bottom:16px">' + top.map(({ rg, s }) => {
+          const startMin = s.startEpoch ? Math.floor(((s.startEpoch + 8 * 3600) % 86400) / 60) : null;
+          const dur = startMin != null ? Math.max(0, (j.nowMin || 0) - startMin) : null;
+          const durTxt = dur != null ? (Math.floor(dur / 60) ? Math.floor(dur / 60) + 'h' : '') + (dur % 60) + 'm' : '—';
+          const stat = (c, v, sub) => '<div style="flex:1;min-width:70px"><div style="font-size:10px;color:#8ea0bf">' + c + '</div><div style="font-size:20px;font-weight:800;margin-top:2px">' + v + '</div>' + (sub ? '<div style="font-size:10px;color:#8ea0bf;margin-top:1px">' + sub + '</div>' : '') + '</div>';
+          const usage = s.usage;
+          const usageTxt = usage == null ? '—' : usage > 999 ? '>999%' : usage + '%';
+          const usageCol = usage == null ? '#8ea0bf' : usage >= 100 ? '#ff5c5c' : usage >= 80 ? '#e0b040' : '#34d399';
+          return '<div style="border:1px solid #ff5c5c44;border-radius:12px;padding:14px 16px;background:linear-gradient(135deg,#1a0f14,#0d1522)">' +
+            '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">' +
+              '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ff5c5c;box-shadow:0 0 8px #ff5c5c;animation:pulse 1.5s infinite"></span>' +
+              '<b style="font-size:15px">' + rg.name + 'AI直播</b>' +
+              '<span style="color:#8ea0bf;font-size:12px">' + (s.carModel || '—') + ' · ' + s.start + ' 开播 · 已播 ' + durTxt + '</span>' +
+            '</div>' +
+            '<div style="display:flex;gap:14px;flex-wrap:wrap">' +
+              stat('实时消耗', '¥' + (s.cost || 0).toLocaleString()) +
+              stat('线索量', (s.leads || 0)) +
+              stat('线索成本', s.cpl > 0 ? '¥' + (Math.round(s.cpl * 10) / 10).toLocaleString() : '—') +
+              stat('当场预算', s.budget > 0 ? '¥' + Math.round(s.budget).toLocaleString() : '—') +
+              stat('预算使用率', '<span style="color:' + usageCol + '">' + usageTxt + '</span>') +
+            '</div></div>';
+        }).join('') + (lives.length > 2 ? '<div style="grid-column:1/-1;font-size:11px;color:#e0b040">⚠ 当前在播 ' + lives.length + ' 个直播间, 仅展示消耗前 2</div>' : '') + '</div>';
       }
-      fEl.innerHTML = fh;
     }
   } catch (e) {
     document.getElementById('sessionsTable').innerHTML = '<p class=muted>拉取失败: ' + e.message + '</p>';

@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from '../../utils/monitor-utils.mjs';
 import { getCookieData } from '../ai-regions-api.mjs';
-import { AI_REGIONS, FULI_LIVE_ANCHOR } from '../../config/index.mjs';
+import { AI_REGIONS } from '../../config/index.mjs';
 
 let _cache = { at: 0, data: null };
 const num = (s) => { const n = parseFloat(String(s ?? '').replace(/,/g, '')); return isNaN(n) ? 0 : n; };
@@ -215,57 +215,12 @@ export async function serveAiRegionsSessions(url, req, res) {
         };
       }));
       const regions = await regionResults;
-      // 福利号: 排班场次逐场 (小时桶按分钟重叠分摊, v2 口径) + 未来排期
-      let fuli = null;
-      try {
-        const FU = '1842681352509635';
-        const fuHourly = await statHourlyLive(FU, headers);
-        const fuPlan = db.prepare("SELECT session_no, start_min, end_min, car_model, anchor FROM shift_schedule WHERE account_id=? AND cst_date=? ORDER BY start_min").all(FU, today);
-        const fuliItems = [];
-        if (fuPlan.length) {
-          const acc2 = fuPlan.map(p => ({ ...p, cost: 0, leads: 0 }));
-          for (const [hh, v] of Object.entries(fuHourly.hourly)) {
-            const bStart = Number(hh) * 60, bEnd = bStart + 60;
-            const overlaps = acc2.map(p => ({ p, ov: Math.max(0, Math.min(bEnd, p.end_min) - Math.max(bStart, p.start_min)) })).filter(x => x.ov > 0);
-            const ovSum = overlaps.reduce((a, x) => a + x.ov, 0);
-            if (!ovSum) continue;
-            for (const x of overlaps) {
-              const ratio = x.ov / ovSum;
-              x.p.cost += v.cost * ratio; x.p.leads += v.leads * ratio;
-            }
-          }
-          for (const p of acc2) {
-            const status = nowMin >= p.start_min && nowMin < p.end_min ? 'live' : (nowMin >= p.end_min ? 'done' : 'planned');
-            fuliItems.push({
-              status, start: hhmm(p.start_min), end: status === 'live' ? '直播中' : hhmm(p.end_min),
-              anchor: p.anchor || '', carModel: p.car_model || '',
-              cost: Math.round(p.cost), leads: Math.round(p.leads),
-              cpl: p.leads > 0 ? Math.round(p.cost / p.leads) : 0,
-              sessionNo: p.session_no,
-            });
-          }
-          const covered = acc2.reduce((a, p) => a + p.cost, 0);
-          const orphan = Math.round((fuHourly.dayLiveCost || 0) - covered);
-          if (orphan > 50) fuliItems.push({ status: 'orphan', start: '—', end: '—', anchor: '未排班时段', carModel: '', cost: orphan, leads: 0, cpl: 0 });
-        }
-        const fuPlanned = fuPlan.filter(p => p.end_min > nowMin && !fuliItems.some(it => it.sessionNo === p.session_no && it.status !== 'planned'))
-          .filter(p => fuliItems.some(it => it.sessionNo === p.session_no ? it.status === 'planned' : true))
-          .map(p => ({ date: today, start: hhmm(p.start_min), end: hhmm(p.end_min), carModel: p.car_model || '', anchor: p.anchor || '', sessionNo: p.session_no }));
-        fuli = {
-          items: fuliItems,
-          dayLiveCost: Math.round(fuHourly.dayLiveCost),
-          dayLiveLeads: Math.round(fuHourly.dayLiveLeads),
-          planned: fuPlanned,
-        };
-      } catch (e) { console.log('[regions-sessions] 福利号采集失败:', e.message.slice(0, 120)); }
-      // 未来多日排期 (福利号 + 五大区分开输出)
-      const fuPlanFuture = db.prepare("SELECT cst_date, session_no, start_min, end_min, car_model, anchor FROM shift_schedule WHERE account_id='1842681352509635' AND (cst_date > ?) ORDER BY cst_date, start_min LIMIT 12").all(today);
+      // 真人福利号内容已按需求移出本页 (2026-09-28), 不再采集
       db.close();
       _cache = {
         at: Date.now(),
         data: {
-          date: today, regions, fuli, errors,
-          fuliPlanFuture: fuPlanFuture.map(p => ({ date: p.cst_date, start: hhmm(p.start_min), end: hhmm(p.end_min), carModel: p.car_model, anchor: p.anchor || '', sessionNo: p.session_no })),
+          date: today, regions, errors, nowMin,
           updatedAt: new Date().toLocaleTimeString('zh-CN'),
         },
       };
