@@ -1037,6 +1037,13 @@ tbody tr.budget-warn { background: linear-gradient(90deg, rgba(251, 191, 36, 0.0
           </div>
           <div id="regionsTable"></div>
         </section>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>场次明细（历史 / 在播 / 待开播）</h2>
+            <span class="muted" id="sessionsUpdatedAt">…</span>
+          </div>
+          <div id="sessionsTable"></div>
+        </section>
       </section>
     </main>
   </div>
@@ -1823,6 +1830,40 @@ function switchView(view) {
 }
 
 let _regionsTimer = null;
+let _sessionsTimer = null;
+async function loadSessions() {
+  try {
+    const res = await fetch('/api/ai-regions-sessions', { cache: 'no-store' });
+    const j = await res.json();
+    document.getElementById('sessionsUpdatedAt').textContent = '更新于 ' + (j.regions && j.regions[0] ? j.regions[0].updatedAt : '—') + ' · 自动 60s';
+    const ST = { live: ['🔴 在播', '#ff5c5c'], done: ['✓ 已结束', '#8ea0bf'], planned: ['🕐 待开播', '#4da3ff'] };
+    let html = '';
+    for (const rg of (j.regions || [])) {
+      html += '<div style="margin-bottom:14px"><div style="font-weight:600;margin-bottom:6px">' + rg.name + ' · 日预算 ¥' + (rg.dayBudget || 0).toLocaleString() + '</div><table style="width:100%;border-collapse:collapse">';
+      html += '<thead><tr>' + ['场次', '时段', '状态', '车型', '消耗', '线索', 'CPL', '当场预算使用率'].map(h => '<th style="text-align:left;padding:5px 8px;color:#8ea0bf;border-bottom:1px solid #22304a;font-size:12px">' + h + '</th>').join('') + '</tr></thead><tbody>';
+      const rows = [];
+      for (const it of (rg.items || [])) {
+        const st = ST[it.status] || [it.status, '#ccc'];
+        rows.push('<tr>' + [
+          it.status === 'planned' ? '计划' : (it.status === 'live' ? '本场' : '已播'),
+          it.start + ' - ' + it.end,
+          '<span style="color:' + st[1] + '">' + st[0] + '</span>',
+          it.carModel || '—',
+          it.status === 'planned' ? '—' : '¥' + (it.cost || 0).toLocaleString(),
+          it.status === 'planned' ? '—' : (it.leads || 0),
+          it.status === 'planned' ? '—' : (it.cpl > 0 ? '¥' + it.cpl.toLocaleString() : '—'),
+          it.usage != null ? '<b>' + it.usage + '%</b>' : '—',
+        ].map(c => '<td style="padding:5px 8px;border-bottom:1px solid #1a2436">' + c + '</td>').join('') + '</tr>');
+      }
+      html += rows.join('') + '</tbody></table></div>';
+    }
+    document.getElementById('sessionsTable').innerHTML = html || '<p class=muted>今日暂无场次数据</p>';
+  } catch (e) {
+    document.getElementById('sessionsTable').innerHTML = '<p class=muted>拉取失败: ' + e.message + '</p>';
+  }
+  clearInterval(_sessionsTimer);
+  _sessionsTimer = setInterval(() => { if (activeView === 'regions') loadSessions(); }, 60000);
+}
 async function loadRegionsToday(force) {
   try {
     const res = await fetch("/api/ai-regions-today" + (force ? "?t=" + Date.now() : ""), { cache: "no-store" });
@@ -1843,6 +1884,7 @@ async function loadRegionsToday(force) {
   } catch (e) {
     document.getElementById("regionsTable").innerHTML = '<p class="muted">拉取失败: ' + e.message + "</p>";
   }
+  loadSessions();
   clearInterval(_regionsTimer);
   _regionsTimer = setInterval(() => { if (activeView === "regions") loadRegionsToday(); }, 60000);
 }
