@@ -32,12 +32,26 @@ Page({
     this.setData({ loading: true })
     try {
       const { source, data: rawData } = await store.getRegions()
-      // 兼容两种返回结构: {regions: payload对象}(旧/regions 接口) 或 payload 已展平(mock/db直读)
+      // 兼容多种返回形态: 递归找 regions 数组(接口包装层/云数据库文档/字符串化等各种情况)
       let data = rawData
-      if (data && data.regions && !Array.isArray(data.regions) && Array.isArray(data.regions.regions)) {
-        data = { ...data, ...data.regions }
+      if (data && typeof data.regions === 'string') {
+        try { data.regions = JSON.parse(data.regions) } catch (e) {}
       }
-      if (!data || !Array.isArray(data.regions)) throw new Error('数据结构异常')
+      if (data && data.payload && data.payload.regions) data = { ...data, ...data.payload }
+      if (data && data.regions && !Array.isArray(data.regions)) {
+        // regions 是对象(如旧版接口整包嵌套): 取内层 regions 数组
+        if (Array.isArray(data.regions.regions)) data = { ...data, ...data.regions }
+        else if (typeof data.regions === 'object' && data.regions !== null) {
+          const vals = Object.values(data.regions)
+          if (vals.length && vals.every(v => v && typeof v === 'object' && 'sessions' in v)) {
+            data = { ...data, regions: vals } // 对象形式 {东区:{...},...} 转数组
+          }
+        }
+      }
+      if (!data || !Array.isArray(data.regions)) {
+        const shape = data ? JSON.stringify(data).slice(0, 150) : String(data)
+        throw new Error('数据结构异常: ' + shape)
+      }
       const regions = data.regions || []
       const nowMin = data.nowMin || 0
       // 在播直播间(最多 2 个, 按消耗排序) — 对齐仪表盘在播展示窗
