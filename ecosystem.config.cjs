@@ -453,6 +453,25 @@ module.exports = {
       time: true,
     },
 
+    // ====== 小程序"五区直播"页数据源 (每5min: 8899 sessions API → cloudrun /push regions_live) ======
+    {
+      name: "pm2-push-regions",
+      script: "src/cloud/push-regions.mjs",
+      cwd: MONITOR_DIR,
+      exec_mode: "fork",
+      interpreter: NODE,
+      env: { NODE_ENV: "production", OEC_SILENT: "1" },
+      instances: 1,
+      autorestart: false,
+      max_restarts: 0,
+      kill_timeout: 15000,
+      cron_restart: "4-59/5 * * * *",
+      out_file: `${LOG_DIR}\\pm2-push-regions-out.log`,
+      error_file: `${LOG_DIR}\\pm2-push-regions-err.log`,
+      merge_logs: true,
+      time: true,
+    },
+
     // ====== 小程序云端指令轮询 (每2min, 拉取小程序操作指令→本地队列执行→回写结果) ======
     {
       name: "pm2-cloud-action-poller",

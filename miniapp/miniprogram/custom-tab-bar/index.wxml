@@ -23,6 +23,10 @@
     <view wx:elif="{{item.type === 'al'}}" class="ico al">
       <view class="dome"></view><view class="clap"></view>
     </view>
+    <!-- 五区: 五点阵 -->
+    <view wx:elif="{{item.type === 'rg'}}" class="ico rg">
+      <view class="dot d1"></view><view class="dot d2"></view><view class="dot d3"></view><view class="dot d4"></view><view class="dot d5"></view>
+    </view>
     <text class="label">{{item.text}}</text>
   </view>
 </view>

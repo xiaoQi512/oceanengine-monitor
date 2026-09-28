@@ -1,0 +1,95 @@
+.page { padding-bottom: 40rpx; }
+
+.header {
+  padding: 100rpx 32rpx 20rpx;
+  display: flex; justify-content: space-between; align-items: flex-end;
+}
+.header-title { font-size: 40rpx; font-weight: 700; color: #FFFFFF; }
+.header-sub { font-size: 22rpx; color: #8A93A8; display: flex; align-items: center; }
+.src-dot { width: 12rpx; height: 12rpx; border-radius: 50%; margin-right: 8rpx; display: inline-block; }
+.dot-live { background: #2EDB8B; box-shadow: 0 0 8rpx #2EDB8B; }
+.dot-mock { background: #F5A623; box-shadow: 0 0 8rpx #F5A623; }
+.muted { color: #6B7280; font-size: 24rpx; padding: 10rpx 0; }
+
+/* 在播展示窗 */
+.showcase { margin: 8rpx 24rpx 20rpx; display: flex; flex-direction: column; gap: 12rpx; }
+.show-card {
+  border: 1rpx solid rgba(255, 90, 90, 0.3); border-radius: 20rpx; padding: 20rpx 24rpx;
+  background: linear-gradient(135deg, #1A0F14, #0D1522);
+}
+.show-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8rpx; margin-bottom: 14rpx; }
+.live-dot {
+  width: 14rpx; height: 14rpx; border-radius: 50%; background: #FF5A5A;
+  box-shadow: 0 0 10rpx #FF5A5A; animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+.show-region { font-size: 30rpx; font-weight: 700; color: #FFFFFF; }
+.show-meta { font-size: 22rpx; color: #8A93A8; }
+.show-grid { display: flex; flex-wrap: wrap; gap: 10rpx; }
+.show-kpi {
+  flex: 1; min-width: 28%; padding: 10rpx 14rpx;
+  border: 1rpx solid #1E2540; border-radius: 12rpx; background: #0A1018;
+}
+.show-kpi .k { font-size: 20rpx; color: #8A93A8; }
+.show-kpi .v { font-size: 32rpx; font-weight: 700; color: #FFFFFF; margin-top: 4rpx; }
+.show-kpi .v.hot { color: #FF5A5A; }
+.show-kpi .v.warm { color: #F5A623; }
+.show-kpi .v.good { color: #2EDB8B; }
+.show-note { font-size: 20rpx; color: #F5A623; margin-top: 8rpx; }
+.showcase-empty {
+  margin: 8rpx 24rpx 20rpx; padding: 30rpx; text-align: center;
+  border: 1rpx dashed #22304A; border-radius: 20rpx; color: #8A93A8; font-size: 24rpx;
+}
+
+/* 汇总 */
+.sum-grid { display: flex; flex-wrap: wrap; gap: 12rpx; margin: 0 24rpx 20rpx; }
+.sum-cell {
+  flex: 1; min-width: 44%; padding: 14rpx 20rpx;
+  border: 1rpx solid #22304A; border-radius: 16rpx; background: #0D1522;
+}
+.sum-cell .k { font-size: 20rpx; color: #8A93A8; }
+.sum-cell .v { font-size: 32rpx; font-weight: 700; color: #FFFFFF; margin-top: 4rpx; }
+
+/* 五区标准模块卡 */
+.rmod { margin: 0 24rpx 20rpx; }
+.rmod-head { display: flex; align-items: center; gap: 12rpx; margin-bottom: 14rpx; }
+.rname { font-size: 30rpx; font-weight: 700; color: #FFFFFF; }
+.rmod-badge { font-size: 20rpx; font-weight: 700; padding: 4rpx 16rpx; border-radius: 999rpx; }
+.rmod-badge.live { color: #FF5A5A; background: rgba(255,90,90,.12); }
+.rmod-badge.done { color: #8A93A8; background: rgba(138,147,168,.12); }
+.rmod-badge.planned { color: #5B8CFF; background: rgba(91,140,255,.12); }
+.rbudget { margin-left: auto; font-size: 20rpx; color: #8A93A8; }
+.rmod-kpis { display: flex; flex-wrap: wrap; gap: 10rpx; margin-bottom: 14rpx; }
+.rmod-kpi {
+  flex: 1; min-width: 22%; padding: 10rpx 14rpx;
+  border: 1rpx solid #1E2540; border-radius: 12rpx; background: #0A1018;
+}
+.rmod-kpi .k { font-size: 20rpx; color: #8A93A8; white-space: nowrap; }
+.rmod-kpi .v { font-size: 30rpx; font-weight: 700; color: #FFFFFF; margin-top: 4rpx; white-space: nowrap; }
+
+/* 场次行: 左(时段/状态/车型) 右(2x2 指标) */
+.sess {
+  display: flex; align-items: center; gap: 16rpx;
+  padding: 16rpx 0; border-bottom: 1rpx solid #1A2138;
+}
+.sess:last-child { border-bottom: none; }
+.sess.planned { opacity: 0.6; }
+.sess-left { width: 220rpx; flex-shrink: 0; }
+.sess-time { font-size: 24rpx; color: #E5E9F2; }
+.sess-tags { display: flex; flex-direction: column; gap: 6rpx; margin-top: 8rpx; }
+.sess-badge { font-size: 20rpx; font-weight: 700; }
+.sess-badge.live { color: #FF5A5A; }
+.sess-badge.done { color: #8A93A8; }
+.sess-badge.planned { color: #5B8CFF; }
+.sess-car { font-size: 20rpx; color: #8A93A8; }
+.sess-right { flex: 1; display: flex; flex-wrap: wrap; gap: 8rpx; }
+.sess-right.off { color: #6B7280; font-size: 24rpx; text-align: center; padding: 20rpx 0; }
+.sess-kpi {
+  flex: 1; min-width: 44%; padding: 8rpx 12rpx;
+  border: 1rpx solid #1A2138; border-radius: 10rpx; background: #0A1018;
+}
+.sess-kpi .k { font-size: 18rpx; color: #6B7280; }
+.sess-kpi .v { font-size: 24rpx; font-weight: 700; color: #E5E9F2; margin-top: 2rpx; }
+.sess-kpi .v.hot { color: #FF5A5A; }
+.sess-kpi .v.warm { color: #F5A623; }
+.sess-kpi .v.good { color: #2EDB8B; }

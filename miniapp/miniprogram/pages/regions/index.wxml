@@ -1,0 +1,78 @@
+<view class="page">
+  <!-- 顶部 -->
+  <view class="header">
+    <view class="header-title">五区直播</view>
+    <view class="header-sub">
+      <text class="src-dot {{source === 'cloud' || source === 'db' ? 'dot-live' : 'dot-mock'}}"></text>
+      <text>{{sourceText}} · {{updatedText}}</text>
+    </view>
+  </view>
+
+  <!-- 在播直播间展示窗(最多 2 个) -->
+  <view wx:if="{{lives.length}}" class="showcase">
+    <view wx:for="{{lives}}" wx:key="index" class="show-card">
+      <view class="show-head">
+        <view class="live-dot"></view>
+        <text class="show-region">{{item.region}}AI直播</text>
+        <text class="show-meta">{{item.carModel}} · {{item.start}} 开播 · 已播 {{item.durText}}</text>
+      </view>
+      <view class="show-grid">
+        <view class="show-kpi"><view class="k">实时消耗</view><view class="v">¥{{item.cost}}</view></view>
+        <view class="show-kpi"><view class="k">线索量</view><view class="v">{{item.leads}}</view></view>
+        <view class="show-kpi"><view class="k">线索成本</view><view class="v">{{item.cpl === '—' ? '—' : '¥' + item.cpl}}</view></view>
+        <view class="show-kpi"><view class="k">当场预算</view><view class="v">{{item.budget === '—' ? '—' : '¥' + item.budget}}</view></view>
+        <view class="show-kpi"><view class="k">使用率</view><view class="v {{item.usageCls}}">{{item.usage === '—' ? '—' : item.usage + '%'}}</view></view>
+      </view>
+    </view>
+    <view wx:if="{{livesOverflow}}" class="show-note">⚠ 在播直播间超过 2 个, 仅展示消耗前 2</view>
+  </view>
+  <view wx:else class="showcase-empty">当前无在播直播间 · 开播后此处实时展示</view>
+
+  <!-- 汇总 -->
+  <view class="sum-grid">
+    <view wx:for="{{summary}}" wx:key="k" class="sum-cell">
+      <view class="k">{{item.k}}</view>
+      <view class="v">{{item.v}}</view>
+    </view>
+  </view>
+
+  <!-- 五区标准模块卡 -->
+  <view wx:for="{{regions}}" wx:key="name" class="card rmod">
+    <view class="rmod-head">
+      <text class="rname">{{item.name}}AI直播</text>
+      <text class="rmod-badge {{item.badge.cls}}">{{item.badge.txt}}</text>
+      <text class="rbudget">日预算 ¥{{item.dayBudget}}</text>
+    </view>
+    <view class="rmod-kpis">
+      <view class="rmod-kpi"><view class="k">今日消耗</view><view class="v">¥{{item.dayCost}}</view></view>
+      <view class="rmod-kpi"><view class="k">今日线索</view><view class="v">{{item.dayLeads}}</view></view>
+      <view class="rmod-kpi"><view class="k">线索成本</view><view class="v">{{item.dayCpl}}</view></view>
+      <view class="rmod-kpi"><view class="k">场次数</view><view class="v">{{item.cnt}}</view></view>
+    </view>
+    <view wx:if="{{item.sessions.length || item.planned.length}}">
+      <view wx:for="{{item.sessions}}" wx:for-item="s" wx:key="roomId" class="sess">
+        <view class="sess-left">
+          <view class="sess-time">{{s.start}} - {{s.finishTxt}}</view>
+          <view class="sess-tags">
+            <text class="sess-badge {{s.status}}">{{s.status === 'live' ? '🔴 在播' : s.status === 'done' ? '✓ 已结束' : '🕐 待开播'}}</text>
+            <text class="sess-car">{{s.carTxt}}</text>
+          </view>
+        </view>
+        <view class="sess-right">
+          <view class="sess-kpi"><view class="k">消耗</view><view class="v">¥{{s.costTxt}}</view></view>
+          <view class="sess-kpi"><view class="k">线索</view><view class="v">{{s.leads || 0}}</view></view>
+          <view class="sess-kpi"><view class="k">CPL</view><view class="v">{{s.cplTxt}}</view></view>
+          <view class="sess-kpi"><view class="k">使用率</view><view class="v {{s.usageCls}}">{{s.usageTxt}}</view></view>
+        </view>
+      </view>
+      <view wx:for="{{item.planned}}" wx:for-item="p" wx:key="sessionNo" class="sess planned">
+        <view class="sess-left">
+          <view class="sess-time">{{p.start}} - {{p.end}}</view>
+          <view class="sess-tags"><text class="sess-badge planned">🕐 待开播</text><text class="sess-car">{{p.carModel || '—'}}</text></view>
+        </view>
+        <view class="sess-right off">—</view>
+      </view>
+    </view>
+    <view wx:else class="muted">{{item.error ? '今日暂无场次数据（' + item.error + '）' : '今日暂无场次数据'}}</view>
+  </view>
+</view>

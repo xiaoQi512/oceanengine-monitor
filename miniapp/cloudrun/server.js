@@ -67,7 +67,7 @@ app.get('/whoami', (req, res) => {
 
 // ---------- 数据推送(家里 PM2 调用) ----------
 app.post('/push', requireAuth, async (req, res) => {
-  const { summary, campaigns, alerts } = req.body || {};
+  const { summary, campaigns, alerts, regions } = req.body || {};
   const tryDb = async fn => { try { await fn(); return null; } catch (e) { return e.message; } };
   const errors = [];
 
@@ -77,6 +77,15 @@ app.post('/push', requireAuth, async (req, res) => {
       const old = await coll.limit(5).get();
       for (const doc of old.data) await coll.doc(doc._id).remove();
       await coll.add({ updated_at: new Date().toISOString(), payload: summary });
+    }));
+  }
+  if (regions) {
+    // 五大区直播场次快照(含在播展示窗数据): 每次覆盖为最新 1 条
+    errors.push(await tryDb(async () => {
+      const coll = db().collection('regions_live');
+      const old = await coll.limit(5).get();
+      for (const doc of old.data) await coll.doc(doc._id).remove();
+      await coll.add({ updated_at: new Date().toISOString(), payload: regions });
     }));
   }
   if (Array.isArray(campaigns)) {
@@ -129,6 +138,17 @@ app.get('/alerts', requireAuth, async (req, res) => {
   try {
     const r = await db().collection('alerts').orderBy('time', 'desc').limit(100).get();
     res.json({ alerts: r.data.map(({ _id, ...a }) => ({ id: a.alert_id || _id, ...a })) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 五大区直播场次快照(小程序"五区直播"页): 监控端每 5min 经 /push 覆盖写入 regions_live
+app.get('/regions', requireAuth, async (req, res) => {
+  try {
+    const r = await db().collection('regions_live').orderBy('updated_at', 'desc').limit(1).get();
+    if (!r.data.length) return res.status(404).json({ error: 'no data' });
+    res.json({ ok: true, updated_at: r.data[0].updated_at, regions: r.data[0].payload });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

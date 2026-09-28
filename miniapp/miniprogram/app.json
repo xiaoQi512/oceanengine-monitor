@@ -3,7 +3,8 @@
     "pages/overview/index",
     "pages/campaigns/index",
     "pages/details/index",
-    "pages/alerts/index"
+    "pages/alerts/index",
+    "pages/regions/index"
   ],
   "window": {
     "navigationStyle": "custom",
@@ -39,6 +40,12 @@
       {
         "pagePath": "pages/alerts/index",
         "text": "记录",
+        "iconPath": "assets/tab-alerts.jpg",
+        "selectedIconPath": "assets/tab-alerts-active.jpg"
+      },
+      {
+        "pagePath": "pages/regions/index",
+        "text": "五区",
         "iconPath": "assets/tab-alerts.jpg",
         "selectedIconPath": "assets/tab-alerts-active.jpg"
       }

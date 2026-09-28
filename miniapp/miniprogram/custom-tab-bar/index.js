@@ -7,7 +7,8 @@ Component({
       { pagePath: '/pages/overview/index', text: '总览', type: 'ov' },
       { pagePath: '/pages/campaigns/index', text: '计划', type: 'cp' },
       { pagePath: '/pages/details/index', text: '明细', type: 'dt' },
-      { pagePath: '/pages/alerts/index', text: '记录', type: 'al' }
+      { pagePath: '/pages/alerts/index', text: '记录', type: 'al' },
+      { pagePath: '/pages/regions/index', text: '五区', type: 'rg' }
     ]
   },
   methods: {

@@ -82,4 +82,24 @@ async function submitCommand(command) {
   return callCloud('/command', 'POST', command)
 }
 
-module.exports = { getDashboard, getCampaigns, getAlerts, submitCommand, callCloud }
+module.exports = { getDashboard, getCampaigns, getAlerts, getRegions, submitCommand, callCloud }
+
+// 五大区直播场次快照(五区直播页): 云托管 /regions → 云数据库 regions_live → 演示数据
+async function getRegions() {
+  try {
+    const data = await callCloud('/regions')
+    if (data && data.regions) return { source: 'cloud', data: data.regions }
+    throw new Error('empty')
+  } catch (e1) {
+    try {
+      const db = wx.cloud.database()
+      const res = await db.collection('regions_live')
+        .orderBy('updated_at', 'desc').limit(1).get()
+      if (res.data && res.data.length) return { source: 'db', data: res.data[0].payload }
+      throw new Error('empty')
+    } catch (e2) {
+      if (config.USE_MOCK_FALLBACK) return { source: 'mock', data: require('./mock-regions') }
+      throw e2
+    }
+  }
+}
