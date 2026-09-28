@@ -188,7 +188,12 @@ async function fastTick() {
       log(`${displayName} 第${sessNo}场（${live.start} 开播）已耗${Math.round(live.cost || 0).toLocaleString()}/${Math.round(sessBudget).toLocaleString()} = ${(usage * 100).toFixed(1)}% | CPL ${cpl > 0 ? Math.round(cpl) : '—'} | 已加${st.adds}/${MAX_ADDS}`);
       continue;
     }
-    const canAdd = cpl > 0 && cpl < CPL_GATE && st.adds < MAX_ADDS;
+    // 开播时长: 用户规则 2026-09-28 — 开播 <90min 才允许自动加预算(接近收尾的场不再加)
+    const durMin = (j.nowMin != null && live.startEpoch)
+      ? Math.max(0, j.nowMin - Math.floor(((live.startEpoch + 8 * 3600) % 86400) / 60))
+      : null;
+    const durOk = durMin == null ? true : durMin < 90;
+    const canAdd = cpl > 0 && cpl < CPL_GATE && st.adds < MAX_ADDS && durOk;
     const now = Date.now();
     // 使用率 ≥80% 后每轮(5min)都判定; CPL<110 → 加预算(15min 冷却); CPL≥110 → 提醒降频 60min, 降穿后下轮自动加
     if (canAdd && !(st.lastAt === 0 || now - st.lastAt > 15 * 60000)) continue;
@@ -207,6 +212,11 @@ async function fastTick() {
       if (st.lastAt && now - st.lastAt < 60 * 60000) continue;
       st.lastAt = now;
       tail = `本场已加预算 ${st.adds} 次（共 ${st.adds * 500} 元），达到单场上限，不再自动加预算`;
+    } else if (!durOk) {
+      // 开播已超 90 分钟: 提醒降频 60min
+      if (st.lastDurAt && now - st.lastDurAt < 60 * 60000) continue;
+      st.lastDurAt = now;
+      tail = `⏱ 开播时长已达 ${durMin} 分钟（≥90 分钟），接近收尾，不再自动加预算`;
     } else {
       // CPL ≥ 门控: 提醒降频 60min; CPL 降穿 110 后下一轮(≤5min)自动触发加预算
       if (st.lastUnfitAt && now - st.lastUnfitAt < 60 * 60000) continue;
