@@ -125,6 +125,8 @@ async function fetchLiveSessions(aadvid, anchor, headers, today, hourly, nowMinB
     const st = { cost: costMap.get(rid)?.cost ?? 0, watch: costMap.get(rid)?.watch ?? 0 };
     // 状态: 开播中(无关播时间) → live; 有 finish 或关播 → done
     const isLive = statusRaw.includes('关播') ? false : finishEpoch ? false : true;
+    // 无效场次屏蔽(用户规则 2026-09-28): 已结束场 时长<30min 且 消耗<200 → 丢弃; 在播场豁免
+    if (!isLive && finishEpoch && (finishEpoch - startEpoch) < 1800 && st.cost < 200) continue;
     // 线索: basic_ad_data 直播小时桶按 [start, finish|now) 分钟区间分摊
     const startMinBJ = Math.floor(((startEpoch + 8 * 3600) % 86400) / 60);
     const endMinBJ = isLive ? Math.max(startMinBJ + 1, nowMinBJ) : Math.floor(((finishEpoch + 8 * 3600) % 86400) / 60) || Math.min(startMinBJ + 120, 1439);
