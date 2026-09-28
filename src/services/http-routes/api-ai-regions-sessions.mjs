@@ -105,31 +105,39 @@ export async function serveAiRegionsSessions(url, req, res) {
         regions.push({ name, dayBudget, items, updatedAt: new Date().toLocaleTimeString('zh-CN') });
         await new Promise(r => setTimeout(r, 300));
       }
-      // 真人福利号: 完整时间线 (实际消耗段 + 排班关联主播/车型) + 未来排期
+      // 真人福利号: 按排班场次逐场展示 (小时桶按分钟重叠分摊到各场)
       const FU = '1842681352509635';
       const fuHourly = await statHourlyLive(FU, headers);
-      const fuSegs = segmentHours(fuHourly.hourly);
       const fuPlanAll = db.prepare("SELECT session_no, start_min, end_min, car_model, anchor FROM shift_schedule WHERE account_id=? AND cst_date=? ORDER BY start_min").all(FU, today);
       const fuliItems = [];
-      fuSegs.forEach((s, i) => {
-        let cost = 0, leads = 0;
-        for (const [hh, v] of Object.entries(fuHourly.hourly)) if (Number(hh) >= s.startH && Number(hh) <= s.endH) { cost += v.cost; leads += v.leads; }
-        const isLast = i === fuSegs.length - 1;
-        const live = isLast && nowMin <= s.endH * 60 + 119;
-        // 排班关联: 与段首小时重叠的排班场次 → 主播/车型
-        const planHit = fuPlanAll.find(p => s.startH * 60 >= p.start_min - 90 && s.startH * 60 <= p.end_min + 90) || {};
-        fuliItems.push({
-          status: live ? 'live' : 'done',
-          start: `${String(s.startH).padStart(2, '0')}:00`,
-          end: live ? '直播中' : `${String(s.endH).padStart(2, '0')}:59`,
-          anchor: planHit.anchor || '',
-          carModel: planHit.car_model || '',
-          planStart: planHit.start_min != null ? hhmm(planHit.start_min) : '',
-          planEnd: planHit.end_min != null ? hhmm(planHit.end_min) : '',
-          cost: Math.round(cost), leads: Math.round(leads),
-          cpl: leads > 0 ? Math.round(cost / leads) : 0,
-        });
-      });
+      if (fuPlanAll.length) {
+        // 每桶按分钟重叠分摊到覆盖它的场次
+        const acc2 = fuPlanAll.map(p => ({ ...p, cost: 0, leads: 0, _c: 0, _l: 0 }));
+        for (const [hh, v] of Object.entries(fuHourly.hourly)) {
+          const bStart = Number(hh) * 60, bEnd = bStart + 60, total = v.cost + v.leads;
+          const overlaps = acc2.map(p => ({ p, ov: Math.max(0, Math.min(bEnd, p.end_min) - Math.max(bStart, p.start_min)) })).filter(x => x.ov > 0);
+          const ovSum = overlaps.reduce((a, x) => a + x.ov, 0);
+          if (!ovSum) continue;
+          for (const x of overlaps) {
+            const ratio = x.ov / ovSum;
+            x.p.cost += v.cost * ratio; x.p.leads += v.leads * ratio; x.p._c += x.ov; x.p._l += v.leads * ratio;
+          }
+        }
+        for (const p of acc2) {
+          const cpl = p.leads > 0 ? Math.round(p.cost / p.leads) : 0;
+          const status = nowMin >= p.start_min && nowMin < p.end_min ? 'live' : (nowMin >= p.end_min ? 'done' : 'planned');
+          fuliItems.push({
+            status, start: hhmm(p.start_min), end: hhmm(p.end_min),
+            anchor: p.anchor || '', carModel: p.car_model || '',
+            cost: Math.round(p.cost), leads: Math.round(p.leads), cpl,
+            sessionNo: p.session_no,
+          });
+        }
+        // 排班外消耗 (小时桶有但排班未覆盖)
+        const covered = acc2.reduce((a, p) => a + p.cost, 0);
+        const orphan = Math.round((fuHourly.dayLiveCost || 0) - covered);
+        if (orphan > 50) fuliItems.push({ status: 'orphan', start: '—', end: '—', anchor: '未排班时段', carModel: '', cost: orphan, leads: 0, cpl: 0 });
+      }
       const fuliPlan = db.prepare("SELECT cst_date, session_no, start_min, end_min, car_model FROM shift_schedule WHERE account_id=? AND (cst_date > ? OR (cst_date = ? AND start_min > ?)) ORDER BY cst_date, start_min LIMIT 12").all(FU, today, today, nowMin);
       db.close();
       _cache = { at: Date.now(), data: { regions, date: today, fuli: { items: fuliItems, dayLiveCost: Math.round(fuHourly.dayLiveCost), dayLiveLeads: Math.round(fuHourly.dayLiveLeads) }, fuliPlan: fuliPlan.map(p => ({ date: p.cst_date, start: hhmm(p.start_min), end: hhmm(p.end_min), carModel: p.car_model, sessionNo: p.session_no })) } };

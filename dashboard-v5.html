@@ -1869,7 +1869,7 @@ async function loadSessions() {
     const fu = j.fuli || { items: [], dayLiveCost: 0, dayLiveLeads: 0 };
     const fEl = document.getElementById('fuliPlanTable');
     if (fEl) {
-      const ST = { live: ['🔴 在播', '#ff5c5c'], done: ['✓ 已结束', '#8ea0bf'] };
+      const ST = { live: ['🔴 在播', '#ff5c5c'], done: ['✓ 已结束', '#8ea0bf'], planned: ['🕐 待开播', '#4da3ff'], orphan: ['⚠ 未排班', '#e0b040'] };
       let fh = '<p class=muted style=margin-bottom:6px>今日真人出镜直播合计：消耗 ¥' + (fu.dayLiveCost || 0).toLocaleString() + ' · 线索 ' + (fu.dayLiveLeads || 0) + ' 条</p>';
       fh += '<table style="width:100%;border-collapse:collapse"><thead><tr>' + ['实际开播', '状态', '主播', '车型', '消耗', '线索', 'CPL'].map(h => '<th style="text-align:left;padding:5px 8px;color:#8ea0bf;border-bottom:1px solid #22304a;font-size:12px">' + h + '</th>').join('') + '</tr></thead><tbody>';
       fh += (fu.items || []).map(it => {
