@@ -744,6 +744,25 @@ tbody tr.budget-warn { background: linear-gradient(90deg, rgba(251, 191, 36, 0.0
   .btn.primary { min-height: 30px; padding: 0 10px; }
 }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+/* 五大区标准模块卡 */
+.rmod-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 12px; }
+.rmod { border: 1px solid #22304a; border-radius: 12px; background: #0d1522; padding: 12px 14px; display: flex; flex-direction: column; }
+.rmod-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.rmod-head .rname { font-size: 15px; font-weight: 800; }
+.rmod-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 20px; }
+.rmod-badge.live { color: #ff5c5c; background: #ff5c5c1a; }
+.rmod-badge.done { color: #8ea0bf; background: #8ea0bf1a; }
+.rmod-badge.planned { color: #4da3ff; background: #4da3ff1a; }
+.rmod-head .rbudget { margin-left: auto; font-size: 11px; color: #8ea0bf; }
+.rmod-kpis { display: flex; gap: 10px; margin-bottom: 10px; }
+.rmod-kpi { flex: 1; min-width: 0; padding: 6px 10px; border: 1px solid #1a2436; border-radius: 8px; background: #0a1018; }
+.rmod-kpi .k { font-size: 10px; color: #8ea0bf; white-space: nowrap; }
+.rmod-kpi .v { font-size: 17px; font-weight: 800; margin-top: 2px; white-space: nowrap; }
+.rmod table { width: 100%; border-collapse: collapse; }
+.rmod th { text-align: left; padding: 4px 6px; color: #8ea0bf; border-bottom: 1px solid #22304a; font-size: 11px; white-space: nowrap; }
+.rmod td { padding: 4px 6px; border-bottom: 1px solid #1a2436; font-size: 12px; white-space: nowrap; }
+.rmod tr.planned-row td { opacity: .65; }
+.rmod-foot { margin-top: 8px; font-size: 11px; color: #8ea0bf; }
 </style>
 </head>
 <body>
@@ -1805,38 +1824,58 @@ async function loadSessions() {
         ['在播区数', liveCnt + ' / ' + (j.regions || []).length],
       ].map(([k, v]) => '<div style="flex:1;min-width:130px;padding:8px 12px;border:1px solid #22304a;border-radius:8px;background:#0d1522"><div style="font-size:11px;color:#8ea0bf">' + k + '</div><div style="font-size:17px;font-weight:700;margin-top:3px">' + v + '</div></div>').join('') + '</div>';
     }
-    // 每区场次块
-    let html = '';
+    // 五大区标准模块卡: 统一结构, 便于横向比较
+    const badges = { live: ['🔴 在播', 'live'], done: ['已收播', 'done'], planned: ['待开播', 'planned'] };
+    const regionState = rg => {
+      const has = k => (rg.sessions || []).some(s => s.status === k);
+      if (has('live')) return badges.live;
+      if ((rg.planned || []).length) return badges.planned;
+      if (has('done')) return badges.done;
+      return ['无场次', 'done'];
+    };
+    let html = '<div class="rmod-grid">';
     for (const rg of (j.regions || [])) {
+      const [bTxt, bCls] = regionState(rg);
       const rows = [];
       for (const s of (rg.sessions || [])) {
         const carTxt = s.carModel || (s.unscheduled ? '⚠ 计划外' : '—');
         rows.push('<tr>' + [
-          td(s.start + ' - ' + (s.finish || '直播中')),
-          td('<span style="color:' + (ST[s.status] || [s.status, '#ccc'])[1] + '">' + (ST[s.status] || [s.status])[0] + '</span>'),
-          td(carTxt),
-          td(s.budget > 0 ? '¥' + Math.round(s.budget).toLocaleString() : '—'),
-          td('<b>¥' + (s.cost || 0).toLocaleString() + '</b>'),
-          td('<b>' + (s.leads || 0) + '</b>'),
-          td(s.cpl > 0 ? '¥' + (Math.round(s.cpl * 10) / 10).toLocaleString() : '—'),
+          '<td>' + s.start + ' - ' + (s.finish || '直播中') + '</td>',
+          '<td><span style="color:' + (ST[s.status] || [s.status, '#ccc'])[1] + '">' + (ST[s.status] || [s.status])[0] + '</span></td>',
+          '<td>' + carTxt + '</td>',
+          '<td class="mono">' + (s.budget > 0 ? '¥' + Math.round(s.budget).toLocaleString() : '—') + '</td>',
+          '<td class="mono"><b>¥' + (s.cost || 0).toLocaleString() + '</b></td>',
+          '<td class="mono"><b>' + (s.leads || 0) + '</b></td>',
+          '<td class="mono">' + (s.cpl > 0 ? '¥' + (Math.round(s.cpl * 10) / 10).toLocaleString() : '—') + '</td>',
           usageCell(s.usage),
         ].join('') + '</tr>');
       }
       for (const p of (rg.planned || [])) {
-        rows.push('<tr style="opacity:.75">' + [
-          td(p.start + ' - ' + p.end),
-          td('<span style="color:' + ST.planned[1] + '">' + ST.planned[0] + '</span>'),
-          td(p.carModel || '—'),
-          td('—'), td('—'), td('—'), td('—'), td('—'),
+        rows.push('<tr class="planned-row">' + [
+          '<td>' + p.start + ' - ' + p.end + '</td>',
+          '<td><span style="color:' + ST.planned[1] + '">' + ST.planned[0] + '</span></td>',
+          '<td>' + (p.carModel || '—') + '</td>',
+          '<td class="mono">—</td>', '<td class="mono">—</td>', '<td class="mono">—</td>', '<td class="mono">—</td>', '<td>—</td>',
         ].join('') + '</tr>');
       }
-      const regionTotal = '<span style="color:#8ea0bf;font-weight:400;font-size:12px">　日预算 ¥' + (rg.dayBudget || 0).toLocaleString() + ' · 今日 ¥' + (rg.dayCost || 0).toLocaleString() + ' / ' + (rg.dayLeads || 0) + ' 线索' + (rg.dayCpl > 0 ? ' · CPL ¥' + rg.dayCpl : '') + '</span>';
-      html += '<div style="margin-bottom:16px"><div style="font-weight:700;margin-bottom:6px">' + rg.name + '区' + regionTotal + '</div>';
-      html += rows.length
-        ? '<table style="width:100%;border-collapse:collapse">' + th(['开播时段', '状态', '车型', '当场预算', '消耗', '线索量', '线索成本', '预算使用率']) + rows.join('') + '</tbody></table>'
-        : '<p class="muted">今日暂无场次数据' + (j.errors && j.errors[rg.name] ? '（' + j.errors[rg.name] + '）' : '') + '</p>';
-      html += '</div>';
+      html += '<div class="rmod">' +
+        '<div class="rmod-head">' +
+          '<span class="rname">' + rg.name + 'AI直播</span>' +
+          '<span class="rmod-badge ' + bCls + '">' + bTxt + '</span>' +
+          '<span class="rbudget">日预算 ¥' + (rg.dayBudget || 0).toLocaleString() + '</span>' +
+        '</div>' +
+        '<div class="rmod-kpis">' +
+          '<div class="rmod-kpi"><div class="k">今日消耗</div><div class="v">¥' + (rg.dayCost || 0).toLocaleString() + '</div></div>' +
+          '<div class="rmod-kpi"><div class="k">今日线索</div><div class="v">' + (rg.dayLeads || 0) + '</div></div>' +
+          '<div class="rmod-kpi"><div class="k">线索成本</div><div class="v">' + (rg.dayCpl > 0 ? '¥' + rg.dayCpl : '—') + '</div></div>' +
+          '<div class="rmod-kpi"><div class="k">场次数</div><div class="v">' + (rg.sessions || []).length + '+' + (rg.planned || []).length + '</div></div>' +
+        '</div>' +
+        (rows.length
+          ? '<table><thead><tr>' + ['开播时段', '状态', '车型', '当场预算', '消耗', '线索', '线索成本', '使用率'].map(h => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>' + rows.join('') + '</tbody></table>'
+          : '<p class="muted">今日暂无场次数据' + (j.errors && j.errors[rg.name] ? '（' + j.errors[rg.name] + '）' : '') + '</p>') +
+        '</div>';
     }
+    html += '</div>';
     document.getElementById('sessionsTable').innerHTML = html || '<p class=muted>今日暂无场次数据</p>';
     // 顶部在播直播间展示窗: 最多 2 个在播场次大卡片
     const showEl = document.getElementById('liveShowcase');
