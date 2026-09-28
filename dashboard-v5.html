@@ -1035,21 +1035,21 @@ tbody tr.budget-warn { background: linear-gradient(90deg, rgba(251, 191, 36, 0.0
             <h2>今日直播投放</h2>
             <span class="muted" id="regionsUpdatedAt">…</span>
           </div>
-          <div id="regionsTable"></div>
+          <div id="regionsTable"><p class="muted">正在加载五大区数据…</p></div>
         </section>
         <section class="panel">
           <div class="panel-head">
             <h2>真人福利号排期（今日及未来）</h2>
             <span class="muted">真人在福利号直播间的开播计划 · 来自排期表</span>
           </div>
-          <div id="fuliPlanTable"></div>
+          <div id="fuliPlanTable"><p class="muted">正在加载福利号排期…</p></div>
         </section>
         <section class="panel">
           <div class="panel-head">
             <h2>场次明细（历史 / 在播）</h2>
             <span class="muted" id="sessionsUpdatedAt">…</span>
           </div>
-          <div id="sessionsTable"></div>
+          <div id="sessionsTable"><p class="muted">正在加载场次明细…</p></div>
         </section>
       </section>
     </main>
@@ -1113,98 +1113,25 @@ tbody tr.budget-warn { background: linear-gradient(90deg, rgba(251, 191, 36, 0.0
 
 <script>
 let data = {
+  // 初始为空安全结构: 首屏不再渲染演示假数据, 等真实接口返回后填充
   kpi: {
-    spend: 37598.27,
-    dailyBudget: 60000,
-    speed: 278,
-    leads: 396,
-    avgCpl: 94.95,
-    cpm: 64.10,
-    ctr: 6.90,
-    budget: 62.7,
-    compares: { spend: "+6.8%", speed: "-2.1%", leads: "+8.4%", cpl: "-3.2%", cpm: "+0.9%", budget: "+5.4%" },
-    spark: {
-      spend: [38, 41, 44, 43, 48, 52, 50, 55, 57, 60, 58, 63],
-      speed: [280, 310, 265, 298, 320, 258, 275, 240, 268, 232, 260, 278],
-      leads: [4.1, 4.3, 4.0, 4.6, 4.7, 5.0, 4.8, 5.4, 5.2, 5.8, 5.6, 6.0],
-      cpl: [98, 97, 96.2, 97.1, 95.8, 96.0, 94.9, 95.7, 94.1, 95.2, 94.3, 95.0],
-      cpm: [62.65, 62.74, 62.73, 62.78, 62.94, 63.25, 63.47, 63.72, 63.80, 63.85, 64.03, 64.10],
-      budget: [52, 54, 55, 56, 58, 58, 59, 60, 61, 62, 63, 63]
-    }
+    spend: 0, dailyBudget: 0, speed: 0, leads: 0, avgCpl: 0, cpm: 0, ctr: 0, budget: 0,
+    compares: {}, compareRaw: {},
+    spark: { spend: [], speed: [], leads: [], cpl: [], cpm: [], budget: [] }
   },
-  trend: {
-    labels: ["12:35", "12:40", "12:45", "12:50", "12:55", "13:00", "13:05", "13:10", "13:15", "13:20", "13:25", "13:30"],
-    deltaSpend: [105, 130, 96, 142, 178, 122, 148, 176, 159, 131, 188, 121],
-    totalSpend: [19427, 19605, 19810, 19963, 20206, 20421, 20641, 20974, 21184, 21311, 21641, 21773],
-    conversions: [3, 2, 1, 3, 2, 2, 2, 5, 1, 3, 2, 3],
-    deltaConversions: [3, 2, 1, 3, 2, 2, 2, 5, 1, 3, 2, 3],
-    cpl: [97.14, 98.03, 99.05, 98.83, 98.57, 98.65, 99.72, 100.84, 98.08, 98.66, 98.82, 98.97],
-    cpm: [62.65, 62.74, 62.73, 62.78, 62.94, 63.25, 63.47, 63.72, 63.80, 63.85, 64.03, 64.10],
-    top5: [
-      { name: "0811-真人直播-简单投-画面直投", value: 149, cpm: 149 },
-      { name: "0719-真人直播-短引直-S3（真人口播）", value: 96, cpm: 96 },
-      { name: "0802-真人直播-画面直投", value: 78, cpm: 78 },
-      { name: "0726-真人直播-短引直-S3（真人口播）", value: 64, cpm: 64 },
-      { name: "0729-真人直播-短引直-S3（本地素材）", value: 58, cpm: 58 }
-    ]
-  },
-  shifts: [
-    { time: "05:30-07:30", progress: 100, anchor: "小雪", carModel: "秦PLUS", spend: 4690, leads: 38, cpl: 123.4, cpm: 60.1, ctr: 7.2, open: 51, pushed: true },
-    { time: "07:30-09:30", progress: 100, anchor: "张蕾", carModel: "宋PLUS", spend: 5190, leads: 45, cpl: 115.3, cpm: 64.8, ctr: 7.8, open: 59, pushed: true },
-    { time: "09:30-11:30", progress: 100, anchor: "小雪", carModel: "秦PLUS", spend: 4531, leads: 41, cpl: 110.5, cpm: 61.2, ctr: 6.9, open: 52, pushed: true },
-    { time: "11:30-13:30", progress: 100, anchor: "张蕾", carModel: "宋PLUS", spend: 6264, leads: 55, cpl: 113.9, cpm: 63.4, ctr: 7.4, open: 68, pushed: true },
-    { time: "13:30-15:30", progress: 100, anchor: "三水", carModel: "海豹", spend: 4982, leads: 42, cpl: 118.6, cpm: 62.7, ctr: 7.0, open: 55, pushed: false },
-    { time: "15:30-17:30", progress: 100, anchor: "芦苇", carModel: "汉EV", spend: 6472, leads: 58, cpl: 111.6, cpm: 65.1, ctr: 7.6, open: 72, pushed: false },
-    { time: "17:30-19:30", progress: 42, anchor: "三水", carModel: "海豹", spend: 4118, leads: 36, cpl: 114.4, cpm: 62.0, ctr: 6.8, open: 49, pushed: false },
-    { time: "19:30-21:30", progress: 0, anchor: "芦苇", carModel: "汉EV", spend: 0, leads: 0, cpl: 0, cpm: 0, ctr: 0, open: 0, pushed: false },
-    { time: "21:30-23:30", progress: 0, anchor: "三水", carModel: "海豹", spend: 0, leads: 0, cpl: 0, cpm: 0, ctr: 0, open: 0, pushed: false }
-  ],
-  delivery: [
-    { name: "简单投", spend: "¥13,466", leads: 135, active: 4, pct: 65 },
-    { name: "画面直投", spend: "¥4,239", leads: 35, active: 2, pct: 20 },
-    { name: "短引直", spend: "¥3,101", leads: 35, active: 2, pct: 15 }
-  ],
-  plans: [
-    { id: "P-0721", name: "0721-真人直播-短引直-S3（真人口播）", type: "短引直", status: "投放中", spend: 6266.02, leads: 63, msgOpen: 87, cpa: 99.46, cpm: 86.58, ctr: 9.32, budget: 21000, anomaly: false },
-    { id: "P-0719", name: "0719-真人直播-短引直-S3（真人口播）", type: "短引直", status: "已超预算", spend: 2000, leads: 0, msgOpen: 0, cpa: 0, cpm: 68.87, ctr: 1.13, budget: 2000, anomaly: true },
-    { id: "P-0802", name: "0802-真人直播-画面直投", type: "画面直投", status: "投放中", spend: 670.11, leads: 6, msgOpen: 12, cpa: 111.68, cpm: 40.96, ctr: 11.97, budget: 3000, anomaly: false },
-    { id: "P-0714", name: "0714-真人直播-简单投-画面直投", type: "简单投", status: "未投放", spend: 651.72, leads: 5, msgOpen: 7, cpa: 130.34, cpm: 52.46, ctr: 5.85, budget: 20000, anomaly: false },
-    { id: "P-0726", name: "0726-真人直播-短引直-S3（真人口播）", type: "短引直", status: "投放中", spend: 81.61, leads: 0, msgOpen: 3, cpa: 0, cpm: 120.19, ctr: 2.10, budget: 1000, anomaly: true },
-    { id: "P-0731", name: "0731-真人直播-画面直投", type: "画面直投", status: "已暂停", spend: 278.75, leads: 0, msgOpen: 1, cpa: 0, cpm: 92.06, ctr: 9.84, budget: 20000, anomaly: false },
-    { id: "P-0729", name: "0729-真人直播-短引直-S3（本地素材）", type: "短引直", status: "投放中", spend: 1019.62, leads: 11, msgOpen: 24, cpa: 92.69, cpm: 84.86, ctr: 3.21, budget: 2000, anomaly: false },
-    { id: "P-0716", name: "0716-真人直播-画面直投", type: "画面直投", status: "投放中", spend: 1776.95, leads: 17, msgOpen: 31, cpa: 104.53, cpm: 27.62, ctr: 5.85, budget: 3000, anomaly: false },
-    { id: "P-0731B", name: "0731-真人直播-简单投-画面直投", type: "简单投", status: "投放中", spend: 1560.02, leads: 15, msgOpen: 19, cpa: 104.00, cpm: 103.72, ctr: 6.01, budget: 18000, anomaly: false },
-    { id: "P-0729B", name: "0729-真人直播-简单投-画面直投", type: "简单投", status: "投放中", spend: 409.55, leads: 3, msgOpen: 6, cpa: 136.52, cpm: 94.02, ctr: 11.48, budget: 21000, anomaly: false },
-    { id: "P-0726B", name: "0726-真人直播-简单投-画面直投", type: "简单投", status: "投放中", spend: 4139.11, leads: 46, msgOpen: 68, cpa: 89.98, cpm: 79.40, ctr: 7.12, budget: 18500, anomaly: false },
-    { id: "P-0719B", name: "0719-真人直播-短引直-S3（本地素材）", type: "短引直", status: "未投放", spend: 0, leads: 0, msgOpen: 0, cpa: 0, cpm: 0, ctr: 0, budget: 1000, anomaly: false }
-  ],
-  inactive: [
-    { id: "N-0714", name: "0714-真人直播-简单投-画面直投", type: "简单投", rawStatus: "未投放", hist: { spend: 4200, leads: 38, cpl: 110.5, cpm: 58.2, ctr: 6.4 } },
-    { id: "N-0719", name: "0719-真人直播-短引直-S3（本地素材）", type: "短引直", rawStatus: "未投放", hist: { spend: 0, leads: 0, cpl: 0, cpm: 0, ctr: 0 } }
-  ],
-  queue: [
-    { time: "19:18", plan: "0719-真人直播-短引直-S3（真人口播）", type: "暂停", reason: "预算耗尽且近 1 小时 0 线索", source: "dashboard-v5", status: "等待处理" }
-  ],
-  pending: [
-    { plan: "0719-真人直播-短引直-S3（真人口播）", type: "暂停", created: "19:16", expires: "19:24", status: "等待确认" },
-    { plan: "0802-真人直播-画面直投", type: "调整预算 ¥3,500", created: "19:14", expires: "19:26", status: "等待确认" }
-  ],
-  audit: [
-    { timeRaw: "2026-08-13T19:20:00", time: "19:20", plan: "0719-真人直播-短引直-S3（真人口播）", type: "暂停", reason: "预算耗尽且近 1 小时 0 线索", source: "dashboard-v5", method: "API", result: "成功", validation: { passed: true, detail: "平台状态已变为已暂停，快照校验一致" }, effect: { deltaSpend15min: -120, deltaLeads15min: 0, impactRating: "high_positive" }, beforeStatus: "投放中", afterStatus: "已暂停", rollback: true },
-    { timeRaw: "2026-08-13T19:08:00", time: "19:08", plan: "0802-真人直播-画面直投", type: "调整预算", reason: "消耗速度过快，预算不足 2 小时", source: "dashboard-v5", method: "API", result: "成功", validation: { passed: true, detail: "预算值已更新，下一快照确认" }, effect: { deltaSpend15min: -64, deltaLeads15min: 1, impactRating: "positive" }, beforeStatus: "投放中", afterStatus: "投放中", rollback: true },
-    { timeRaw: "2026-08-13T18:55:00", time: "18:55", plan: "0726-真人直播-短引直-S3（真人口播）", type: "暂停", reason: "连续 30 分钟高消耗且 0 线索", source: "AI 建议", method: "API", result: "成功", validation: { passed: true, detail: "平台状态已变为已暂停" }, effect: { deltaSpend15min: -95, deltaLeads15min: 0, impactRating: "positive" }, beforeStatus: "投放中", afterStatus: "已暂停", rollback: true },
-    { timeRaw: "2026-08-13T18:40:00", time: "18:40", plan: "0721-真人直播-简单投-画面直投", type: "调整预算", reason: "预算使用率接近 95%，人工复核后调高", source: "人工", method: "API", result: "成功", validation: { passed: true, detail: "预算已调整为 ¥25,000" }, effect: { deltaSpend15min: -18, deltaLeads15min: 0, impactRating: "neutral" }, beforeStatus: "投放中", afterStatus: "投放中", rollback: true },
-    { timeRaw: "2026-08-13T18:05:00", time: "18:05", plan: "0731-真人直播-画面直投", type: "暂停", reason: "疑似素材衰退", source: "AI 建议", method: "API", result: "失败", validation: { passed: false, detail: "平台返回权限错误，已自动重试 2 次" }, effect: null, beforeStatus: "投放中", afterStatus: "投放中", rollback: false }
-  ],
-  rules: [
-    { id: "R-104", title: "短引直 暂停", type: "暂停", success: "75%", confidence: "86%", evidence: "4", delta: "-28%", example: "0719-短引直-S3（真人口播）" },
-    { id: "R-103", title: "画面直投 调整预算", type: "调整预算", success: "67%", confidence: "71%", evidence: "6", delta: "-19%", example: "0802-真人直播-画面直投" },
-    { id: "R-102", title: "简单投 观察 30 分钟", type: "观察", success: "62%", confidence: "64%", evidence: "3", delta: "-9%", example: "0731-真人直播-简单投-画面直投" }
-  ],
-  aiSummary: { totalAudits: 128, evaluatedActions: 86, rulesCount: 3, anomaliesCount: 2 }
-    ,
-    diagnosis: [],
-    diagnosisSummary: { total: 0, byType: {}, highCount: 0, mediumCount: 0 }
+  trend: {},
+  shifts: [],
+  delivery: [],
+  plans: [],
+  inactive: [],
+  queue: [],
+  pending: [],
+  audit: [],
+  rules: [],
+  aiAnomalies: [],
+  aiSummary: { totalAudits: 0, evaluatedActions: 0, rulesCount: 0, anomaliesCount: 0 },
+  diagnosis: [],
+  diagnosisSummary: { total: 0, byType: {}, highCount: 0, mediumCount: 0 }
 };
 
 let activeView = "overview";
@@ -1725,9 +1652,7 @@ async function loadData(showToast = true) {
       fetchJson("/api/kpi/compare"),
       fetchJson("/api/campaigns/grouped"),
       fetchJson("/api/actions"),
-      fetchJson("/api/pending"),
-      fetchJson("/api/audit/recent?limit=50"),
-      fetchJson("/api/ai/learning-data")
+      fetchJson("/api/pending")
     ]);
     const ok = r => r.status === "fulfilled" ? r.value : null;
     const liveData = ok(results[0]);
@@ -1737,8 +1662,8 @@ async function loadData(showToast = true) {
     const grouped = ok(results[5]);
     const actionData = ok(results[6]);
     const pendingData = ok(results[7]);
-    const auditData = ok(results[8]);
-    const aiData = ok(results[9]);
+    const auditData = null; // 慢接口后台补
+    const aiData = null;    // 慢接口后台补
 
       const criticalOk = !!(liveData && snap5 && trendData && grouped);
       const allOk = results.every(r => r.status === "fulfilled");
@@ -1774,6 +1699,26 @@ async function loadData(showToast = true) {
     document.getElementById("pageDate").textContent = todayKey() + " · " + new Date().toLocaleTimeString("zh-CN");
     document.getElementById("updatedAt").textContent = new Date().toLocaleTimeString("zh-CN");
     if (showToast) toast(dataMode === "live" ? "实时数据已更新" : "部分接口异常，当前展示可用数据");
+    // 慢接口后台补加载(audit/learning-data), 回来后局部刷新, 不阻塞首屏
+    Promise.allSettled([
+      fetchJson("/api/audit/recent?limit=50"),
+      fetchJson("/api/ai/learning-data")
+    ]).then(([auditRes, aiRes]) => {
+      const auditLate = auditRes.status === "fulfilled" ? auditRes.value : null;
+      const aiLate = aiRes.status === "fulfilled" ? aiRes.value : null;
+      const opsLate = normalizeOps(actionData, pendingData, auditLate);
+      data.queue = opsLate.queue;
+      data.pending = opsLate.pending;
+      data.audit = opsLate.audit;
+      const ai = normalizeAi(aiLate);
+      data.rules = ai.rules;
+      data.aiAnomalies = ai.aiAnomalies;
+      data.aiSummary = ai.summary;
+      data.diagnosis = ai.diagnosis;
+      data.diagnosisSummary = ai.diagnosisSummary;
+      renderOps();
+      renderRules();
+    });
   } catch (e) {
     console.error(e);
       dataMode = "offline";
@@ -1798,10 +1743,10 @@ function escAttr(s) {
 function updateDataModeUI() {
   const valueEl = document.getElementById("dataModeValue");
   const badgeEl = document.getElementById("dataModeBadge");
-  const text = dataMode === "live" ? "实时接口" : dataMode === "partial" ? "部分接口异常" : "离线/接口异常";
+  const text = dataMode === "loading" ? "连接中…" : dataMode === "live" ? "实时接口" : dataMode === "partial" ? "部分接口异常" : "离线/接口异常";
   if (valueEl) valueEl.textContent = text;
   if (badgeEl) {
-    badgeEl.textContent = dataMode === "live" ? "实时数据" : dataMode === "partial" ? "部分数据不可用" : "数据不可用，操作已禁用";
+    badgeEl.textContent = dataMode === "loading" ? "加载中" : dataMode === "live" ? "实时数据" : dataMode === "partial" ? "部分数据不可用" : "数据不可用，操作已禁用";
     badgeEl.style.color = dataMode === "live" ? "var(--muted)" : "var(--amber)";
   }
 }
@@ -2297,6 +2242,11 @@ async function markIgnored(id) {
 
 function renderShifts() {
   const list = data.shifts;
+  if (!list.length) {
+    document.getElementById("shiftCount").textContent = "加载中";
+    document.getElementById("shiftList").innerHTML = '<tr><td colspan="11" style="text-align:center;padding:22px;color:var(--muted)">正在加载今日场次数据…</td></tr>';
+    return;
+  }
   document.getElementById("shiftCount").textContent = list.length + " 场";
   document.getElementById("shiftList").innerHTML = list.map((s, i) =>
     "<tr>" +
