@@ -760,6 +760,7 @@ tbody tr.budget-warn { background: linear-gradient(90deg, rgba(251, 191, 36, 0.0
       <button class="nav-item" data-view="plans" onclick="switchView('plans')">投放计划 <span class="nav-index">02</span></button>
       <button class="nav-item" data-view="ops" onclick="switchView('ops')">操作中心 <span class="nav-index">03</span></button>
       <button class="nav-item" data-view="ai" onclick="switchView('ai')">AI 建议 <span class="nav-index">04</span></button>
+      <button class="nav-item" data-view="regions" onclick="switchView('regions')">五大区直播 <span class="nav-index">05</span></button>
     </nav>
     <div class="side-foot">
       <div class="side-foot-title">当前数据模式</div>
@@ -1019,6 +1020,23 @@ tbody tr.budget-warn { background: linear-gradient(90deg, rgba(251, 191, 36, 0.0
             <div class="ai-summary" id="aiSummary"></div>
           </section>
         </div>
+      </section>
+
+      <section id="view-regions" class="view">
+        <div class="page-head">
+          <div>
+            <h1>五大区今日直播统计</h1>
+            <p>东区 / 西区 / 南区 / 北区 / 中区 · 直播营销目标 · 私信留资口径 · 60 秒缓存。</p>
+          </div>
+          <button class="btn primary" onclick="loadRegionsToday(true)">立即刷新</button>
+        </div>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>今日直播投放</h2>
+            <span class="muted" id="regionsUpdatedAt">…</span>
+          </div>
+          <div id="regionsTable"></div>
+        </section>
       </section>
     </main>
   </div>
@@ -1799,8 +1817,34 @@ function switchView(view) {
   activeView = view;
   document.querySelectorAll(".view").forEach(v => v.classList.toggle("active", v.id === "view-" + view));
   document.querySelectorAll(".nav-item").forEach(n => n.classList.toggle("active", n.dataset.view === view));
-  const titles = { overview: "实时总览", plans: "投放计划", ops: "操作中心", ai: "AI 建议" };
+  const titles = { overview: "实时总览", plans: "投放计划", ops: "操作中心", ai: "AI 建议", regions: "五大区今日直播统计" };
   document.getElementById("pageTitle").textContent = titles[view];
+  if (view === "regions") loadRegionsToday();
+}
+
+let _regionsTimer = null;
+async function loadRegionsToday(force) {
+  try {
+    const res = await fetch("/api/ai-regions-today" + (force ? "?t=" + Date.now() : ""), { cache: "no-store" });
+    const j = await res.json();
+    document.getElementById("regionsUpdatedAt").textContent = "更新于 " + (j.updatedAt || "—") + " · 自动 60s";
+    const rows = (j.regions || []).map(r => {
+      const cpl = r.liveLeads > 0 ? Math.round(r.liveCost / r.liveLeads).toLocaleString() : "—";
+      return "<tr><td>" + r.name + "</td><td class='mono'>¥" + r.liveCost.toLocaleString() + "</td><td class='mono'>" + r.liveLeads + "</td><td class='mono'>" + cpl + "</td></tr>";
+    });
+    const totalC = (j.regions || []).reduce((a, r) => a + r.liveCost, 0);
+    const totalL = (j.regions || []).reduce((a, r) => a + r.liveLeads, 0);
+    const totalCpl = totalL > 0 ? Math.round(totalC / totalL).toLocaleString() : "—";
+    rows.push("<tr><td><b>合计</b></td><td class='mono'><b>¥" + totalC.toLocaleString() + "</b></td><td class='mono'><b>" + totalL + "</b></td><td class='mono'><b>" + totalCpl + "</b></td></tr>");
+    document.getElementById("regionsTable").innerHTML =
+      '<table style="width:100%;border-collapse:collapse"><thead><tr>' +
+      ["区域", "今日直播消耗", "私信留资线索", "CPL"].map(h => '<th style="text-align:left;padding:8px 10px;color:#8ea0bf;border-bottom:1px solid #22304a">' + h + "</th>").join("") +
+      "</tr></thead><tbody>" + rows.join("") + "</tbody></table>";
+  } catch (e) {
+    document.getElementById("regionsTable").innerHTML = '<p class="muted">拉取失败: ' + e.message + "</p>";
+  }
+  clearInterval(_regionsTimer);
+  _regionsTimer = setInterval(() => { if (activeView === "regions") loadRegionsToday(); }, 60000);
 }
 
 function renderAll() {

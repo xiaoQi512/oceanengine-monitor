@@ -6,6 +6,7 @@ import { serveCampaigns } from './http-routes/api-campaigns.mjs';
 import { serveAlerts } from './http-routes/api-alerts.mjs';
 import { serveLiveStatus } from './http-routes/api-live.mjs';
 import { serveAccounts } from './http-routes/api-accounts.mjs';
+import { serveAiRegionsToday } from './http-routes/api-ai-regions-today.mjs';
 import { serveOps } from './http-routes/api-ops.mjs';
 import { serveReport } from './http-routes/api-report.mjs';
 import { serveFeedback } from './http-routes/api-feedback.mjs';
@@ -179,6 +180,7 @@ export function createHttpServerHandler(deps) {
     if (serveFeedbackIgnore(url, req, res, { ACTION_AUDIT_FILE })) return;
     if (serveLiveStatus(url, req, res, { getLocalDate, DATA_DIR, DB_PATH, getLatestSnapshot })) return;
     if (serveOps(url, req, res, { DATA_DIR })) return;
+    if (await serveAiRegionsToday(url, req, res)) return;
     if (await serveAccounts(url, req, res, { getLatestSnapshot, ACCOUNT_ID, ACCOUNT_NAME, ACCOUNTS, getApiClient })) return;
     if (serveReport(url, req, res, {
       PROJECT_ROOT,
