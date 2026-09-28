@@ -190,9 +190,9 @@ export async function serveAiRegionsSessions(url, req, res) {
         // 当场预算(恒定标准 2026-09-28): 使用率最高 100%, 消耗>预算 = 预算基数异常(平台中途加过预算, state 基数过时)
         // 基数校准: budgetBase = max(state 日预算, 当日已播场次总消耗) — 平台日预算必然 ≥ 当日已消耗
         // 当场预算_i = budgetBase − 已播场次消耗(本场之前); 数学保证 usage_i ≤ 100%
-        // state 无预算记录(dayBudget=0)时基数无效 → usage=null, 不显示假使用率
+        // state 无预算记录的区同样实装: 基数回退为当日已播总消耗(使用率恒 ≤100%, 最后场=100%)
         const dayTotal = sessions.reduce((a, s) => a + s.cost, 0);
-        const budgetBase = dayBudget > 0 ? Math.max(dayBudget, dayTotal) : 0;
+        const budgetBase = Math.max(dayBudget || 0, dayTotal);
         let accBefore = 0;
         for (const s of sessions) {
           s.budget = budgetBase > 0 ? Math.round((budgetBase - accBefore) * 100) / 100 : 0;
