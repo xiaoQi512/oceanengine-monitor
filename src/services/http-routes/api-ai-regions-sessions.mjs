@@ -100,18 +100,39 @@ export async function serveAiRegionsSessions(url, req, res) {
             carModel: '',
           });
         });
-        // 待开播规划 (排班未来时段)
-        for (const p of plan) {
-          if (p.start_min > nowMin && !items.some(it => it.status !== 'done' && Math.abs(parseInt(it.start) * 60 - p.start_min) < 90)) {
-            items.push({ status: 'planned', start: hhmm(p.start_min), end: hhmm(p.end_min), cost: 0, leads: 0, cpl: 0, usage: null, carModel: p.car_model });
-          }
-        }
+        // 待开播规划: 排班已归属真人福利号, 不进五大区 items (单独输出 fuliPlan)
         items.sort((a, b) => (a.start || '').localeCompare(b.start || ''));
         regions.push({ name, dayBudget, items, updatedAt: new Date().toLocaleTimeString('zh-CN') });
         await new Promise(r => setTimeout(r, 300));
       }
+      // 真人福利号: 完整时间线 (实际消耗段 + 排班关联主播/车型) + 未来排期
+      const FU = '1842681352509635';
+      const fuHourly = await statHourlyLive(FU, headers);
+      const fuSegs = segmentHours(fuHourly.hourly);
+      const fuPlanAll = db.prepare("SELECT session_no, start_min, end_min, car_model, anchor FROM shift_schedule WHERE account_id=? AND cst_date=? ORDER BY start_min").all(FU, today);
+      const fuliItems = [];
+      fuSegs.forEach((s, i) => {
+        let cost = 0, leads = 0;
+        for (const [hh, v] of Object.entries(fuHourly.hourly)) if (Number(hh) >= s.startH && Number(hh) <= s.endH) { cost += v.cost; leads += v.leads; }
+        const isLast = i === fuSegs.length - 1;
+        const live = isLast && nowMin <= s.endH * 60 + 119;
+        // 排班关联: 与段首小时重叠的排班场次 → 主播/车型
+        const planHit = fuPlanAll.find(p => s.startH * 60 >= p.start_min - 90 && s.startH * 60 <= p.end_min + 90) || {};
+        fuliItems.push({
+          status: live ? 'live' : 'done',
+          start: `${String(s.startH).padStart(2, '0')}:00`,
+          end: live ? '直播中' : `${String(s.endH).padStart(2, '0')}:59`,
+          anchor: planHit.anchor || '',
+          carModel: planHit.car_model || '',
+          planStart: planHit.start_min != null ? hhmm(planHit.start_min) : '',
+          planEnd: planHit.end_min != null ? hhmm(planHit.end_min) : '',
+          cost: Math.round(cost), leads: Math.round(leads),
+          cpl: leads > 0 ? Math.round(cost / leads) : 0,
+        });
+      });
+      const fuliPlan = db.prepare("SELECT cst_date, session_no, start_min, end_min, car_model FROM shift_schedule WHERE account_id=? AND (cst_date > ? OR (cst_date = ? AND start_min > ?)) ORDER BY cst_date, start_min LIMIT 12").all(FU, today, today, nowMin);
       db.close();
-      _cache = { at: Date.now(), data: { regions, date: today } };
+      _cache = { at: Date.now(), data: { regions, date: today, fuli: { items: fuliItems, dayLiveCost: Math.round(fuHourly.dayLiveCost), dayLiveLeads: Math.round(fuHourly.dayLiveLeads) }, fuliPlan: fuliPlan.map(p => ({ date: p.cst_date, start: hhmm(p.start_min), end: hhmm(p.end_min), carModel: p.car_model, sessionNo: p.session_no })) } };
     }
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify(_cache.data));

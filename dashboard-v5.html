@@ -1039,7 +1039,14 @@ tbody tr.budget-warn { background: linear-gradient(90deg, rgba(251, 191, 36, 0.0
         </section>
         <section class="panel">
           <div class="panel-head">
-            <h2>场次明细（历史 / 在播 / 待开播）</h2>
+            <h2>真人福利号排期（今日及未来）</h2>
+            <span class="muted">真人在福利号直播间的开播计划 · 来自排期表</span>
+          </div>
+          <div id="fuliPlanTable"></div>
+        </section>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>场次明细（历史 / 在播）</h2>
             <span class="muted" id="sessionsUpdatedAt">…</span>
           </div>
           <div id="sessionsTable"></div>
@@ -1858,6 +1865,33 @@ async function loadSessions() {
       html += rows.join('') + '</tbody></table></div>';
     }
     document.getElementById('sessionsTable').innerHTML = html || '<p class=muted>今日暂无场次数据</p>';
+    // 真人福利号: 完整时间线（已完成/在播，含主播名与实际数据）
+    const fu = j.fuli || { items: [], dayLiveCost: 0, dayLiveLeads: 0 };
+    const fEl = document.getElementById('fuliPlanTable');
+    if (fEl) {
+      const ST = { live: ['🔴 在播', '#ff5c5c'], done: ['✓ 已结束', '#8ea0bf'] };
+      let fh = '<p class=muted style=margin-bottom:6px>今日真人出镜直播合计：消耗 ¥' + (fu.dayLiveCost || 0).toLocaleString() + ' · 线索 ' + (fu.dayLiveLeads || 0) + ' 条</p>';
+      fh += '<table style="width:100%;border-collapse:collapse"><thead><tr>' + ['实际开播', '状态', '主播', '车型', '消耗', '线索', 'CPL'].map(h => '<th style="text-align:left;padding:5px 8px;color:#8ea0bf;border-bottom:1px solid #22304a;font-size:12px">' + h + '</th>').join('') + '</tr></thead><tbody>';
+      fh += (fu.items || []).map(it => {
+        const st = ST[it.status] || [it.status, '#ccc'];
+        return '<tr>' + [
+          it.start + ' - ' + it.end,
+          '<span style="color:' + st[1] + '">' + st[0] + '</span>',
+          it.anchor || '—',
+          it.carModel || '—',
+          it.status === 'planned' ? '—' : '¥' + (it.cost || 0).toLocaleString(),
+          it.leads || 0,
+          it.cpl > 0 ? '¥' + it.cpl.toLocaleString() : '—'
+        ].map(c => '<td style="padding:5px 8px;border-bottom:1px solid #1a2436">' + c + '</td>').join('') + '</tr>';
+      }).join('') + '</tbody></table>';
+      if (!(fu.items || []).length) fh += '<p class=muted>今日暂无已开播场次</p>';
+      const fp = j.fuliPlan || [];
+      if (fp.length) {
+        fh += '<p class=muted style=margin-top:10px;margin-bottom:4px>待开播（排期）</p>';
+        fh += '<table style="width:100%;border-collapse:collapse"><tbody>' + fp.map(p => '<tr><td style="padding:5px 8px;border-bottom:1px solid #1a2436">' + p.date + '</td><td style="padding:5px 8px;border-bottom:1px solid #1a2436">' + p.start + ' - ' + p.end + '</td><td style="padding:5px 8px;border-bottom:1px solid #1a2436">' + (p.carModel || '—') + '</td></tr>').join('') + '</tbody></table>';
+      }
+      fEl.innerHTML = fh;
+    }
   } catch (e) {
     document.getElementById('sessionsTable').innerHTML = '<p class=muted>拉取失败: ' + e.message + '</p>';
   }
