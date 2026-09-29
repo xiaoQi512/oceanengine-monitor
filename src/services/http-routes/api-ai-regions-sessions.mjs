@@ -112,9 +112,9 @@ async function fetchLiveSessions(aadvid, anchor, headers, today, hourly, nowMinB
     });
   }
 
-  // 合并 + 只保留今天的场次
-  const sessions = [];
-  let cursor = 0; // 无缝分摊游标: 上一场结束分钟(首场从当日 0 点起 — 开播前的延迟归因线索归入本场)
+  // 合并 + 只保留今天的场次; 线索 = 计划口径小时桶**整桶归属**(用户规则: 不均分)
+  // 归属规则: 桶尾时刻落在哪场的 [开播, 结束] 区间 → 归该场; 开播前 → 归首场(延迟归因); 场间空窗 → 归下一场; 末场后 → 归末场
+  const rawSessions = [];
   for (const r of listRows) {
     const d = r.Dimensions || {};
     const rid = String(d.room_id?.ValueStr ?? d.room_id?.Value ?? '');
@@ -124,31 +124,39 @@ async function fetchLiveSessions(aadvid, anchor, headers, today, hourly, nowMinB
     if (epochToDate(startEpoch) !== today) continue;
     const statusRaw = String(d.live_room_status?.ValueStr || '').trim();
     const st = { cost: costMap.get(rid)?.cost ?? 0, watch: costMap.get(rid)?.watch ?? 0 };
-    // 状态: 开播中(无关播时间) → live; 有 finish 或关播 → done
     const isLive = statusRaw.includes('关播') ? false : finishEpoch ? false : true;
     // 无效场次屏蔽(用户规则 2026-09-28): 已结束场 时长<30min 且 消耗<200 → 丢弃; 在播场豁免
     if (!isLive && finishEpoch && (finishEpoch - startEpoch) < 1800 && st.cost < 200) continue;
-    // 线索: basic_ad_data 直播小时桶按 [上一场结束, 本场结束] 无缝区间分摊
-    // (用户口径: 开播前的延迟归因线索也归入本场, 保证全场线索与账户当日合计一致)
     const startMinBJ = Math.floor(((startEpoch + 8 * 3600) % 86400) / 60);
     const endMinBJ = isLive ? Math.max(startMinBJ + 1, nowMinBJ) : Math.floor(((finishEpoch + 8 * 3600) % 86400) / 60) || Math.min(startMinBJ + 120, 1439);
-    const alloc = allocBuckets(hourly, cursor, endMinBJ);
-    cursor = endMinBJ;
-    sessions.push({
-      roomId: rid,
-      title: String(d.live_room_title?.ValueStr || '').trim(),
-      status: isLive ? 'live' : 'done',
-      startEpoch, finishEpoch,
-      start: epochToHHMM(startEpoch),
-      finish: isLive ? '' : epochToHHMM(finishEpoch),
-      cost: Math.round(st.cost * 100) / 100,
-      leads: Math.round(alloc.leads),
-      cpl: 0,
-      watch: st.watch,
-    });
-    sessions[sessions.length - 1].cpl = sessions[sessions.length - 1].leads > 0 ? Math.round(st.cost / sessions[sessions.length - 1].leads * 100) / 100 : 0;
+    rawSessions.push({ rid, startEpoch, finishEpoch, isLive, startMinBJ, endMinBJ, st, title: String(d.live_room_title?.ValueStr || '').trim() });
   }
-  sessions.sort((a, b) => a.startEpoch - b.startEpoch);
+  rawSessions.sort((a, b) => a.startEpoch - b.startEpoch);
+  // 整桶归属
+  const leadByRoom = new Map();
+  for (const [hh, v] of Object.entries(hourly || {})) {
+    const t = Number(hh) * 60 + 60; // 桶尾时刻
+    let owner = null;
+    for (const sp of rawSessions) { if (t < sp.endMinBJ) { owner = sp; break; } }
+    if (!owner && rawSessions.length) owner = rawSessions[rawSessions.length - 1];
+    if (!owner) continue;
+    leadByRoom.set(owner.rid, (leadByRoom.get(owner.rid) || 0) + num(v.leads));
+  }
+  const sessions = rawSessions.map(sp => {
+    const leads = Math.round(leadByRoom.get(sp.rid) || 0);
+    return {
+      roomId: sp.rid,
+      title: sp.title,
+      status: sp.isLive ? 'live' : 'done',
+      startEpoch: sp.startEpoch, finishEpoch: sp.finishEpoch,
+      start: epochToHHMM(sp.startEpoch),
+      finish: sp.isLive ? '' : epochToHHMM(sp.finishEpoch),
+      cost: Math.round(sp.st.cost * 100) / 100,
+      leads,
+      cpl: leads > 0 ? Math.round(sp.st.cost / leads * 100) / 100 : 0,
+      watch: sp.st.watch,
+    };
+  });
   return sessions;
 }
 
