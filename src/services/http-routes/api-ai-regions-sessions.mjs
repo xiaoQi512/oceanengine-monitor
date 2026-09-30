@@ -32,15 +32,16 @@ async function statQuery(aadvid, body, headers) {
   return j.data?.StatsData?.Rows || [];
 }
 
-// basic_ad_data 直播小时桶 (stat_cost + clue_message_count) — 线索口径来源
-// ad_live_core_data 的 clue_message_count 实测恒为空("-"), 线索必须走小时桶分摊
+// basic_ad_data 直播小时桶 (stat_cost + clue_message_count + form) — 线索口径来源
+// 线索口径(用户规则 2026-09-30): 私信留资(clue_message_count) + 表单提交(form) ≈ "获取销售线索深层"计划转化数
+// ad_live_core_data 的 clue_message_count 实测恒为空("-"), 线索必须走小时桶; ⚠ 无效指标会让整个查询静默归零(2026-09-30 实测 std_form_submit_cnt_td 不存在于 basic_ad_data, 正确字段名是 form)
 async function statHourlyLive(aadvid, headers) {
   const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
   const rows = await statQuery(aadvid, {
     DataSetKey: 'basic_ad_data', Dimensions: ['stat_time_hour', 'cdp_marketing_goal'],
     EndTime: `${today} 23:59:59`,
     Filters: { ConditionRelationshipType: 1, Conditions: [{ Field: 'advertiser_id', Operator: 7, Values: [aadvid] }] },
-    IsDownload: false, Metrics: ['stat_cost', 'clue_message_count'], PageParams: { Limit: 60, Offset: 0 },
+    IsDownload: false, Metrics: ['stat_cost', 'clue_message_count', 'form'], PageParams: { Limit: 60, Offset: 0 },
     StartTime: `${today} 00:00:00`, Extra: { is_fill_zero: 'true', refer: '' },
   }, headers);
   const hourly = {};
@@ -52,10 +53,12 @@ async function statHourlyLive(aadvid, headers) {
     if (isNaN(hh)) continue;
     const c = num(r.Metrics?.stat_cost?.Value ?? r.Metrics?.stat_cost?.ValueStr);
     const l = num(r.Metrics?.clue_message_count?.Value ?? r.Metrics?.clue_message_count?.ValueStr);
-    if (c <= 0 && l <= 0) continue;
+    const f = num(r.Metrics?.form?.Value ?? r.Metrics?.form?.ValueStr);
+    const leads = l + f; // 线索 = 私信留资 + 表单提交 (用户口径 2026-09-30)
+    if (c <= 0 && leads <= 0) continue;
     hourly[hh] = hourly[hh] || { cost: 0, leads: 0 };
-    hourly[hh].cost += c; hourly[hh].leads += l;
-    dayLiveCost += c; dayLiveLeads += l;
+    hourly[hh].cost += c; hourly[hh].leads += leads;
+    dayLiveCost += c; dayLiveLeads += leads;
   }
   return { hourly, dayLiveCost, dayLiveLeads };
 }
