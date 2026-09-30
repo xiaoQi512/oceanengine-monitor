@@ -33,7 +33,7 @@ export function createShiftCache() {
     todayShiftsMtime = mtime;
 
     logFn('📅 今天 ' + todayShifts.length + ' 个班次:');
-    todayShifts.forEach(s => logFn('   ' + s.label + ' -> 行' + s.row + ' 小时[' + s.hours.join(',') + ']'));
+    todayShifts.forEach(s => logFn('   ' + s.label + ' -> ' + (s.hours ? '小时[' + s.hours.join(',') + ']' : '(缓存)')));
 
     const newHash = todayShifts.map(s => s.label).join(',');
     if (prevHash && prevHash !== newHash) {
