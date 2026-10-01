@@ -7,6 +7,7 @@ import path from 'node:path';
 import { DATA_DIR, ACCOUNT_ID, VIDEO_ACCOUNT_ID } from '../utils/monitor-utils.mjs';
 import { buildShiftData } from './http-routes/api-live-data.mjs';
 import { getCookieData, buildStatQueryBody, API_BASE } from './ai-regions-api.mjs';
+import { round2, alignToTotal, splitBySessions, deductGrant, readGrantSpend } from '../domain/model-split.mjs';
 
 const DB_PATH = path.join(DATA_DIR, 'oceanengine.db');
 const MODELS = ['αT7', 'T1', 'S3', 'αS5', 'αT5', 'V9', 'KAOLAS', 'αT'];
@@ -156,7 +157,7 @@ async function calcDailyModel() {
       }
     }
     platformOk = true;
-    console.log('[calc] 福利号平台口径(直播+短视频):', MODELS.filter(m => fuAgg[m].cost > 0).map(m => `${m}=${Math.round(fuAgg[m].cost)}`).join(' ') || '(0)');
+    console.log('[calc] 福利号平台口径(直播+短视频):', MODELS.filter(m => fuAgg[m].cost > 0).map(m => `${m}=${round2(fuAgg[m].cost)}`).join(' ') || '(0)');
   } catch (e) { console.warn('[calc] 平台口径拉取失败, 回退快照聚合:', e.message); }
 
   if (!platformOk) {
@@ -166,11 +167,50 @@ async function calcDailyModel() {
       if (fuAgg[m]) { fuAgg[m].cost += Number(p.cost) || 0; fuAgg[m].leads += Number(p.leads) || 0; }
     }
   }
+  const fuCost = Object.fromEntries(MODELS.map(m => [m, fuAgg[m].cost]));
+  const fuTotal = MODELS.reduce((a, m) => a + fuAgg[m].cost, 0);
+  const fuGrant = readGrantSpend(d, today, FU_LI_ACC);
+  const fuSplit = deductGrant(MODELS, Object.fromEntries(alignToTotal(MODELS, fuCost, fuTotal).map(x => [x.model, x.cost])), fuGrant);
+  const fuByModel = Object.fromEntries(fuSplit.map(x => [x.model, x.cost]));
+  if (fuGrant > 0) console.log(`[calc] 福利号扣减赠款消耗 ${fuGrant} → Σ车型=${round2(fuTotal - fuGrant)}`);
   for (const m of MODELS) {
-    up.run({ cst_date: today, account_id: FU_LI_ACC, model: m, cost: fuAgg[m].cost, leads: fuAgg[m].leads, session_count: 0, computed_at: now });
+    up.run({ cst_date: today, account_id: FU_LI_ACC, model: m, cost: fuByModel[m], leads: fuAgg[m].leads, session_count: 0, computed_at: now });
   }
-  // -- AI区域号: statQuery 今日消耗 × 场次数占比
+  // -- AI区域号: 场次级真实消耗按**排期表车型**归集 (用户规则 2026-10-01: 车型消耗从排期表采集, 不再占比均摊; 赠款照常扣减)
+  let sessionsApi = null;
+  try {
+    const r = await fetch('http://127.0.0.1:8899/api/ai-regions-sessions', { signal: AbortSignal.timeout(8000) });
+    if (r.ok) sessionsApi = await r.json();
+  } catch (e) { console.warn('[calc] sessions API 不可用, 回退占比拆分:', e.message); }
   for (const [name, acc] of REGIONS) {
+    const rg = sessionsApi?.regions?.find(x => x.aadvid === acc);
+    let models2 = null; // {model: {cost, leads, count}}
+    if (rg && Array.isArray(rg.sessions)) {
+      models2 = {};
+      for (const s of rg.sessions) {
+        const m = s.carModel || '未排车型';
+        models2[m] = models2[m] || { cost: 0, leads: 0, count: 0 };
+        models2[m].cost += s.cost || 0;
+        models2[m].leads += s.leads || 0;
+        models2[m].count++;
+      }
+    }
+    if (models2) {
+      // 排期表车型归集: 每场真实消耗(core_data room 口径) + 每场线索(私信+表单)
+      const grant = readGrantSpend(d, today, acc);
+      const modelKeys = [...new Set([...MODELS, ...Object.keys(models2)])];
+      const vals = Object.fromEntries(modelKeys.map(m => [m, models2[m]?.cost || 0]));
+      const split = deductGrant(modelKeys, vals, grant);
+      const byModel = Object.fromEntries(split.map(x => [x.model, x.cost]));
+      const totalCost = modelKeys.reduce((a, m) => a + (byModel[m] || 0), 0);
+      if (grant > 0) console.log(`[calc] ${name} 扣减赠款消耗 ${grant} → Σ车型=${round2(totalCost)}`);
+      for (const m of modelKeys) {
+        const info = models2[m] || { leads: 0, count: 0 };
+        up.run({ cst_date: today, account_id: acc, model: m, cost: byModel[m] ?? 0, leads: info.leads, session_count: info.count, computed_at: now });
+      }
+      continue; // 该区完成
+    }
+    // 回落: 8899 不可用时按场次数占比拆分 (原逻辑)
     const body = {
       DataSetKey: 'basic_ad_data', Dimensions: ['stat_time_day'],
       EndTime: today + ' 23:59:59',
@@ -186,10 +226,13 @@ async function calcDailyModel() {
       let cost = 0;
       for (const r of rr) cost += parseFloat(String(r.Metrics?.stat_cost?.Value ?? r.Metrics?.stat_cost?.ValueStr ?? 0).replace(/,/g, '')) || 0;
       const sessions = d.prepare('SELECT car_model, COUNT(*) n FROM shift_schedule WHERE cst_date=? AND region_name=? GROUP BY car_model').all(today, name);
-      const totS = sessions.reduce((a, x) => a + x.n, 0);
+      const counts = Object.fromEntries(sessions.map(x => [x.car_model, x.n]));
+      const grant = readGrantSpend(d, today, acc);
+      const split = deductGrant(MODELS, Object.fromEntries(splitBySessions(MODELS, cost, counts).map(x => [x.model, x.cost])), grant);
+      const byModel = Object.fromEntries(split.map(x => [x.model, x.cost]));
+      if (grant > 0) console.log(`[calc] ${name} 扣减赠款消耗 ${grant} → Σ车型=${round2(cost - grant)}`);
       for (const m of MODELS) {
-        const cnt = (sessions.find(x => x.car_model === m) || {}).n || 0;
-        up.run({ cst_date: today, account_id: acc, model: m, cost: totS ? cost * cnt / totS : 0, leads: 0, session_count: cnt, computed_at: now });
+        up.run({ cst_date: today, account_id: acc, model: m, cost: byModel[m], leads: 0, session_count: counts[m] || 0, computed_at: now });
       }
     } catch (e) { console.warn(`[calc] ${name} statQuery 失败:`, e.message); }
   }
@@ -216,7 +259,7 @@ function calcMonthCum() {
       const agg = Object.fromEntries(MODELS.map(m => [m, { c: 0, l: 0 }]));
       for (const r of rows) if (agg[r.model]) { agg[r.model].c = r.cost; agg[r.model].l = r.leads; }
       for (const m of MODELS) {
-        up.run({ cst_date: today, account_id: acc, model: m, month_cost: agg[m].c, month_leads: agg[m].l, computed_at: new Date().toISOString() });
+        up.run({ cst_date: today, account_id: acc, model: m, month_cost: round2(agg[m].c), month_leads: agg[m].l, computed_at: new Date().toISOString() });
       }
     }
   });
@@ -230,9 +273,11 @@ function reconcile() {
   const off = d.prepare('SELECT cost FROM official_daily WHERE cst_date=? AND account_id=?').get(today, FU_LI_ACC);
   if (!off) return;
   const sum = d.prepare('SELECT SUM(cost) s FROM agg_daily_model WHERE cst_date=? AND account_id=?').get(today, FU_LI_ACC);
-  const diff = Math.abs((sum.s || 0) - (off.cost || 0));
+  const grant = readGrantSpend(d, today, FU_LI_ACC); // 车型已扣赠款, 对账需加回
+  const modelTotal = (sum.s || 0) + grant;
+  const diff = Math.abs(modelTotal - (off.cost || 0));
   if (off.cost > 0 && diff / off.cost > 0.01) {
-    console.warn(`[calc] ⚠ 对账偏差: Σ车型=${Math.round(sum.s || 0)} vs 官方=${Math.round(off.cost)} (${(diff / off.cost * 100).toFixed(1)}%)`);
+    console.warn(`[calc] ⚠ 对账偏差: Σ车型${grant > 0 ? '(含赠款回加)' : ''}=${round2(modelTotal)} vs 官方=${round2(off.cost)} (${(diff / off.cost * 100).toFixed(1)}%)`);
   }
 }
 
