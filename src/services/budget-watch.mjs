@@ -287,8 +287,30 @@ async function newSessionBudgetTick() {
     const doneKey = `${todayCst()}|${live.roomId}`;
     const rec0 = state.newSessionDone?.[doneKey];
     if (rec0 && rec0.done) continue; // 成功处理过才跳过; 失败记录继续重试
-    // 开场预算基数(用户规则 2026-09-30): 账户已消耗金额(全部场次消耗合计, 含本场开播瞬间) + 本场初始预算, 凑整百
-    const accountSpent = (rg.sessions || []).reduce((a, s) => a + (s.cost || 0), 0);
+    // 开场预算基数(用户规则 2026-10-01 修正): **账户实际已消耗** = customize_report 全计划口径(含短视频/非直播计划)
+    // 直播场次合计会漏掉短视频消耗(10/1 实测东区少 300); 拉取失败回退场次合计兜底
+    let accountSpent = (rg.sessions || []).reduce((a, s) => a + (s.cost || 0), 0);
+    try {
+      const cd2 = await getCookieData();
+      const hdr2 = { ...cd2.headers, 'Content-Type': 'application/json', Referer: 'https://ad.oceanengine.com/' };
+      hdr2['Cookie'] = hdr2['Cookie'].replace(/[^\x20-\x7E]/g, '');
+      const csrf2 = hdr2['Cookie'].match(/passport_csrf_token=([^;]+)/)?.[1];
+      if (csrf2 && !/csrftoken=/.test(hdr2['Cookie'])) hdr2['Cookie'] += '; csrftoken=' + csrf2;
+      const rbody = {
+        dimensions: ['cdp_promotion_name'], filters: [], metrics: ['stat_cost'],
+        startTime: String(Date.parse(todayCst() + 'T00:00:00+08:00')),
+        endTime: String(Date.parse(todayCst() + 'T23:59:59+08:00') - 1),
+        orderBy: [{ field: 'stat_cost', type: 1 }], page: { offset: 0, limit: 100 },
+        dataTopic: 'basic_ad_data', platform: 1,
+      };
+      const rres = await fetch(`https://ad.oceanengine.com/report/api/statistic/customize_report/data?aadvid=${rg.aadvid}`, { method: 'POST', headers: hdr2, body: JSON.stringify(rbody), signal: AbortSignal.timeout(15000) });
+      const rj = await rres.json().catch(() => null);
+      if (rj && (rj.code === 0 || rj.code === undefined)) {
+        let sum = 0;
+        for (const r of (rj?.data?.rows || [])) sum += Number(r.metrics?.stat_cost) || 0;
+        if (sum > accountSpent) accountSpent = Math.round(sum * 100) / 100; // 全计划口径 ≥ 场次合计才采用
+      }
+    } catch (e) { log(`${displayName} 账户消耗(customize_report)拉取失败, 用场次合计兜底: ${String(e).slice(0, 50)}`); }
     const target = Math.ceil((accountSpent + newSessionBudgetFor(displayName, live)) / 100) * 100;
     const attemptsKey = `${todayCst()}|${live.roomId}`;
     state.newSessionDone = state.newSessionDone || {};
