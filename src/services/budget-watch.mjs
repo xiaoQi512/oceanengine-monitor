@@ -21,7 +21,16 @@ const ENTER_RATIO = 0.8;      // 当场预算使用率预警线
 const CPL_GATE = 110;         // 线索成本低于 110 才加预算
 const MAX_ADDS_DEFAULT = 2;   // 单场最多加预算次数(默认)
 const MAX_ADDS_EAST_MID = 3;  // 东区/中区上限 3 次 (用户规则 2026-09-29)
-const maxAddsFor = (displayName) => (displayName === '东区AI直播' || displayName === '中区AI直播') ? MAX_ADDS_EAST_MID : MAX_ADDS_DEFAULT;
+const MAX_ADDS_ACTIVITY = 5;  // 活动场真人直播上限 5 次, 每次 500 (用户规则 2026-09-30)
+// 活动场真人直播日: 在此登记日期 → 当日活动场区域; 命中区域单场加预算上限改为 MAX_ADDS_ACTIVITY(5次×500)
+const ACTIVITY_LIVE_DAYS = {
+  '2026-09-30': ['东区AI直播', '北区AI直播'],  // 今日东(南京车展·芝芝)/北(天津车展·小明) 3场活动场真人直播; 西区为常规AI (用户更正 09-30 12:40)
+};
+const maxAddsFor = (displayName, dateStr) => {
+  const act = ACTIVITY_LIVE_DAYS[dateStr];
+  if (act && act.includes(displayName)) return MAX_ADDS_ACTIVITY;
+  return (displayName === '东区AI直播' || displayName === '中区AI直播') ? MAX_ADDS_EAST_MID : MAX_ADDS_DEFAULT;
+};
 const MONITOR_CHAT = (fs.readFileSync(path.join(DATA_DIR, '..', '.env'), 'utf8').match(/LARK_MONITOR_CHAT_ID=(.+)/) || [])[1]?.trim() || '';
 const STATE_FILE = path.join(DATA_DIR, 'budget-watch-state.json');
 const CDP = 'http://127.0.0.1:9222';
@@ -187,7 +196,7 @@ async function fastTick() {
     const cpl = live.cpl || 0;
     const sessNo = (rg.sessions || []).length;
     if (usage < ENTER_RATIO) {
-      log(`${displayName} 第${sessNo}场（${live.start} 开播）已耗${Math.round(live.cost || 0).toLocaleString()}/${Math.round(sessBudget).toLocaleString()} = ${(usage * 100).toFixed(1)}% | CPL ${cpl > 0 ? Math.round(cpl) : '—'} | 已加${st.adds}/${maxAddsFor(displayName)}`);
+      log(`${displayName} 第${sessNo}场（${live.start} 开播）已耗${Math.round(live.cost || 0).toLocaleString()}/${Math.round(sessBudget).toLocaleString()} = ${(usage * 100).toFixed(1)}% | CPL ${cpl > 0 ? Math.round(cpl) : '—'} | 已加${st.adds}/${maxAddsFor(displayName, todayCst())}`);
       continue;
     }
     // 开播时长: 用户规则 2026-09-28 — 开播 <90min 才允许自动加预算(接近收尾的场不再加)
@@ -195,7 +204,8 @@ async function fastTick() {
       ? Math.max(0, j.nowMin - Math.floor(((live.startEpoch + 8 * 3600) % 86400) / 60))
       : null;
     const durOk = durMin == null ? true : durMin < 90;
-    const canAdd = cpl > 0 && cpl < CPL_GATE && st.adds < maxAddsFor(displayName) && durOk;
+    const maxAdds = maxAddsFor(displayName, todayCst());
+    const canAdd = cpl > 0 && cpl < CPL_GATE && st.adds < maxAdds && durOk;
     const now = Date.now();
     // 使用率 ≥80% 后每轮(5min)都判定; CPL<110 → 加预算(15min 冷却); CPL≥110 → 提醒降频 60min, 降穿后下轮自动加
     if (canAdd && !(st.lastAt === 0 || now - st.lastAt > 15 * 60000)) continue;
@@ -206,11 +216,11 @@ async function fastTick() {
       if (adj.ok) {
         st.adds++;
         state.budgets[displayName] = adj.newBudget;
-        tail = `✅ 已自动增加日预算 500 元：${adj.oldBudget.toLocaleString()} → ${adj.newBudget.toLocaleString()}（本场第 ${st.adds}/${maxAddsFor(displayName)} 次，量效达标 CPL ${Math.round(cpl)}<${CPL_GATE}）`;
+        tail = `✅ 已自动增加日预算 500 元：${adj.oldBudget.toLocaleString()} → ${adj.newBudget.toLocaleString()}（本场第 ${st.adds}/${maxAdds} 次，量效达标 CPL ${Math.round(cpl)}<${CPL_GATE}）`;
       } else {
         tail = `❌ 自动加预算失败（${adj.err}），请立即手动为该账户增加预算 500 元`;
       }
-    } else if (st.adds >= maxAddsFor(displayName)) {
+    } else if (st.adds >= maxAdds) {
       if (st.lastAt && now - st.lastAt < 60 * 60000) continue;
       st.lastAt = now;
       tail = `本场已加预算 ${st.adds} 次（共 ${st.adds * 500} 元），达到单场上限，不再自动加预算`;
@@ -249,8 +259,10 @@ async function slowTick() {
 // ===== 新场开播预算保障 (用户规则 2026-09-28): 检测到新直播开始 → 本场预算 1500 =====
 // 账户日预算实际调整为: 历史场次总消耗 + 1500, 向上凑整百; 只上调不下调; 60s 检测, 每 room 幂等一次
 // 新场初始预算(用户规则 2026-09-29): 东区 2000, 其他区 1500
+// 新场初始预算(用户规则 2026-09-29/09-30): 东区 2000, 其他区 1500; **活动场(车展)一律 1000** (用户规则 2026-10-01)
 const NEW_SESSION_BUDGET_DEFAULT = 1500;
-const newSessionBudgetFor = (displayName) => displayName === '东区AI直播' ? 2000 : NEW_SESSION_BUDGET_DEFAULT;
+const NEW_SESSION_BUDGET_EVENT = 1000;
+const newSessionBudgetFor = (displayName, live) => (live && String(live.carModel || '').includes('车展')) ? NEW_SESSION_BUDGET_EVENT : (displayName === '东区AI直播' ? 2000 : NEW_SESSION_BUDGET_DEFAULT);
 function httpGetJson(url, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
     const req = http.get(url, res => { let d = ''; res.on('data', c => d += c); res.on('end', () => { try { resolve(JSON.parse(d)); } catch (e) { reject(e); } }); });
