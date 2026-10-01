@@ -30,6 +30,43 @@ function loadShiftOverrides(DATA_DIR, dateStr) {
 }
 
 export function buildShiftData(dateStr, DATA_DIR, DB_PATH) {
+  // 校准辅助(用户规则 2026-09-30): 在播班消耗/线索 = 账户当日累计 − 已结束班合计, 保证班次合计 ≡ 账户总消耗
+  const calibrateLiveShift = (rows2) => {
+    try {
+      if (!dateStr || !DB_PATH || !fs.existsSync(DB_PATH)) return rows2;
+      const dbC = new Database(DB_PATH, { readonly: true, fileMustExist: true });
+      const planAgg = dbC.prepare(`
+        SELECT campaign_id, MAX(cost) AS mc, MAX(leads) AS ml
+        FROM snapshots
+        WHERE datetime(snapshot_time, '+8 hours') >= @dayStart AND datetime(snapshot_time, '+8 hours') < @dayEnd
+        GROUP BY campaign_id
+      `).all({ dayStart: dateStr + ' 00:00:00', dayEnd: dateStr + ' 23:59:59' });
+      dbC.close();
+      const accountSpend = planAgg.reduce((a, r) => a + (r.mc || 0), 0);
+      const accountLeads = planAgg.reduce((a, r) => a + (r.ml || 0), 0);
+      const nowCst = Math.floor((Date.now() + 8 * 3600000) % 86400000 / 60000); // 当前 CST 分钟
+      const toMin = (t) => { const m2 = String(t || '').split('-'); if (m2.length !== 2) return null; const p = (s) => { const q = s.trim().split(':'); return Number(q[0]) * 60 + Number(q[1]); }; return { st: p(m2[0]), en: p(m2[1]) }; };
+      // 找在播班: startMin <= now < endMin; 其余为已结束(差分固定)
+      let liveRow = null, endedSpend = 0, endedLeads = 0;
+      for (const r of rows2) {
+        const span = toMin(r.shift_label || (r.start && r.start + '-' + r.end));
+        const isLive = span && nowCst >= span.st && nowCst < span.en;
+        if (isLive) { liveRow = r; continue; }
+        endedSpend += r.spend || 0;
+        endedLeads += r.leads || 0;
+      }
+      if (liveRow && accountSpend > 0) {
+        const liveSpend = Math.max(0, accountSpend - endedSpend);
+        const liveLeads = Math.max(0, Math.round(accountLeads - endedLeads));
+        liveRow.spend = Math.round(liveSpend * 100) / 100;
+        liveRow.leads = liveLeads;
+        liveRow.cpl = liveLeads > 0 ? Math.round(liveSpend / liveLeads * 100) / 100 : 0;
+        liveRow.conversions = liveLeads;
+      }
+      return rows2;
+    } catch { return rows2; }
+  };
+
   // agg_shift 优先: 10 分钟内有核算结果则直接返回表数据 (统一数据层)
   try {
     const dbPre = new Database(DB_PATH, { readonly: true, fileMustExist: true });
@@ -37,12 +74,13 @@ export function buildShiftData(dateStr, DATA_DIR, DB_PATH) {
     if (fresh && (Date.now() - new Date(fresh.computed_at.replace(' ', 'T') + 'Z').getTime()) < 600000) {
       const rows = dbPre.prepare('SELECT * FROM agg_shift WHERE cst_date=? ORDER BY shift_label').all(dateStr);
       dbPre.close();
-      if (rows.length) return rows.map(x => ({
+      if (rows.length) return calibrateLiveShift(rows.map(x => ({
         start: x.shift_label.split('-')[0], end: x.shift_label.split('-')[1], label: x.shift_label,
         anchor: x.anchor || '待定', carModel: x.car_model || '', spend: x.spend || 0, leads: x.leads || 0,
         cpl: x.cpl || 0, cpm: x.cpm || 0, ctr: x.ctr || 0, progress: x.progress || 0,
         conversions: x.leads || 0, open: 0, pushed: !!x.corrected, corrected: !!x.corrected,
-      }));
+        shift_label: x.shift_label,
+      })));
     }
     dbPre.close();
   } catch {}
