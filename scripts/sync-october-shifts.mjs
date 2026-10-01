@@ -75,8 +75,8 @@ function parseAIShifts(cell) {
 }
 
 // 活动场: 「天津车展直播⏎主播:小明  运营:张万熊⏎直播时间:9:30-11:30⏎12:30-14:30⏎15:30-17:30」
-// 车型映射(用户口径 2026-10-01): 天津车展直播 = αT7; 未映射活动保持 '车展·<名>' 占位
-const EVENT_CAR_MODELS = { '天津': 'αT7' };
+// 车型映射(用户口径 2026-10-01): **近期活动场均播 αT7**(默认), 特例可覆盖
+const EVENT_CAR_MODELS = { '天津': 'αT7', '南京': 'αT7' };
 function parseEventShifts(cell) {
   const out = [];
   const evRe = /([^\n（(]*?)车展直播/g;
@@ -88,7 +88,7 @@ function parseEventShifts(cell) {
     const anchor = anchorM ? anchorM[1].trim() : '';
     const timeM = tail.match(/直播时间\s*[:：]?([\s\S]*?)(?:\n[^\d]|$)/);
     const timeText = timeM ? timeM[1] : tail;
-    const carModel = EVENT_CAR_MODELS[evName] || ('车展·' + evName);
+    const carModel = EVENT_CAR_MODELS[evName] || 'αT7';
     const re = /(\d{1,2}[:：]\d{2})\s*[-–—]\s*(\d{1,2}[:：]\d{2})/g;
     let m;
     while ((m = re.exec(timeText)) !== null) {
