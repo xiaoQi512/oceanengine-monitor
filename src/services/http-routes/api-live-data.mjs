@@ -33,6 +33,17 @@ export function buildShiftData(dateStr, DATA_DIR, DB_PATH) {
   // 校准辅助(用户规则 2026-09-30): 在播班消耗/线索 = 账户当日累计 − 已结束班合计, 保证班次合计 ≡ 账户总消耗
   const calibrateLiveShift = (rows2) => {
     try {
+      // 人工/自动修正覆盖优先 (含时钟跳变期补值)
+      const overrides = loadShiftOverrides(DATA_DIR, dateStr);
+      for (const r of rows2) {
+        const ov = overrides[r.shift_label || (r.start && r.start + '-' + r.end)];
+        if (ov) {
+          if (ov.spend != null) r.spend = ov.spend;
+          if (ov.leads != null) { r.leads = ov.leads; r.conversions = ov.leads; }
+          if (ov.cpl != null) r.cpl = ov.cpl;
+          else if (r.leads > 0 && r.spend != null) r.cpl = Math.round(r.spend / r.leads * 100) / 100;
+        }
+      }
       if (!dateStr || !DB_PATH || !fs.existsSync(DB_PATH)) return rows2;
       const dbC = new Database(DB_PATH, { readonly: true, fileMustExist: true });
       const planAgg = dbC.prepare(`
