@@ -289,7 +289,7 @@ async function newSessionBudgetTick() {
     if (rec0 && rec0.done) continue; // 成功处理过才跳过; 失败记录继续重试
     // 开场预算基数(用户规则 2026-09-30): 账户已消耗金额(全部场次消耗合计, 含本场开播瞬间) + 本场初始预算, 凑整百
     const accountSpent = (rg.sessions || []).reduce((a, s) => a + (s.cost || 0), 0);
-    const target = Math.ceil((accountSpent + newSessionBudgetFor(displayName)) / 100) * 100;
+    const target = Math.ceil((accountSpent + newSessionBudgetFor(displayName, live)) / 100) * 100;
     const attemptsKey = `${todayCst()}|${live.roomId}`;
     state.newSessionDone = state.newSessionDone || {};
     const rec = state.newSessionDone[attemptsKey] = state.newSessionDone[attemptsKey] || { attempts: 0, firstAt: Date.now() };    const sk0 = `${todayCst()}-${rg.aadvid}`;
@@ -307,8 +307,8 @@ async function newSessionBudgetTick() {
         } else {
           await pushToLark([
             `🆕【新场开播 · 预算保障】${displayName}`,
-            `检测到新直播开播（${live.start}，当日第 ${sessNo} 场），本场预算 ${newSessionBudgetFor(displayName)} 元`,
-            `账户已消耗 ${Math.round(accountSpent).toLocaleString()} + 本场 ${newSessionBudgetFor(displayName)} → 向上凑整百 = ${target.toLocaleString()}`,
+            `检测到新直播开播（${live.start}，当日第 ${sessNo} 场），本场预算 ${newSessionBudgetFor(displayName, live)} 元`,
+            `账户已消耗 ${Math.round(accountSpent).toLocaleString()} + 本场 ${newSessionBudgetFor(displayName, live)} → 向上凑整百 = ${target.toLocaleString()}`,
             `✅ 账户日预算已自动调整：${adj.oldBudget.toLocaleString()} → ${adj.newBudget.toLocaleString()}`,
           ].join('\n'), { chatId: MONITOR_CHAT });
           log(`${displayName} 新场开播, 日预算 ${adj.oldBudget} → ${adj.newBudget} (target=${target})`);
