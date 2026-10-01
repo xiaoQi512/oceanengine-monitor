@@ -116,7 +116,10 @@ async function fetchLiveSessions(aadvid, anchor, headers, today, hourly, nowMinB
   }
 
   // 合并 + 只保留今天的场次; 线索 = 计划口径小时桶**整桶归属**(用户规则: 不均分)
-  // 归属规则: 桶尾时刻落在哪场的 [开播, 结束] 区间 → 归该场; 开播前 → 归首场(延迟归因); 场间空窗 → 归下一场; 末场后 → 归末场
+  // 归属规则(2026-09-30 13:10 修订): 桶尾时刻之前**最后开播**的场 → 归该场;
+  //   场间空窗桶 → 归上一场(空窗期无房间在播, 转化只能来自上一场广告的延迟回传);
+  //   末场后 → 归末场; 早于首场开播 → 归首场(延迟归因)。
+  //   旧规则“空窗归下一场”会把上一场的延迟转化虚记给当前在播场(北区本场显示12、大屏实际4)。
   const rawSessions = [];
   for (const r of listRows) {
     const d = r.Dimensions || {};
@@ -140,8 +143,8 @@ async function fetchLiveSessions(aadvid, anchor, headers, today, hourly, nowMinB
   for (const [hh, v] of Object.entries(hourly || {})) {
     const t = Number(hh) * 60 + 60; // 桶尾时刻
     let owner = null;
-    for (const sp of rawSessions) { if (t < sp.endMinBJ) { owner = sp; break; } }
-    if (!owner && rawSessions.length) owner = rawSessions[rawSessions.length - 1];
+    for (const sp of rawSessions) { if (sp.startMinBJ <= t) owner = sp; else break; }
+    if (!owner && rawSessions.length) owner = rawSessions[0];
     if (!owner) continue;
     leadByRoom.set(owner.rid, (leadByRoom.get(owner.rid) || 0) + num(v.leads));
   }
@@ -185,7 +188,7 @@ export async function serveAiRegionsSessions(url, req, res) {
       const regionResults = await Promise.all(AI_REGIONS.map(async (rg) => {
         const name = rg.name;
         const regionName = name + '营销中心';
-        const plan = db.prepare('SELECT session_no, start_min, end_min, car_model FROM shift_schedule WHERE cst_date=? AND account_id=? ORDER BY session_no').all(today, rg.aadvid);
+        const plan = db.prepare('SELECT session_no, start_min, end_min, car_model, anchor FROM shift_schedule WHERE cst_date=? AND account_id=? ORDER BY session_no').all(today, rg.aadvid);
         let sessions = [];
         let hourly = { hourly: {} };
         try {
@@ -207,6 +210,7 @@ export async function serveAiRegionsSessions(url, req, res) {
             if (ov > bestOv) { bestOv = ov; best = p; }
           }
           s.carModel = best?.car_model || '';
+          s.anchor = best?.anchor || '';
           s.sessionNo = best?.session_no ?? null;
           s.unscheduled = !best;
         }

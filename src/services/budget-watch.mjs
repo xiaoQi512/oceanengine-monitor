@@ -262,7 +262,7 @@ async function slowTick() {
 // 新场初始预算(用户规则 2026-09-29/09-30): 东区 2000, 其他区 1500; **活动场(车展)一律 1000** (用户规则 2026-10-01)
 const NEW_SESSION_BUDGET_DEFAULT = 1500;
 const NEW_SESSION_BUDGET_EVENT = 1000;
-const newSessionBudgetFor = (displayName, live) => (live && String(live.carModel || '').includes('车展')) ? NEW_SESSION_BUDGET_EVENT : (displayName === '东区AI直播' ? 2000 : NEW_SESSION_BUDGET_DEFAULT);
+const newSessionBudgetFor = (displayName, live) => ((live && (String(live.carModel || '').includes('车展') || String(live.anchor || '').includes('车展')))) ? NEW_SESSION_BUDGET_EVENT : (displayName === '东区AI直播' ? 2000 : NEW_SESSION_BUDGET_DEFAULT);
 function httpGetJson(url, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
     const req = http.get(url, res => { let d = ''; res.on('data', c => d += c); res.on('end', () => { try { resolve(JSON.parse(d)); } catch (e) { reject(e); } }); });
