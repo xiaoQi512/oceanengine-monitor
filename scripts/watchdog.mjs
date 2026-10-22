@@ -12,6 +12,7 @@
 //   WATCHDOG_FAIL_THRESHOLD   连续失败多少次触发告警，默认 2
 import fs from 'node:fs';
 import path from 'node:path';
+import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { findLarkCli, FEISHU_CHAT_ID, DATA_DIR, FEEDBACK_PORT } from '../src/utils/monitor-utils.mjs';
 import { pushText } from '../src/feishu/guard.mjs';
@@ -54,20 +55,27 @@ function fileAgeMs(fileName) {
 }
 
 function checkHealth() {
-  return new Promise((resolve) => {
-    const url = `http://127.0.0.1:${FEEDBACK_PORT}/health`;
+  // 2026-10-20: fetch 优先 + 原生 http.get 兜底。
+  // 根因: PM2 daemon(用户终端 resurrect)env 若带代理(HTTP(S)_PROXY)与 NODE_OPTIONS 语言 shim,
+  // fetch 会被劫持走代理 → 127.0.0.1:8899 被代理拒绝 → 连续误报(当日 30 连败实测)。
+  // 原生 http.get 不读代理 env, 作为 fetch 失败时的兜底通道。
+  const url = `http://127.0.0.1:${FEEDBACK_PORT}/health`;
+  const attemptFetch = () => new Promise((resolve) => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 3000);
+    const timer = setTimeout(() => controller.abort(), 5000);
     fetch(url, { signal: controller.signal, cache: 'no-store' })
-      .then(r => {
-        clearTimeout(timer);
-        resolve(r.ok);
-      })
-      .catch(() => {
-        clearTimeout(timer);
-        resolve(false);
-      });
+      .then(r => { clearTimeout(timer); resolve(r.ok); })
+      .catch(() => { clearTimeout(timer); resolve(false); });
   });
+  const attemptHttp = () => new Promise((resolve) => {
+    const req = http.get(url, { timeout: 5000 }, (res) => {
+      res.resume();
+      resolve(res.statusCode >= 200 && res.statusCode < 400);
+    });
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+  });
+  return attemptFetch().then(ok => ok ? true : attemptHttp());
 }
 
 function buildAlertMessage(failures) {
@@ -138,6 +146,19 @@ async function main() {
   const healthOk = await checkHealth();
   if (!healthOk) {
     failures.push('feedback-server /health 不可达');
+  }
+
+  // 4. 外部计划任务通道心跳 (pm2-watchdog.cjs 由 schtasks 每5min触发, 每轮写 heartbeat-task.json)
+  // 2026-10-22: 9/27 起 schtasks 通道曾停摆近月无人知 — daemon 存活期间此检查保证通道停摆 30min 内可见
+  const TASK_HB = process.env.WATCHDOG_TASK_HEARTBEAT || path.join(DATA_DIR, 'heartbeat-task.json');
+  const TASK_HB_MAX_AGE = Number(process.env.WATCHDOG_TASK_HB_MAX_AGE_MS || '1800000'); // 30min = 6个调度周期
+  try {
+    const age = Date.now() - fs.statSync(TASK_HB).mtimeMs;
+    if (age > TASK_HB_MAX_AGE) {
+      failures.push(`外部计划任务通道心跳过期: ${Math.round(age / 60000)} 分钟未更新 (schtasks 通道疑似停摆, PM2 死亡将无人自动 resurrect)`);
+    }
+  } catch {
+    failures.push('外部计划任务通道心跳缺失: heartbeat-task.json 不存在 (schtasks 通道未运行或 pm2-watchdog.cjs 未更新到心跳版)');
   }
 
   if (failures.length === 0) {

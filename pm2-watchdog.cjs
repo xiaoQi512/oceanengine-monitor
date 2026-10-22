@@ -7,6 +7,9 @@ const { execFileSync } = require('node:child_process');
 const NODE = 'C:/nodejs/node-v22.19.0-win-x64/node.exe';
 const PM2 = 'C:/Users/HTF2026/.workbuddy/binaries/node/workspace/node_modules/pm2/bin/pm2';
 const LOG = 'E:/炼丹炉/WorkBuddy/巨量引擎监控/monitor-data/pm2-watchdog.log';
+// 2026-10-22: 心跳文件 — 每轮必写(含健康轮), 供 PM2 侧 scripts/watchdog.mjs 反向监控
+// schtasks 通道存活性 (9/27 通道曾停摆近月无人知; 心跳年龄>30min 即告警)
+const HEARTBEAT = 'E:/炼丹炉/WorkBuddy/巨量引擎监控/monitor-data/heartbeat-task.json';
 
 function log(msg) {
   const ts = new Date().toLocaleString('zh-CN', { hour12: false });
@@ -38,8 +41,20 @@ function alive() {
   return false;
 }
 
+function beat(ok) {
+  try {
+    require('node:fs').writeFileSync(HEARTBEAT, JSON.stringify({
+      ts: Date.now(),
+      pm2Alive: ok,
+      time: new Date().toLocaleString('zh-CN', { hour12: false }),
+    }));
+  } catch {}
+}
+
 (async () => {
-  if (alive()) return;  // 健康，静默退出
+  const ok = alive();
+  beat(ok); // 每轮必写心跳, 健康时也写 (供外部互检)
+  if (ok) return;  // 健康，静默退出
   log('检测到 PM2 死亡，执行 resurrect');
   try {
     const out = execFileSync(NODE, [PM2, 'resurrect'], {

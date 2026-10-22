@@ -4,6 +4,8 @@ node_modules/
 # 运行时数据(大文件)
 monitor-data/
 archive/
+listener-state.json
+listener-state-anchor.json
 db/*.db
 db/*.sqlite
 *.log
