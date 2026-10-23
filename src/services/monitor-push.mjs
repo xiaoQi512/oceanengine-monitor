@@ -4,7 +4,7 @@ import { pushCard } from '../feishu/guard.mjs';
 import { shouldPush } from '../domain/push-logic.mjs';
 import { PUSH_TYPES, loadLastPush, saveLastPush, appendPushLog } from './push-state.mjs';
 import { recordPendingSuggestions } from './monitor-state.mjs';
-import { loadBalanceAlertState, saveBalanceAlertState, loadAccountBudgetAlertState, saveAccountBudgetAlertState } from './alert-state.mjs';
+import { loadBalanceAlertState, saveBalanceAlertState, loadAccountBudgetAlertState, saveAccountBudgetAlertState, filterRecurringAlerts } from './alert-state.mjs';
 import { sendBalanceAlert, sendAccountBudgetAlert } from './alert-push.mjs';
 export { sendFeishuPush } from './monitor-push-send.mjs';
 
@@ -26,6 +26,7 @@ export function createPushDeps({ config, dryRun = false, buildFeishuCard, ...ove
     historyDeps: { loadSuggestionHistory, saveSuggestionHistory, recalcSummary },
     sendBalanceAlert,
     sendAccountBudgetAlert,
+    filterRecurringAlerts, // 2026-10-23: 跨周期告警冷却 (type 级 90min, 升级放行)
     alertStateDeps: {
       balance: { loadBalanceAlertState, saveBalanceAlertState, pushCard: cardPusher, config },
       budget: { loadAccountBudgetAlertState, saveAccountBudgetAlertState, pushCard: cardPusher, config },

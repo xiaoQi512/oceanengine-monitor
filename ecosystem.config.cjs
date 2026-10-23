@@ -15,9 +15,21 @@ function resolveNode() {
     const p = path.join(VERSIONS_DIR, v, "node.exe");
     if (fs.existsSync(p)) return p;
   } catch {}
-  return path.join(VERSIONS_DIR, "22.22.2-3", "node.exe"); // 兜底
+  // 兜底1: current 指针失败时扫描 versions 下最新 22.x 目录
+  // (2026-10-23: 旧兜底硬编码 22.22.2-3 目录已随 WorkBuddy 更新消失, 等于无兜底)
+  try {
+    const dirs = fs.readdirSync(VERSIONS_DIR)
+      .filter(d => /^22\.\d+\.\d+/.test(d) && fs.existsSync(path.join(VERSIONS_DIR, d, "node.exe")))
+      .sort();
+    if (dirs.length) return path.join(VERSIONS_DIR, dirs[dirs.length - 1], "node.exe");
+  } catch {}
+  // 兜底2: 系统 Node (与 pm2-watchdog.cjs / dsh-web 同源, 不随 WorkBuddy 换代失效)
+  return "C:/nodejs/node-v22.19.0-win-x64/node.exe";
 }
 const NODE = process.env.NODE_EXE || resolveNode();
+
+// 2026-10-23: 清空继承的失效代理(会话代理端口每次变化, 旧端口会让 lark-cli 读表/推送全部 proxyconnect 失败)
+const PROXY_CLEAN = { HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "", http_proxy: "", https_proxy: "", all_proxy: "", NO_PROXY: "*" };
 
 module.exports = {
   apps: [
@@ -27,7 +39,7 @@ module.exports = {
       script: "src/services/shift-pusher-cli.mjs",
       cwd: MONITOR_DIR,
       interpreter: NODE,
-      env: { NODE_ENV: "production" },
+      env: { ...PROXY_CLEAN, NODE_ENV: "production" },
       instances: 1,
       autorestart: true,
       max_restarts: 10,
@@ -48,7 +60,7 @@ module.exports = {
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { NODE_ENV: "production" },
+      env: { ...PROXY_CLEAN, NODE_ENV: "production" },
       instances: 1,
       autorestart: true,
       max_restarts: 10,
@@ -69,7 +81,7 @@ module.exports = {
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { NODE_ENV: "production" },
+      env: { ...PROXY_CLEAN, NODE_ENV: "production" },
       instances: 1,
       autorestart: true,
       max_restarts: 10,
@@ -89,7 +101,7 @@ module.exports = {
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { NODE_ENV: "production" },
+      env: { ...PROXY_CLEAN, NODE_ENV: "production" },
       instances: 1,
       autorestart: true,
       max_restarts: 10,
@@ -109,7 +121,7 @@ module.exports = {
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { NODE_ENV: "production" },
+      env: { ...PROXY_CLEAN, NODE_ENV: "production" },
       instances: 1,
       autorestart: true,
       max_restarts: 10,
@@ -129,7 +141,7 @@ module.exports = {
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { NODE_ENV: "production" },
+      env: { ...PROXY_CLEAN, NODE_ENV: "production" },
       instances: 1,
       autorestart: true,
       max_restarts: 10,
@@ -143,14 +155,15 @@ module.exports = {
     },
 
     // ====== dsh-web 常驻：DSH web 服务本体（127.0.0.1:3080），远程访问不依赖桌面版 ======
+    // 2026-10-19: 改用系统 Node 全局 dsh（C:\nodejs 22.19.0），旧 versions\22.22.2\node_modules 随 WorkBuddy 更新消失
     {
       name: "dsh-web",
-      script: "C:/Users/HTF2026/.workbuddy/binaries/node/versions/22.22.2/node_modules/@deepseek-ai/dsh/lib/bin.js",
+      script: "C:/nodejs/node-v22.19.0-win-x64/node_modules/@deepseek-ai/dsh/lib/bin.js",
       args: "web",
-      cwd: "C:/Users/HTF2026/.workbuddy/binaries/node/versions/22.22.2/node_modules/@deepseek-ai/dsh",
+      cwd: "C:/nodejs/node-v22.19.0-win-x64/node_modules/@deepseek-ai/dsh",
       exec_mode: "fork",
-      interpreter: NODE,
-      env: { NODE_ENV: "production" },
+      interpreter: "C:/nodejs/node-v22.19.0-win-x64/node.exe", // 跟随 dsh 安装运行时，不随 WorkBuddy 换代失效
+      env: { ...PROXY_CLEAN, NODE_ENV: "production" },
       instances: 1,
       autorestart: true,
       max_restarts: 10,
@@ -170,7 +183,7 @@ module.exports = {
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { NODE_ENV: "production" },
+      env: { ...PROXY_CLEAN, NODE_ENV: "production" },
       instances: 1,
       autorestart: false,
       max_restarts: 100,
@@ -189,7 +202,7 @@ module.exports = {
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { NODE_ENV: "production", OEC_SILENT: "1", HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "", http_proxy: "", https_proxy: "", all_proxy: "" },
+      env: { ...PROXY_CLEAN, NODE_ENV: "production", OEC_SILENT: "1", HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "", http_proxy: "", https_proxy: "", all_proxy: "" },
       instances: 1,
       autorestart: false,
       max_restarts: 100,
@@ -208,7 +221,7 @@ module.exports = {
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { NODE_ENV: "production", OEC_SILENT: "1", HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "", http_proxy: "", https_proxy: "", all_proxy: "" },
+      env: { ...PROXY_CLEAN, NODE_ENV: "production", OEC_SILENT: "1", HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "", http_proxy: "", https_proxy: "", all_proxy: "" },
       instances: 1,
       autorestart: true,
       max_restarts: 100,
@@ -226,7 +239,7 @@ module.exports = {
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { NODE_ENV: "production" },
+      env: { ...PROXY_CLEAN, NODE_ENV: "production" },
       instances: 1,
       autorestart: false,
       max_restarts: 100,
@@ -245,7 +258,7 @@ module.exports = {
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { NODE_ENV: "production" },
+      env: { ...PROXY_CLEAN, NODE_ENV: "production" },
       instances: 1,
       autorestart: false,
       max_restarts: 100,
@@ -264,7 +277,7 @@ module.exports = {
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { OEC_SILENT: "1", NODE_ENV: "production" },
+      env: { ...PROXY_CLEAN, OEC_SILENT: "1", NODE_ENV: "production" },
       instances: 1,
       autorestart: false,
       max_restarts: 0,
@@ -283,7 +296,7 @@ module.exports = {
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { OEC_SILENT: "1", NODE_ENV: "production" },
+      env: { ...PROXY_CLEAN, OEC_SILENT: "1", NODE_ENV: "production" },
       instances: 1,
       autorestart: false,
       max_restarts: 0,
@@ -303,7 +316,7 @@ module.exports = {
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { NODE_ENV: "production" },
+      env: { ...PROXY_CLEAN, NODE_ENV: "production" },
       // [v1.1] 必须单实例：文件锁 wx 标志依赖单进程互斥；容器化时需升级为 Redis 锁
       instances: 1,
       autorestart: true,
@@ -324,7 +337,7 @@ module.exports = {
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { NODE_ENV: "production" },
+      env: { ...PROXY_CLEAN, NODE_ENV: "production" },
       instances: 1,
       autorestart: true,
       max_restarts: 10,
@@ -345,7 +358,7 @@ module.exports = {
       cwd: "E:\\炼丹炉\\WorkBuddy\\ad-monitor-win",
       exec_mode: "fork",
       interpreter: NODE,
-      env: { NODE_ENV: "production" },
+      env: { ...PROXY_CLEAN, NODE_ENV: "production" },
       instances: 1,
       autorestart: true,
       max_restarts: 10,
@@ -365,7 +378,8 @@ module.exports = {
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { NODE_ENV: "production" },
+      // 2026-10-23: 清空继承的失效代理(127.0.0.1:65xxx 中继已停), 否则 lark-cli 23:00 同步必然 proxyconnect 失败
+      env: { ...PROXY_CLEAN, NODE_ENV: "production", HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "", http_proxy: "", https_proxy: "", all_proxy: "", NO_PROXY: "*" },
       instances: 1,
       autorestart: false,
       max_restarts: 0,
@@ -384,7 +398,7 @@ module.exports = {
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { OEC_SILENT: "1", NODE_ENV: "production", DAILY_SUMMARY_FALLBACK: "1" },
+      env: { ...PROXY_CLEAN, OEC_SILENT: "1", NODE_ENV: "production", DAILY_SUMMARY_FALLBACK: "1" },
       instances: 1,
       autorestart: false,
       max_restarts: 0,
@@ -403,7 +417,7 @@ module.exports = {
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { NODE_ENV: "production", OEC_SILENT: "1" },
+      env: { ...PROXY_CLEAN, NODE_ENV: "production", OEC_SILENT: "1" },
       instances: 1,
       autorestart: false,
       max_restarts: 0,
@@ -416,13 +430,25 @@ module.exports = {
     },
 
     // ====== 监控健康检查 watchdog（每5分钟，检查快照新鲜度与 8899 服务）======
+    // 2026-10-20: env 清洗 — daemon(用户终端 resurrect)env 可能带 WorkBuddy 代理(HTTP(S)_PROXY)
+    // 与 NODE_OPTIONS 语言 shim 注入, 导致 fetch 被劫持走代理 → 127.0.0.1:8899 被拒, 连续 30 轮误报
     {
       name: "pm2-watchdog",
       script: "scripts/watchdog.mjs",
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { NODE_ENV: "production", OEC_SILENT: "1" },
+      env: { ...PROXY_CLEAN,
+        NODE_ENV: "production",
+        OEC_SILENT: "1",
+        NODE_OPTIONS: "",            // 剥掉语言 shim 注入
+        HTTP_PROXY: "",              // 剥掉代理劫持
+        HTTPS_PROXY: "",
+        http_proxy: "",
+        https_proxy: "",
+        NO_PROXY: "*",
+        no_proxy: "*",
+      },
       instances: 1,
       autorestart: false,
       max_restarts: 0,
@@ -441,7 +467,7 @@ module.exports = {
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { NODE_ENV: "production", OEC_SILENT: "1" },
+      env: { ...PROXY_CLEAN, NODE_ENV: "production", OEC_SILENT: "1" },
       instances: 1,
       autorestart: false,
       max_restarts: 0,
@@ -460,7 +486,7 @@ module.exports = {
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { NODE_ENV: "production", OEC_SILENT: "1" },
+      env: { ...PROXY_CLEAN, NODE_ENV: "production", OEC_SILENT: "1" },
       instances: 1,
       autorestart: false,
       max_restarts: 0,
@@ -472,6 +498,26 @@ module.exports = {
       time: true,
     },
 
+    // ====== 推送队列中继 (每2min消费 push-queue: 写表/发消息失败自动重试; 2026-10-08
+    //        原计划任务 9/27 后失效, 改为 PM2 托管; 代理变量清空防 proxyconnect 拒连) ======
+    {
+      name: "pm2-push-relay",
+      script: "src/feishu/relay-flush.mjs",
+      cwd: MONITOR_DIR,
+      exec_mode: "fork",
+      interpreter: NODE,
+      env: { ...PROXY_CLEAN, NODE_ENV: "production", HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "", http_proxy: "", https_proxy: "", all_proxy: "" },
+      instances: 1,
+      autorestart: false,
+      max_restarts: 0,
+      kill_timeout: 30000,
+      cron_restart: "*/2 * * * *",
+      out_file: `${LOG_DIR}\\pm2-push-relay-out.log`,
+      error_file: `${LOG_DIR}\\pm2-push-relay-err.log`,
+      merge_logs: true,
+      time: true,
+    },
+
     // ====== 小程序云端指令轮询 (每2min, 拉取小程序操作指令→本地队列执行→回写结果) ======
     {
       name: "pm2-cloud-action-poller",
@@ -479,7 +525,7 @@ module.exports = {
       cwd: MONITOR_DIR,
       exec_mode: "fork",
       interpreter: NODE,
-      env: { NODE_ENV: "production", OEC_SILENT: "1" },
+      env: { ...PROXY_CLEAN, NODE_ENV: "production", OEC_SILENT: "1" },
       instances: 1,
       autorestart: false,
       max_restarts: 0,
@@ -487,6 +533,82 @@ module.exports = {
       cron_restart: "*/2 * * * *",
       out_file: `${LOG_DIR}\\pm2-cloud-poller-out.log`,
       error_file: `${LOG_DIR}\\pm2-cloud-poller-err.log`,
+      merge_logs: true,
+      time: true,
+    },
+
+    // ====== pm2 save 固化 (每30min, 防 daemon 死后 resurrect 到旧进程表; 2026-10-23 新增) ======
+    {
+      name: "pm2-save",
+      script: "scripts/pm2-save-cron.mjs",
+      cwd: MONITOR_DIR,
+      exec_mode: "fork",
+      interpreter: NODE,
+      env: { ...PROXY_CLEAN, NODE_ENV: "production", OEC_SILENT: "1" },
+      instances: 1,
+      autorestart: false,
+      max_restarts: 0,
+      kill_timeout: 60000,
+      cron_restart: "9,39 * * * *",
+      out_file: `${LOG_DIR}\\pm2-save-out.log`,
+      error_file: `${LOG_DIR}\\pm2-save-err.log`,
+      merge_logs: true,
+      time: true,
+    },
+
+    // ====== 系统健康日报 23:50 (进程/快照/DB/备份/心跳 汇总推监控群; 2026-10-23 新增) ======
+    {
+      name: "pm2-health-report",
+      script: "scripts/health-daily-report.mjs",
+      cwd: MONITOR_DIR,
+      exec_mode: "fork",
+      interpreter: NODE,
+      env: { ...PROXY_CLEAN, NODE_ENV: "production", OEC_SILENT: "1", HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "", http_proxy: "", https_proxy: "", all_proxy: "" },
+      instances: 1,
+      autorestart: false,
+      max_restarts: 0,
+      kill_timeout: 60000,
+      cron_restart: "50 23 * * *",
+      out_file: `${LOG_DIR}\\pm2-health-report-out.log`,
+      error_file: `${LOG_DIR}\\pm2-health-report-err.log`,
+      merge_logs: true,
+      time: true,
+    },
+
+    // ====== 每日对账 23:55 (DB agg_shift vs 飞书班次表昨日终值; 2026-10-23 新增) ======
+    {
+      name: "pm2-reconcile",
+      script: "scripts/daily-reconcile.mjs",
+      cwd: MONITOR_DIR,
+      exec_mode: "fork",
+      interpreter: NODE,
+      env: { ...PROXY_CLEAN, NODE_ENV: "production", OEC_SILENT: "1", HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "", http_proxy: "", https_proxy: "", all_proxy: "" },
+      instances: 1,
+      autorestart: false,
+      max_restarts: 0,
+      kill_timeout: 120000,
+      cron_restart: "55 23 * * *",
+      out_file: `${LOG_DIR}\\pm2-reconcile-out.log`,
+      error_file: `${LOG_DIR}\\pm2-reconcile-err.log`,
+      merge_logs: true,
+      time: true,
+    },
+
+    // ====== 快照归档清理 04:00 (快照保留30天, 移入 archive/snapshots; 2026-10-23 新增) ======
+    {
+      name: "pm2-cleanup",
+      script: "scripts/cleanup-snapshots.mjs",
+      cwd: MONITOR_DIR,
+      exec_mode: "fork",
+      interpreter: NODE,
+      env: { ...PROXY_CLEAN, NODE_ENV: "production", OEC_SILENT: "1" },
+      instances: 1,
+      autorestart: false,
+      max_restarts: 0,
+      kill_timeout: 600000,
+      cron_restart: "0 4 * * *",
+      out_file: `${LOG_DIR}\\pm2-cleanup-out.log`,
+      error_file: `${LOG_DIR}\\pm2-cleanup-err.log`,
       merge_logs: true,
       time: true,
     },

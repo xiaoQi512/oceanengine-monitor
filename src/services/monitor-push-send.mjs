@@ -18,6 +18,7 @@ export async function sendFeishuPush(analysis, ctx) {
     sendBalanceAlert,
     sendAccountBudgetAlert,
     alertStateDeps,
+    filterRecurringAlerts, // 2026-10-23: 跨周期告警冷却
   } = ctx;
 
   console.log(`  🔍 [诊断] larkCli=${config.larkCli ? config.larkCli.replace(/^.*[\\/]/, '') : '∅'} | hasData=${(analysis.summary?.totalSpend ?? 0) > 0 || (analysis.summary?.totalSpending ?? 0) > 0} | alerts=${analysis.alerts?.length ?? 0}`);
@@ -52,6 +53,16 @@ export async function sendFeishuPush(analysis, ctx) {
     await sendBalanceAlert(analysis, alertStateDeps.balance);
     await sendAccountBudgetAlert(analysis, alertStateDeps.budget);
     return false;
+  }
+
+  // 跨周期去重: 同类型告警 90min 冷却, severity 升级即时放行
+  // 注入缺失时(旧测试/调用方)退化为原样透传; 必须在 shouldPush 通过后执行(拒绝时不写状态, 防告警丢失)
+  if (!dryRun && typeof filterRecurringAlerts === 'function' && Array.isArray(analysis.alerts)) {
+    const before = analysis.alerts.length;
+    analysis.alerts = filterRecurringAlerts(analysis.alerts);
+    if (analysis.alerts.length < before) {
+      console.log(`  🔇 跨周期冷却: 告警 ${before} → ${analysis.alerts.length} (同类型 90min 内不重复)`);
+    }
   }
 
   await guardFeedbackServer();

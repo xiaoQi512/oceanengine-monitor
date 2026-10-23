@@ -101,5 +101,17 @@ export function buildAlerts({
 
   const severityOrder = { high: 0, medium: 1, low: 2 };
   alerts.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
-  return alerts;
+  return dedupeRootCause(alerts);
+}
+
+// 2026-10-23: 根因互斥降噪 (纯函数) —— 同一事实的多重表述只保留更高价值的一条
+export function dedupeRootCause(alerts) {
+  const has = (t) => alerts.some(a => a.type === t);
+  return alerts.filter(a => {
+    // 日预算撞线(high事实)已覆盖"消耗超速", pacing_fast 为冗余表述
+    if (a.type === 'pacing_fast' && has('budget')) return false;
+    // 短期突发 speed_spike 在场时, 全天维度的 pacing_fast 降为噪音(除非自身已是 high)
+    if (a.type === 'pacing_fast' && has('speed_spike') && a.severity !== 'high') return false;
+    return true;
+  });
 }

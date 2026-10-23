@@ -38,3 +38,12 @@ assert.ok(types.has('dead_plan'));
 assert.strictEqual(buildAlerts({}).length, 0);
 
 console.log('\n全部测试通过');
+
+// ===== 2026-10-23: 根因互斥降噪 =====
+import { dedupeRootCause } from '../src/domain/alerts.mjs';
+assert.strictEqual(typeof dedupeRootCause, 'function');
+assert.strictEqual(dedupeRootCause([{ type: 'speed_spike', severity: 'high' }]).length, 1, '无互斥对象时保留');
+assert.strictEqual(dedupeRootCause([{ type: 'pacing_fast', severity: 'medium' }, { type: 'budget', severity: 'high' }]).length, 1, 'budget 在场时剔除 pacing_fast');
+assert.strictEqual(dedupeRootCause([{ type: 'pacing_fast', severity: 'high' }, { type: 'speed_spike', severity: 'medium' }]).length, 2, 'pacing_fast 自身 high 时保留');
+assert.strictEqual(dedupeRootCause([{ type: 'pacing_fast', severity: 'medium' }, { type: 'speed_spike', severity: 'medium' }]).length, 1, 'speed_spike 在场时剔除 medium pacing_fast');
+console.log('dedupeRootCause 用例通过');
